@@ -1,0 +1,16 @@
+# Kibana Configuration for MEP AI NABOX
+# Basic configuration for Kibana
+
+# Server configuration
+server.name: mep-kibana
+server.host: 0.0.0.0
+server.port: 5601
+
+# Elasticsearch connection
+elasticsearch.hosts: ["http://elasticsearch:9200"]
+
+# Security settings
+xpack.security.enabled: false
+
+# Telemetry
+telemetry.enabled: false 

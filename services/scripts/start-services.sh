@@ -48,8 +48,8 @@ fi
 
 # Create necessary directories
 echo -e "${BLUE}📁 Creating necessary directories...${NC}"
-mkdir -p volumes/{postgres,elasticsearch,qdrant,neo4j,redis,minio,n8n,flowise,pgadmin,prometheus,grafana}
-mkdir -p config/{postgres,elasticsearch,qdrant,neo4j,redis,minio}
+mkdir -p volumes/{postgres,elasticsearch,kibana,qdrant,neo4j,redis,minio,n8n,flowise,pgadmin,prometheus,grafana}
+mkdir -p config/{postgres,elasticsearch,kibana,qdrant,neo4j,redis,minio}
 mkdir -p monitoring/{prometheus,grafana,logs}
 
 # Set proper permissions for volumes
@@ -61,7 +61,7 @@ sudo chown -R 1000:1000 volumes/minio 2>/dev/null || true
 
 # Start core services first
 echo -e "${BLUE}🔧 Starting core services...${NC}"
-docker compose up -d postgres elasticsearch qdrant neo4j redis minio n8n flowise
+docker compose up -d postgres elasticsearch kibana qdrant neo4j redis minio n8n flowise
 
 # Wait for core services to be ready
 echo -e "${BLUE}⏳ Waiting for core services to be ready...${NC}"
@@ -82,6 +82,13 @@ if curl -f -u elastic:elastic_password http://localhost:9200/_cluster/health > /
     echo -e "${GREEN}✅ Elasticsearch is ready${NC}"
 else
     echo -e "${YELLOW}⚠️  Elasticsearch is starting...${NC}"
+fi
+
+# Kibana health check
+if curl -f http://localhost:5601/api/status > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Kibana is ready${NC}"
+else
+    echo -e "${YELLOW}⚠️  Kibana is starting...${NC}"
 fi
 
 # Qdrant health check
@@ -146,6 +153,7 @@ docker compose ps
 echo -e "${BLUE}🌐 Service URLs:${NC}"
 echo -e "${GREEN}PostgreSQL:${NC} localhost:5432"
 echo -e "${GREEN}Elasticsearch:${NC} http://localhost:9200"
+echo -e "${GREEN}Kibana:${NC} http://localhost:5601"
 echo -e "${GREEN}Qdrant:${NC} http://localhost:6333"
 echo -e "${GREEN}Neo4j Browser:${NC} http://localhost:7474"
 echo -e "${GREEN}Redis:${NC} localhost:6379"

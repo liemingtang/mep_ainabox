@@ -80,6 +80,13 @@ if check_service_status "elasticsearch"; then
 fi
 ((total_count++))
 
+# Check Kibana
+echo -n "Kibana Status: "
+if check_service_status "kibana"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
 # Check Qdrant
 echo -n "Qdrant Status: "
 if check_service_status "qdrant"; then
@@ -138,6 +145,12 @@ fi
 
 # Elasticsearch Health Check
 if check_service "elasticsearch" "curl -f -u ${ELASTICSEARCH_USERNAME:-elastic}:${ELASTICSEARCH_PASSWORD:-elastic_password} http://localhost:9200/_cluster/health" "Elasticsearch"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
+# Kibana Health Check
+if check_service "kibana" "curl -f http://localhost:5601/api/status" "Kibana"; then
     ((healthy_count++))
 fi
 ((total_count++))
