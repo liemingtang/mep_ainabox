@@ -1,0 +1,20 @@
+{
+  "PORT": 3000,
+  "HOST": "0.0.0.0",
+  "FLOWISE_USERNAME": "admin",
+  "FLOWISE_PASSWORD": "admin123",
+  "SECRETKEY": "flowise_secret_key_123",
+  "LOG_LEVEL": "info",
+  "LOG_PATH": "./logs",
+  "DATABASE_TYPE": "sqlite",
+  "DATABASE_PATH": "./database",
+  "REDIS_HOST": "redis",
+  "REDIS_PORT": 6379,
+  "REDIS_PASSWORD": "redis_password",
+  "REDIS_DB": 0,
+  "CORS_ORIGINS": "*",
+  "APIKEY_PATH": "./api.json",
+  "TOOL_FUNCTION_TIME_LIMIT": 15000,
+  "EXECUTION_MODE": "local",
+  "DISABLE_FLOWISE_ANALYTICS": true
+} 

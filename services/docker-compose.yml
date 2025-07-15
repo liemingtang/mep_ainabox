@@ -182,6 +182,84 @@ services:
       - postgres
       - redis
 
+  # Flowise - LLM Flow Builder
+  flowise:
+    image: flowiseai/flowise:latest
+    container_name: mep-flowise
+    restart: unless-stopped
+    environment:
+      # Basic configuration
+      - PORT=3000
+      - HOST=0.0.0.0
+      - FLOWISE_USERNAME=${FLOWISE_USERNAME:-admin}
+      - FLOWISE_PASSWORD=${FLOWISE_PASSWORD:-admin123}
+      - SECRETKEY=${FLOWISE_SECRET_KEY:-flowise_secret_key_123}
+      - LOG_LEVEL=info
+      - LOG_PATH=./logs
+      - DATABASE_TYPE=sqlite
+      - DATABASE_PATH=./database
+      # For PostgreSQL integration with existing postgres service
+      # - DATABASE_TYPE=postgres
+      # - DATABASE_HOST=postgres
+      # - DATABASE_PORT=5432
+      # - DATABASE_NAME=${FLOWISE_DB_NAME:-flowise}
+      # - DATABASE_USER=${POSTGRES_USER:-mep_user}
+      # - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-mep_password}
+      # Redis for session management
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
+      - REDIS_DB=0
+      # External API credentials
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - HUGGINGFACE_API_TOKEN=${HUGGINGFACE_API_TOKEN:-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}
+      # Vector database connections
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY:-qdrant_api_key}
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=elastic
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD:-elastic_password}
+      # Object storage
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minio_access_key}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minio_secret_key}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-flowise-files}
+      - MINIO_USE_SSL=false
+      # Graph database
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j_password}
+      # Security and CORS
+      - CORS_ORIGINS=*
+      - APIKEY_PATH=./api.json
+      - TOOL_FUNCTION_TIME_LIMIT=15000
+      - EXECUTION_MODE=local
+      - DISABLE_FLOWISE_ANALYTICS=true
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./volumes/flowise:/usr/src/app
+      - ./volumes/flowise/logs:/usr/src/app/logs
+      - ./volumes/flowise/database:/usr/src/app/database
+      - ./volumes/flowise/api.json:/usr/src/app/api.json
+      - ./volumes/flowise/credentials.json:/usr/src/app/credentials.json
+      - ./volumes/flowise/custom:/usr/src/app/custom
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - elasticsearch
+      - neo4j
+      - minio
+
   # Development Services (Optional)
 
   # pgAdmin - PostgreSQL administration interface
@@ -333,6 +411,8 @@ volumes:
   redis_data:
     driver: local
   minio_data:
+    driver: local
+  flowise_data:
     driver: local
   pgadmin_data:
     driver: local

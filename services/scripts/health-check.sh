@@ -115,6 +115,13 @@ if check_service_status "n8n"; then
 fi
 ((total_count++))
 
+# Check Flowise
+echo -n "Flowise Status: "
+if check_service_status "flowise"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
 echo -e "\n${BLUE}🔍 Service Health Check${NC}"
 echo "------------------------"
 
@@ -161,6 +168,12 @@ fi
 
 # n8n Health Check
 if check_service "n8n" "curl -f http://localhost:5678/healthz" "n8n"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
+# Flowise Health Check
+if check_service "flowise" "curl -f http://localhost:3001/" "Flowise"; then
     ((healthy_count++))
 fi
 ((total_count++))
