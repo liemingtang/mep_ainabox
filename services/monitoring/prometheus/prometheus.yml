@@ -54,6 +54,13 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 30s
 
+  # n8n
+  - job_name: 'n8n'
+    static_configs:
+      - targets: ['n8n:5678']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
   # Node Exporter (if you want system metrics)
   - job_name: 'node-exporter'
     static_configs:
