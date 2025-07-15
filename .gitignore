@@ -1,6 +1,7 @@
 # Docker volumes and runtime data
 services/volumes/
 volumes/
+services/watch_folder/
 
 # Logs
 logs/
