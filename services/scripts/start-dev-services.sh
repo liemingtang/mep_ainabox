@@ -16,17 +16,20 @@ fi
 # Load environment variables
 if [ -f .env ]; then
     echo "📋 Loading environment variables from .env"
-    export $(cat .env | grep -v '^#' | xargs)
+    # Use set -a to automatically export variables, and source the file
+    set -a
+    source .env
+    set +a
 else
     echo "⚠️  No .env file found. Using default values."
 fi
 
 # Start all services including development profiles
 echo "🔧 Starting core services..."
-docker-compose up -d
+docker compose up -d
 
 echo "🖥️  Starting development services (UIs)..."
-docker-compose --profile dev up -d
+docker compose --profile dev up -d
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to be ready..."
@@ -56,6 +59,6 @@ echo "   MinIO Console: http://localhost:9001"
 echo "   Qdrant UI: http://localhost:7070"
 echo ""
 echo "📊 Monitoring:"
-echo "   To start monitoring services: docker-compose --profile monitoring up -d"
+echo "   To start monitoring services: docker compose --profile monitoring up -d"
 echo ""
 echo "🛑 To stop all services: ./scripts/stop-services.sh" 
