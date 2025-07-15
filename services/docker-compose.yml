@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=true
+      - xpack.security.enabled=false
       - ELASTIC_PASSWORD=${ELASTICSEARCH_PASSWORD:-elastic_password}
       - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
       - cluster.name=mep-elasticsearch
@@ -66,7 +66,7 @@ services:
       - ./volumes/qdrant:/qdrant/storage
       - ./config/qdrant/config.yaml:/qdrant/config/config.yaml
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6333/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -149,7 +149,7 @@ services:
     container_name: mep-pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@mep.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@mep.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin_password}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
@@ -175,21 +175,21 @@ services:
     profiles:
       - dev
 
-  # Neo4j Browser - Graph database interface
-  neo4j-browser:
-    image: neo4j/neo4j-browser:latest
-    container_name: mep-neo4j-browser
-    restart: unless-stopped
-    ports:
-      - "7473:7473"
-    environment:
-      - NEO4J_URI=bolt://neo4j:7687
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j_password}
-    depends_on:
-      - neo4j
-    profiles:
-      - dev
+  # Neo4j Browser - Graph database interface (using built-in browser on port 7474)
+  # neo4j-browser:
+  #   image: neo4j/neo4j-browser:latest
+  #   container_name: mep-neo4j-browser
+  #   restart: unless-stopped
+  #   ports:
+  #     - "7473:7473"
+  #   environment:
+  #     - NEO4J_URI=bolt://neo4j:7687
+  #     - NEO4J_USER=neo4j
+  #     - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j_password}
+  #   depends_on:
+  #     - neo4j
+  #   profiles:
+  #     - dev
 
   # Redis Commander - Redis management interface
   redis-commander:
@@ -205,35 +205,35 @@ services:
     profiles:
       - dev
 
-  # Qdrant UI - Vector database management interface
-  qdrant-ui:
-    image: apecloud/qdrant-web-ui:latest
-    container_name: mep-qdrant-ui
-    restart: unless-stopped
-    environment:
-      - QDRANT_URL=http://qdrant:6333
-    ports:
-      - "7070:80"
-    depends_on:
-      - qdrant
-    profiles:
-      - dev
+  # Qdrant UI - Vector database management interface (using API directly)
+  # qdrant-ui:
+  #   image: qdrant/qdrant-web-ui:latest
+  #   container_name: mep-qdrant-ui
+  #   restart: unless-stopped
+  #   environment:
+  #     - QDRANT_URL=http://qdrant:6333
+  #   ports:
+  #     - "7070:80"
+  #   depends_on:
+  #     - qdrant
+  #   profiles:
+  #     - dev
 
-  # MinIO Console - Object storage management
-  minio-console:
-    image: minio/console:latest
-    container_name: mep-minio-console
-    restart: unless-stopped
-    environment:
-      CONSOLE_MINIO_SERVER: http://minio:9000
-      CONSOLE_MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minio_access_key}
-      CONSOLE_MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minio_secret_key}
-    ports:
-      - "9002:9000"
-    depends_on:
-      - minio
-    profiles:
-      - dev
+  # MinIO Console - Object storage management (using built-in console on port 9001)
+  # minio-console:
+  #   image: minio/console:latest
+  #   container_name: mep-minio-console
+  #   restart: unless-stopped
+  #   environment:
+  #     CONSOLE_MINIO_SERVER: http://minio:9000
+  #     CONSOLE_MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minio_access_key}
+  #     CONSOLE_MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minio_secret_key}
+  #   ports:
+  #     - "9002:9000"
+  #   depends_on:
+  #     - minio
+  #   profiles:
+  #     - dev
 
   # Monitoring Services (Optional)
 
