@@ -48,7 +48,7 @@ fi
 
 # Create necessary directories
 echo -e "${BLUE}📁 Creating necessary directories...${NC}"
-mkdir -p volumes/{postgres,elasticsearch,qdrant,neo4j,redis,minio,pgadmin,prometheus,grafana}
+mkdir -p volumes/{postgres,elasticsearch,qdrant,neo4j,redis,minio,n8n,pgadmin,prometheus,grafana}
 mkdir -p config/{postgres,elasticsearch,qdrant,neo4j,redis,minio}
 mkdir -p monitoring/{prometheus,grafana,logs}
 
@@ -61,7 +61,7 @@ sudo chown -R 1000:1000 volumes/minio 2>/dev/null || true
 
 # Start core services first
 echo -e "${BLUE}🔧 Starting core services...${NC}"
-docker compose up -d postgres elasticsearch qdrant neo4j redis minio
+docker compose up -d postgres elasticsearch qdrant neo4j redis minio n8n
 
 # Wait for core services to be ready
 echo -e "${BLUE}⏳ Waiting for core services to be ready...${NC}"
@@ -112,6 +112,13 @@ else
     echo -e "${YELLOW}⚠️  MinIO is starting...${NC}"
 fi
 
+# n8n health check
+if curl -f http://localhost:5678/healthz > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ n8n is ready${NC}"
+else
+    echo -e "${YELLOW}⚠️  n8n is starting...${NC}"
+fi
+
 # Start development services if requested
 if [ "$1" = "--dev" ] || [ "$1" = "-d" ]; then
     echo -e "${BLUE}🔧 Starting development services...${NC}"
@@ -136,6 +143,7 @@ echo -e "${GREEN}Qdrant:${NC} http://localhost:6333"
 echo -e "${GREEN}Neo4j Browser:${NC} http://localhost:7474"
 echo -e "${GREEN}Redis:${NC} localhost:6379"
 echo -e "${GREEN}MinIO Console:${NC} http://localhost:9001"
+echo -e "${GREEN}n8n:${NC} http://localhost:5678"
 
 if [ "$1" = "--dev" ] || [ "$1" = "-d" ]; then
     echo -e "${GREEN}pgAdmin:${NC} http://localhost:8080"

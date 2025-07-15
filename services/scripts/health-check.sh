@@ -108,6 +108,13 @@ if check_service_status "minio"; then
 fi
 ((total_count++))
 
+# Check n8n
+echo -n "n8n Status: "
+if check_service_status "n8n"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
 echo -e "\n${BLUE}🔍 Service Health Check${NC}"
 echo "------------------------"
 
@@ -148,6 +155,12 @@ fi
 
 # MinIO Health Check
 if check_service "minio" "curl -f http://localhost:9000/minio/health/live" "MinIO"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
+# n8n Health Check
+if check_service "n8n" "curl -f http://localhost:5678/healthz" "n8n"; then
     ((healthy_count++))
 fi
 ((total_count++))
