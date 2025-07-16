@@ -1,0 +1,25 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+python-dotenv==1.0.0
+pyyaml==6.0.1
+aiofiles==23.2.1
+httpx==0.25.2
+structlog==23.2.0
+prometheus-client==0.19.0
+
+# Document processing libraries
+PyPDF2==3.0.1
+python-docx==1.1.0
+Pillow==10.1.0
+pytesseract==0.3.10
+opencv-python==4.8.1.78
+numpy==1.24.3
+pandas==2.0.3
+
+# Text processing
+spacy==3.7.2
+nltk==3.8.1
+textract==1.6.5 

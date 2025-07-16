@@ -1,0 +1,237 @@
+system:
+  name: "Modular Document Intelligence System"
+  version: "1.0.0"
+  environment: "development"
+  debug: true
+
+core:
+  processing:
+    max_file_size: 100MB
+    supported_formats: ["pdf", "docx", "txt", "html", "jpg", "jpeg", "png", "tiff"]
+    parallel_processing: true
+    batch_size: 10
+    timeout_seconds: 300
+    retry_attempts: 3
+    retry_delay_seconds: 5
+
+  storage:
+    postgresql:
+      host: "postgres"
+      port: 5432
+      database: "mep_ainabox"
+      user: "mep_user"
+      password: "mep_password"
+      pool_size: 10
+      max_overflow: 20
+    
+    elasticsearch:
+      host: "elasticsearch"
+      port: 9200
+      index_prefix: "documents"
+      username: "elastic"
+      password: "elastic_password"
+      timeout: 30
+    
+    qdrant:
+      host: "qdrant"
+      port: 6333
+      api_key: "qdrant_api_key"
+      timeout: 30
+    
+    neo4j:
+      uri: "bolt://neo4j:7687"
+      user: "neo4j"
+      password: "neo4j_password"
+      max_connections: 50
+    
+    minio:
+      endpoint: "minio:9000"
+      access_key: "minio_access_key"
+      secret_key: "minio_secret_key"
+      bucket_name: "documents"
+      use_ssl: false
+    
+    redis:
+      host: "redis"
+      port: 6379
+      password: "redis_password"
+      db: 0
+      max_connections: 20
+
+  api:
+    host: "0.0.0.0"
+    port: 8000
+    cors_origins: ["*"]
+    rate_limit_per_minute: 100
+    timeout_seconds: 30
+
+  logging:
+    level: "INFO"
+    format: "json"
+    output: "stdout"
+    file_path: "/app/logs/app.log"
+    max_size_mb: 100
+    backup_count: 5
+
+modules:
+  climate:
+    enabled: true
+    extractors:
+      emissions:
+        enabled: true
+        confidence_threshold: 0.7
+        validation:
+          cross_reference_nger: true
+          unit_conversion: true
+      targets:
+        enabled: true
+        frameworks: ["TCFD", "SBTi", "Net Zero"]
+        confidence_threshold: 0.8
+      risks:
+        enabled: true
+        categories: ["physical", "transition"]
+        confidence_threshold: 0.75
+      governance:
+        enabled: true
+        confidence_threshold: 0.8
+      strategy:
+        enabled: true
+        confidence_threshold: 0.75
+    
+    compliance:
+      frameworks:
+        TCFD:
+          enabled: true
+          version: "2021"
+          validation_strict: false
+        GRI:
+          enabled: true
+          version: "2021"
+          validation_strict: false
+        SASB:
+          enabled: true
+          validation_strict: false
+
+  financial:
+    enabled: true
+    extractors:
+      income_statement: true
+      balance_sheet: true
+      cash_flow: true
+      notes: true
+    calculators:
+      ratios: true
+      trends: true
+      peer_comparison: true
+    confidence_threshold: 0.8
+
+  legal:
+    enabled: false
+    extractors:
+      contracts: true
+      regulations: true
+      compliance: true
+    confidence_threshold: 0.8
+
+processing_pipeline:
+  steps:
+    text_extraction:
+      enabled: true
+      timeout: 60
+      retry_attempts: 2
+    metadata_extraction:
+      enabled: true
+      timeout: 30
+      retry_attempts: 2
+    embedding_generation:
+      enabled: true
+      model: "text-embedding-ada-002"
+      timeout: 120
+      retry_attempts: 2
+    entity_extraction:
+      enabled: true
+      timeout: 60
+      retry_attempts: 2
+    relationship_mapping:
+      enabled: true
+      timeout: 90
+      retry_attempts: 2
+
+document_router:
+  routing_rules:
+    - name: "climate_documents"
+      conditions:
+        - field: "content"
+          operator: "contains"
+          value: ["climate", "emissions", "carbon", "sustainability"]
+        - field: "filename"
+          operator: "contains"
+          value: ["annual", "report", "sustainability", "esg"]
+      actions:
+        - enable_module: "climate"
+        - priority: "high"
+    
+    - name: "financial_documents"
+      conditions:
+        - field: "content"
+          operator: "contains"
+          value: ["financial", "revenue", "profit", "balance sheet"]
+        - field: "filename"
+          operator: "contains"
+          value: ["financial", "annual", "quarterly", "report"]
+      actions:
+        - enable_module: "financial"
+        - priority: "medium"
+
+storage_manager:
+  data_distribution:
+    metadata: "postgresql"
+    content: "elasticsearch"
+    embeddings: "qdrant"
+    relationships: "neo4j"
+    files: "minio"
+    cache: "redis"
+  
+  consistency:
+    eventual_consistency: true
+    sync_interval_seconds: 300
+    validation_enabled: true
+  
+  backup:
+    enabled: true
+    schedule: "0 2 * * *"  # Daily at 2 AM
+    retention_days: 30
+
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  
+  health_checks:
+    enabled: true
+    interval_seconds: 30
+    timeout_seconds: 10
+  
+  alerting:
+    enabled: true
+    webhook_url: ""
+    email_notifications: false
+
+security:
+  authentication:
+    enabled: true
+    jwt_secret: "your-jwt-secret-key"
+    jwt_expiry_hours: 24
+  
+  authorization:
+    enabled: true
+    default_role: "user"
+  
+  encryption:
+    enabled: true
+    algorithm: "AES-256-GCM"
+  
+  audit_logging:
+    enabled: true
+    log_level: "INFO" 

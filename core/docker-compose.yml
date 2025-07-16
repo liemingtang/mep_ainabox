@@ -1,0 +1,303 @@
+version: '3.8'
+
+networks:
+  default:
+    external:
+      name: mep-services-network
+
+services:
+  # API Gateway - Unified entry point for all client interactions
+  api-gateway:
+    build:
+      context: ./api_gateway
+      dockerfile: Dockerfile
+    container_name: mep-api-gateway
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - CORE_SERVICE_URL=http://core-processor:8001
+      - DOCUMENT_ROUTER_URL=http://document-router:8002
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - STORAGE_MANAGER_URL=http://storage-manager:8004
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+    depends_on:
+      - core-processor
+      - document-router
+      - processing-pipeline
+      - storage-manager
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Core Processor - Main document processing orchestrator
+  core-processor:
+    build:
+      context: ./core_processor
+      dockerfile: Dockerfile
+    container_name: mep-core-processor
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - CONFIG_PATH=/app/config
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - ELASTICSEARCH_HOST=${ELASTICSEARCH_HOST}
+      - ELASTICSEARCH_PORT=${ELASTICSEARCH_PORT}
+      - ELASTICSEARCH_USERNAME=${ELASTICSEARCH_USERNAME}
+      - ELASTICSEARCH_PASSWORD=${ELASTICSEARCH_PASSWORD}
+      - QDRANT_HOST=${QDRANT_HOST}
+      - QDRANT_PORT=${QDRANT_PORT}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - NEO4J_HOST=${NEO4J_HOST}
+      - NEO4J_PORT=${NEO4J_PORT}
+      - NEO4J_USER=${NEO4J_USER}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - MINIO_HOST=${MINIO_HOST}
+      - MINIO_PORT=${MINIO_PORT}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME}
+      - MINIO_USE_SSL=${MINIO_USE_SSL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_DB=${REDIS_DB}
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:rw
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+    # Infrastructure services are managed externally
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Document Router - Intelligent document routing and processing
+  document-router:
+    build:
+      context: ./document_router
+      dockerfile: Dockerfile
+    container_name: mep-document-router
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:ro
+    depends_on:
+      - core-processor
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Processing Pipeline - Orchestrated document processing workflow
+  processing-pipeline:
+    build:
+      context: ./processing_pipeline
+      dockerfile: Dockerfile
+    container_name: mep-processing-pipeline
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - STORAGE_MANAGER_URL=http://storage-manager:8004
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+      - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
+    depends_on:
+      - core-processor
+      - storage-manager
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Storage Manager - Unified data storage and retrieval interface
+  storage-manager:
+    build:
+      context: ./storage_manager
+      dockerfile: Dockerfile
+    container_name: mep-storage-manager
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - POSTGRES_HOST=postgres
+      - ELASTICSEARCH_HOST=elasticsearch
+      - QDRANT_HOST=qdrant
+      - NEO4J_HOST=neo4j
+      - MINIO_HOST=minio
+      - REDIS_HOST=redis
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+    # Infrastructure services are managed externally
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Document Processors - Text extraction and processing
+  text-processor:
+    build:
+      context: ./processors/text_processor
+      dockerfile: Dockerfile
+    container_name: mep-text-processor
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+      - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
+    depends_on:
+      - processing-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Metadata Processor - Metadata extraction and validation
+  metadata-processor:
+    build:
+      context: ./processors/metadata_processor
+      dockerfile: Dockerfile
+    container_name: mep-metadata-processor
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+    depends_on:
+      - processing-pipeline
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Embedding Processor - Vector embedding generation
+  embedding-processor:
+    build:
+      context: ./processors/embedding_processor
+      dockerfile: Dockerfile
+    container_name: mep-embedding-processor
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - QDRANT_HOST=qdrant
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
+    depends_on:
+      - processing-pipeline
+    # Qdrant is managed externally
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Entity Processor - Entity extraction and relationship mapping
+  entity-processor:
+    build:
+      context: ./processors/entity_processor
+      dockerfile: Dockerfile
+    container_name: mep-entity-processor
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - NEO4J_HOST=neo4j
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
+    depends_on:
+      - processing-pipeline
+    # Neo4j is managed externally
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # File Watcher - Monitor local folders for new documents
+  file-watcher:
+    build:
+      context: ./file_watcher
+      dockerfile: Dockerfile
+    container_name: mep-file-watcher
+    restart: unless-stopped
+    environment:
+      - CONFIG_PATH=/app/config
+      - DOCUMENT_ROUTER_URL=http://document-router:8002
+      - WATCH_PATHS=${WATCH_FOLDER_PATH:-./watch_folder}
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:ro
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+    depends_on:
+      - document-router
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  documents:
+    driver: local
+  processed:
+    driver: local
+  temp:
+    driver: local
+  logs:
+    driver: local 
