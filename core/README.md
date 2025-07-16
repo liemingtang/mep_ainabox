@@ -55,9 +55,19 @@ chmod +x start.sh
 ```bash
 # Check service health
 curl http://localhost:8000/health
+curl http://localhost:8001/health
 
 # View logs
 docker-compose logs -f
+```
+
+### 5. Test Document Upload
+```bash
+# Run the simple test script
+python test_simple_upload.py
+
+# Or run comprehensive system test
+python test_system.py
 ```
 
 ## 📁 Directory Structure
@@ -71,6 +81,14 @@ core/
 ├── config/
 │   └── main.yaml            # Main configuration file
 ├── core_processor/          # Core processing orchestrator
+│   ├── main.py              # FastAPI application
+│   ├── app/
+│   │   ├── api/             # API endpoints
+│   │   ├── services/        # Business logic
+│   │   ├── models/          # Data models
+│   │   └── database/        # Database connections
+│   ├── Dockerfile           # Container definition
+│   └── requirements.txt     # Python dependencies
 ├── document_router/         # Document routing service
 ├── processing_pipeline/     # Processing workflow service
 ├── storage_manager/         # Storage management service
@@ -85,7 +103,10 @@ core/
 ├── processed/              # Processed document storage
 ├── temp/                   # Temporary processing files
 ├── logs/                   # Application logs
-└── watch_folder/           # File watch directory
+├── watch_folder/           # File watch directory
+├── test_system.py          # Comprehensive system test
+├── test_simple_upload.py   # Simple upload test
+└── test_upload_only.py     # Upload-only test
 ```
 
 ## 🔧 Configuration
@@ -179,6 +200,35 @@ The system uses multiple specialized databases:
 - **MinIO**: Object storage for files
 - **Redis**: Caching and session management
 
+## 🔧 Recent Fixes and Improvements
+
+### UUID Type Handling
+- **Fixed**: UUID to string conversion in all SQL queries
+- **Fixed**: JSON serialization for metadata fields
+- **Fixed**: Database schema initialization with proper UUID support
+- **Fixed**: API endpoint parameter handling for UUIDs
+
+### Database Connectivity
+- **Fixed**: PostgreSQL connection pool initialization
+- **Fixed**: Elasticsearch client configuration
+- **Fixed**: Qdrant API key authentication
+- **Fixed**: Neo4j driver initialization
+- **Fixed**: Redis connection handling
+- **Fixed**: MinIO client setup
+
+### Service Health
+- **Fixed**: Prometheus metrics registration conflicts
+- **Fixed**: Health check endpoints for all services
+- **Fixed**: Service startup sequence and dependencies
+- **Fixed**: Environment variable loading in startup scripts
+
+### Testing and Validation
+- **Added**: Comprehensive system test script (`test_system.py`)
+- **Added**: Simple upload test script (`test_simple_upload.py`)
+- **Added**: Upload-only test script (`test_upload_only.py`)
+- **Added**: Detailed logging and error reporting
+- **Added**: Health check validation for all services
+
 ## 📈 Monitoring and Observability
 
 ### Health Checks
@@ -219,6 +269,18 @@ Structured JSON logging is used throughout the system. Logs are available:
 - Rate limiting and request validation
 
 ## 🧪 Testing
+
+### System Tests
+```bash
+# Run comprehensive system test
+python test_system.py
+
+# Run simple upload test
+python test_simple_upload.py
+
+# Run upload-only test
+python test_upload_only.py
+```
 
 ### Unit Tests
 ```bash
@@ -275,6 +337,14 @@ curl -X POST http://localhost:8000/api/v1/documents \
    # Increase Docker memory limit if needed
    ```
 
+5. **UUID type mismatch errors**
+   ```bash
+   # Rebuild containers after UUID fixes
+   docker-compose down
+   docker-compose build --no-cache
+   docker-compose up -d
+   ```
+
 ### Log Analysis
 ```bash
 # View all logs
@@ -307,6 +377,12 @@ docker-compose logs | grep ERROR
 2. Restart affected services: `docker-compose restart <service>`
 3. Verify configuration: `curl http://localhost:8000/health`
 
+### Database Schema Changes
+1. Update schema files in `core_processor/app/database/`
+2. Rebuild containers: `docker-compose build --no-cache`
+3. Restart services: `docker-compose up -d`
+4. Verify schema initialization in logs
+
 ## 📚 Documentation
 
 - [Architecture Document](../README_architecture.md)
@@ -321,6 +397,8 @@ docker-compose logs | grep ERROR
 3. Update documentation for any changes
 4. Use structured logging and metrics
 5. Follow security best practices
+6. Test UUID handling for new database operations
+7. Validate service health checks
 
 ## 📄 License
 
