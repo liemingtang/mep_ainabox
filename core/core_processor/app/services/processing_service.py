@@ -152,7 +152,7 @@ class ProcessingService(LoggerMixin):
                 result = await conn.execute(
                     """
                     UPDATE processing_jobs 
-                    SET status = $1, 
+                    SET status = $1::character varying(50), 
                         result_data = $2, 
                         error_message = $3,
                         started_at = CASE WHEN $1 = 'running' AND started_at IS NULL THEN $4 ELSE started_at END,

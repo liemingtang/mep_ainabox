@@ -94,6 +94,8 @@ services:
       dockerfile: Dockerfile
     container_name: mep-document-router
     restart: unless-stopped
+    ports:
+      - "8002:8002"
     environment:
       - CONFIG_PATH=/app/config
       - CORE_PROCESSOR_URL=http://core-processor:8001
@@ -119,6 +121,8 @@ services:
       dockerfile: Dockerfile
     container_name: mep-processing-pipeline
     restart: unless-stopped
+    ports:
+      - "8003:8003"
     environment:
       - CONFIG_PATH=/app/config
       - CORE_PROCESSOR_URL=http://core-processor:8001
@@ -146,6 +150,8 @@ services:
       dockerfile: Dockerfile
     container_name: mep-storage-manager
     restart: unless-stopped
+    ports:
+      - "8004:8004"
     environment:
       - CONFIG_PATH=/app/config
       - POSTGRES_HOST=postgres
@@ -174,6 +180,8 @@ services:
       dockerfile: Dockerfile
     container_name: mep-text-processor
     restart: unless-stopped
+    ports:
+      - "8005:8005"
     environment:
       - CONFIG_PATH=/app/config
       - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003

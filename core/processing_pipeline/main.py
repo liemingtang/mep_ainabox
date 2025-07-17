@@ -133,6 +133,9 @@ async def process_document(request: ProcessingRequest):
         # Update final status
         await update_job_status(job_id, "completed", processing_jobs[job_id]["results"])
         
+        # Update document status to completed
+        await update_document_status(document_id, "completed")
+        
         logger.info(f"Processing completed for document {document_id}, job {job_id}")
         
         return ProcessingResponse(
@@ -194,6 +197,22 @@ async def update_job_status(job_id: str, status: str, result_data: Dict[str, Any
             logger.info(f"Updated job {job_id} status to {status}")
     except Exception as e:
         logger.warning(f"Failed to update job status for {job_id}: {e}")
+
+async def update_document_status(document_id: str, status: str):
+    """Update document status in the core processor"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{CORE_PROCESSOR_URL}/documents/{document_id}/status",
+                json={
+                    "processing_status": status
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            logger.info(f"Updated document {document_id} status to {status}")
+    except Exception as e:
+        logger.warning(f"Failed to update document status for {document_id}: {e}")
 
 @app.get("/api/v1/process")
 async def process_document_legacy():

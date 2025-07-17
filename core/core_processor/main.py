@@ -243,24 +243,24 @@ async def update_job_status(job_id: str, status_update: dict):
         from app.models.document import JobStatus
         
         job_uuid = UUID(job_id)
-        status = status_update.get("status")
+        status_str = status_update.get("status")
         result_data = status_update.get("result_data", {})
         
         # Convert status string to JobStatus enum
-        if status == "pending":
+        if status_str == "pending":
             job_status = JobStatus.PENDING
-        elif status == "running":
+        elif status_str == "running":
             job_status = JobStatus.RUNNING
-        elif status == "completed":
+        elif status_str == "completed":
             job_status = JobStatus.COMPLETED
-        elif status == "failed":
+        elif status_str == "failed":
             job_status = JobStatus.FAILED
-        elif status == "cancelled":
+        elif status_str == "cancelled":
             job_status = JobStatus.CANCELLED
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status: {status}"
+                detail=f"Invalid status: {status_str}"
             )
         
         success = await app.state.processing_service.update_job_status(
@@ -284,6 +284,52 @@ async def update_job_status(job_id: str, status_update: dict):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update job status: {str(e)}"
+        )
+
+@app.post("/documents/{document_id}/status")
+async def update_document_status_endpoint(document_id: str, status_update: dict):
+    """Update document processing status"""
+    try:
+        from uuid import UUID
+        from app.models.document import ProcessingStatus
+        
+        doc_uuid = UUID(document_id)
+        status_str = status_update.get("processing_status")
+        
+        # Convert status string to ProcessingStatus enum
+        if status_str == "pending":
+            doc_status = ProcessingStatus.PENDING
+        elif status_str == "processing":
+            doc_status = ProcessingStatus.PROCESSING
+        elif status_str == "completed":
+            doc_status = ProcessingStatus.COMPLETED
+        elif status_str == "failed":
+            doc_status = ProcessingStatus.FAILED
+        elif status_str == "cancelled":
+            doc_status = ProcessingStatus.CANCELLED
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status: {status_str}"
+            )
+        
+        success = await app.state.document_service.update_document_status(doc_uuid, doc_status)
+        
+        if success:
+            return {"message": "Document status updated successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document not found"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update document status for {document_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update document status: {str(e)}"
         )
 
 @app.get("/documents")
