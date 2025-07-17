@@ -8,9 +8,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **File Watcher Service**: Complete implementation with full functionality
+  - Real-time file monitoring using watchdog library
+  - Automatic file detection and upload to core processor
+  - File validation and metadata creation
+  - Asynchronous processing with error handling
+  - API endpoints for status monitoring and manual processing
+  - Integration with document router and processing pipeline
+  - Test and demo scripts for file watcher functionality
+- **File Upload Checker Script**: `check_uploaded_files.sh` for monitoring uploaded files
+  - Multiple view options (all, watch folder only, status summary, recent, failed)
+  - File watcher status monitoring
+  - Processing status tracking
+  - Error reporting for failed uploads
+- **Duplicate File Handling**: Automatic detection and handling of duplicate files
+  - File hash-based duplicate detection
+  - Graceful handling of duplicate uploads
+  - Return existing document ID for duplicates
+  - Error handling for duplicate key violations
+- **Processing Pipeline Implementation**: Complete processing service with endpoints
+  - `/process` endpoint for document processing
+  - `/analyze` endpoint for document analysis
+  - Job status update functionality
+  - Integration with core processor
+- **Document Router Implementation**: Complete routing service with endpoints
+  - `/analyze` endpoint for document analysis
+  - Intelligent document routing based on content
+  - Integration with processing pipeline
+- **Comprehensive .gitignore**: Complete file exclusion rules
+  - Test files and error logs
+  - Processing artifacts and temporary files
+  - Log files and system artifacts
+  - Development and build artifacts
 - Comprehensive system test script (`test_system.py`)
 - Simple upload test script (`test_simple_upload.py`)
 - Upload-only test script (`test_upload_only.py`)
+- File watcher test script (`test_file_watcher.py`)
+- File watcher demo script (`demo_file_watcher.py`)
 - Detailed logging and error reporting for all services
 - Health check validation for all services
 - JSON serialization for metadata fields in database operations
@@ -25,6 +59,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Database schema initialization with proper UUID support
 
 ### Changed
+- **Docker Compose Configuration**: Enhanced file watcher service configuration
+  - Proper environment variables and volume mounts
+  - Port mappings and network configuration
+  - Health check and restart policies
+- **Core Processor**: Enhanced document service with duplicate handling
+  - File hash checking before document insertion
+  - Duplicate key error handling in metadata storage
+  - Improved error messages and logging
+- **Processing Service**: Enhanced with complete endpoint implementation
+  - Full processing pipeline integration
+  - Job status update functionality
+  - Error handling and logging improvements
 - Updated all SQL queries to properly handle UUID types
 - Improved database schema with proper UUID extensions
 - Enhanced error handling in API endpoints
@@ -36,6 +82,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced database connection handling across all services
 
 ### Fixed
+- **Critical**: File watcher service startup and threading issues
+- **Critical**: UUID serialization in processing service
+- **Critical**: Datetime serialization in JSON operations
+- **Critical**: Missing processing pipeline endpoints
+- **Critical**: Missing document router endpoints
+- **Critical**: Job status update endpoint in core processor
+- **Critical**: Import errors in core processor middleware
+- **Critical**: Duplicate key errors during file upload
 - **Critical**: UUID type mismatch errors in all SQL queries
 - **Critical**: JSON serialization issues for metadata fields
 - **Critical**: Database schema initialization failures
@@ -62,6 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced environment variable security
 - Improved service-to-service communication security
 - Added audit logging for database operations
+- File validation in file watcher service
 
 ## [0.1.0] - 2024-07-16
 

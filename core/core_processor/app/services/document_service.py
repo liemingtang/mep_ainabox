@@ -36,6 +36,12 @@ class DocumentService(LoggerMixin):
             if not document.file_hash:
                 document.file_hash = await self._generate_file_hash(document.file_path)
             
+            # Check if document with same hash already exists
+            existing_doc = await self.get_document_by_hash(document.file_hash)
+            if existing_doc:
+                self.logger.info(f"Document with same hash already exists: {existing_doc.id}")
+                return existing_doc.id
+            
             # Detect document type if not provided
             if not document.document_type:
                 document.document_type = self._detect_document_type(document.filename)
@@ -236,32 +242,46 @@ class DocumentService(LoggerMixin):
     
     async def _store_document_metadata(self, document: DocumentMetadata) -> UUID:
         """Store document metadata in PostgreSQL"""
-        async with self.postgres_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                INSERT INTO documents (
-                    id, filename, file_path, file_size, mime_type, file_hash,
-                    source, processing_status, document_type, company, year,
-                    metadata, created_at, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                RETURNING id
-                """,
-                str(document.id),
-                str(document.filename) if document.filename is not None else None,
-                str(document.file_path) if document.file_path is not None else None,
-                int(document.file_size) if document.file_size is not None else None,
-                str(document.mime_type) if document.mime_type is not None else None,
-                str(document.file_hash) if document.file_hash is not None else None,
-                str(document.source) if document.source is not None else None,
-                str(document.processing_status.value) if document.processing_status is not None else None,
-                str(document.document_type.value) if document.document_type is not None else None,
-                str(document.company) if document.company is not None else None,
-                int(document.year) if document.year is not None else None,
-                json.dumps(document.metadata if isinstance(document.metadata, dict) else {}),
-                document.created_at,
-                document.updated_at
-            )
-            return row['id']
+        try:
+            async with self.postgres_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    INSERT INTO documents (
+                        id, filename, file_path, file_size, mime_type, file_hash,
+                        source, processing_status, document_type, company, year,
+                        metadata, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    RETURNING id
+                    """,
+                    str(document.id),
+                    str(document.filename) if document.filename is not None else None,
+                    str(document.file_path) if document.file_path is not None else None,
+                    int(document.file_size) if document.file_size is not None else None,
+                    str(document.mime_type) if document.mime_type is not None else None,
+                    str(document.file_hash) if document.file_hash is not None else None,
+                    str(document.source) if document.source is not None else None,
+                    str(document.processing_status.value) if document.processing_status is not None else None,
+                    str(document.document_type.value) if document.document_type is not None else None,
+                    str(document.company) if document.company is not None else None,
+                    int(document.year) if document.year is not None else None,
+                    json.dumps(document.metadata if isinstance(document.metadata, dict) else {}),
+                    document.created_at,
+                    document.updated_at
+                )
+                return row['id']
+        except Exception as e:
+            # Check if it's a duplicate key error
+            if "duplicate key value violates unique constraint" in str(e) and "file_hash" in str(e):
+                self.logger.warning(f"Duplicate file hash detected: {document.file_hash}")
+                # Try to get the existing document
+                existing_doc = await self.get_document_by_hash(document.file_hash)
+                if existing_doc:
+                    self.logger.info(f"Returning existing document ID: {existing_doc.id}")
+                    return existing_doc.id
+                else:
+                    raise Exception(f"Duplicate file hash but existing document not found: {document.file_hash}")
+            else:
+                raise
     
     async def _index_document_elasticsearch(self, doc_id: UUID, document: DocumentMetadata):
         """Index document in Elasticsearch"""
@@ -311,3 +331,26 @@ class DocumentService(LoggerMixin):
             return DocumentType.IMAGE
         else:
             return DocumentType.UNKNOWN 
+
+    async def get_document_by_hash(self, file_hash: str) -> Optional[DocumentMetadata]:
+        """Get document by file hash"""
+        try:
+            async with self.postgres_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT * FROM documents WHERE file_hash = $1
+                    """,
+                    file_hash
+                )
+                
+                if row:
+                    # Convert JSONB fields back to dicts
+                    row_dict = dict(row)
+                    if isinstance(row_dict.get('metadata'), str):
+                        row_dict['metadata'] = json.loads(row_dict['metadata'])
+                    return DocumentMetadata(**row_dict)
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get document by hash {file_hash}: {e}")
+            raise 

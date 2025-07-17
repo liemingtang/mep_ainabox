@@ -13,6 +13,8 @@ MEP AI NABOX is designed to be a universal file intelligence system that:
 - **Supports extensible data sources** (files, databases, emails, etc.)
 - **Provides photo understanding** through custom vision analysis
 - **Self-contained architecture** with no dependencies on other MEP projects
+- **Real-time file monitoring** with automatic processing of new files
+- **Duplicate file handling** with intelligent deduplication
 
 ## 🏗️ Current Architecture
 
@@ -35,6 +37,11 @@ The system currently implements a **Modular Document Intelligence System (MDIS)*
 
 #### 3. **Support Services** ✅
 - **File Watcher** (Port 8009): Monitor local folders for new documents
+  - Real-time file monitoring using watchdog library
+  - Automatic file detection and upload to core processor
+  - File validation and metadata creation
+  - Asynchronous processing with error handling
+  - API endpoints for status monitoring and manual processing
 
 #### 4. **Infrastructure Services** ✅
 - **PostgreSQL**: Document metadata and relationships
@@ -97,12 +104,25 @@ docker-compose logs -f
 python test_simple_upload.py
 ```
 
+### 5. Test File Watcher (Optional)
+```bash
+# Add a file to the watch folder
+echo "Test content" > watch_folder/test_file.txt
+
+# Check uploaded files
+./check_uploaded_files.sh watch
+```
+
 ## 📁 Current Directory Structure
 
 ```
 mep_ainabox/
 ├── README.md                 # This file
 ├── README_architecture.md    # Detailed architecture documentation
+├── TECHNICAL_DETAILS.md      # Technical implementation details
+├── QUICK_REFERENCE.md        # Quick reference guide
+├── CHANGELOG.md              # Change history
+├── check_uploaded_files.sh   # File upload monitoring script
 ├── services/                 # Infrastructure services
 │   ├── docker-compose.yml    # Infrastructure stack
 │   ├── config/               # Service configurations
@@ -130,7 +150,9 @@ mep_ainabox/
 │   ├── watch_folder/         # File watch directory
 │   ├── test_system.py        # Comprehensive system test
 │   ├── test_simple_upload.py # Simple upload test
-│   └── test_upload_only.py   # Upload-only test
+│   ├── test_upload_only.py   # Upload-only test
+│   ├── test_file_watcher.py  # File watcher test
+│   └── demo_file_watcher.py  # File watcher demo
 └── requirements.txt          # Python dependencies
 ```
 
@@ -176,6 +198,13 @@ HUGGINGFACE_API_TOKEN=your-huggingface-api-token
 - `GET /documents` - List documents with filtering
 - `DELETE /documents/{id}` - Delete document
 - `GET /stats` - System statistics
+- `POST /documents/{id}/job-status` - Update job status
+
+### File Watcher (Port 8009)
+- `GET /health` - Health check
+- `GET /api/v1/watch/status` - File watcher status
+- `GET /api/v1/watch/processed` - List processed files
+- `POST /api/v1/watch/process` - Manually process a file
 
 ### API Gateway (Port 8000)
 - `GET /health` - Health check
@@ -187,17 +216,57 @@ HUGGINGFACE_API_TOKEN=your-huggingface-api-token
 
 ## 🔄 Processing Workflow
 
-1. **Document Upload**: Document is uploaded via API Gateway
-2. **Document Routing**: Document Router analyzes content and determines processing steps
-3. **Processing Pipeline**: Orchestrated workflow through multiple processors:
+1. **Document Upload**: Document is uploaded via API Gateway or File Watcher
+2. **Duplicate Detection**: System checks for existing files by hash
+3. **Document Routing**: Document Router analyzes content and determines processing steps
+4. **Processing Pipeline**: Orchestrated workflow through multiple processors:
    - Text extraction
    - Metadata extraction
    - Embedding generation
    - Entity extraction
    - Relationship mapping
-4. **Domain Analysis**: Specialized analysis (climate, financial, legal)
-5. **Storage**: Results stored across multiple databases
-6. **Search Indexing**: Content indexed for search and retrieval
+5. **Domain Analysis**: Specialized analysis (climate, financial, legal)
+6. **Storage**: Results stored across multiple databases
+7. **Search Indexing**: Content indexed for search and retrieval
+
+## 📁 File Monitoring
+
+### File Watcher Service
+The file watcher service monitors the `watch_folder` directory for new files and automatically processes them:
+
+```bash
+# Check file watcher status
+curl http://localhost:8009/api/v1/watch/status
+
+# Add a file to the watch folder
+echo "Test content" > core/watch_folder/test_file.txt
+```
+
+### File Upload Monitoring
+Use the provided script to monitor uploaded files:
+
+```bash
+# Show all uploaded files
+./check_uploaded_files.sh all
+
+# Show only watch folder files
+./check_uploaded_files.sh watch
+
+# Show processing status summary
+./check_uploaded_files.sh status
+
+# Show recent uploads
+./check_uploaded_files.sh recent
+
+# Show failed uploads
+./check_uploaded_files.sh failed
+
+# Show file watcher status
+./check_uploaded_files.sh watcher
+
+# Show file counts
+./check_uploaded_files.sh count
+```
 
 ## 🗄️ Data Storage
 
@@ -261,6 +330,12 @@ python test_simple_upload.py
 
 # Run upload-only test
 python test_upload_only.py
+
+# Run file watcher test
+python test_file_watcher.py
+
+# Run file watcher demo
+python demo_file_watcher.py
 ```
 
 ### API Tests
@@ -269,6 +344,9 @@ python test_upload_only.py
 curl -X POST http://localhost:8000/api/v1/documents \
   -H "Content-Type: application/json" \
   -d '{"filename": "test.pdf", "file_path": "/app/documents/test.pdf"}'
+
+# Test file watcher status
+curl http://localhost:8009/api/v1/watch/status
 ```
 
 ## 🚨 Troubleshooting
@@ -307,6 +385,27 @@ curl -X POST http://localhost:8000/api/v1/documents \
    # Increase Docker memory limit if needed
    ```
 
+5. **File watcher not detecting files**
+   ```bash
+   # Check file watcher status
+   curl http://localhost:8009/api/v1/watch/status
+   
+   # Check file watcher logs
+   docker-compose logs -f file-watcher
+   
+   # Verify watch folder permissions
+   ls -la watch_folder/
+   ```
+
+6. **Duplicate file errors**
+   ```bash
+   # Check for duplicate files
+   ./check_uploaded_files.sh failed
+   
+   # The system now handles duplicates automatically
+   # Check the changelog for recent fixes
+   ```
+
 ### Log Analysis
 ```bash
 # View all logs
@@ -342,6 +441,9 @@ docker-compose logs | grep ERROR
 ## 📚 Documentation
 
 - [Architecture Document](README_architecture.md)
+- [Technical Details](TECHNICAL_DETAILS.md)
+- [Quick Reference](QUICK_REFERENCE.md)
+- [Changelog](CHANGELOG.md)
 - [Core System Documentation](core/README.md)
 - [API Documentation](core/api_documentation.md)
 - [Deployment Guide](core/deployment_guide.md)

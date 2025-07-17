@@ -21,6 +21,11 @@ The core system follows a modular microservices architecture with the following 
 
 ### Support Services
 - **File Watcher** (Port 8009): Monitor local folders for new documents
+  - Real-time file monitoring using watchdog library
+  - Automatic file detection and upload to core processor
+  - File validation and metadata creation
+  - Asynchronous processing with error handling
+  - API endpoints for status monitoring and manual processing
 
 ## 🚀 Quick Start
 
@@ -70,6 +75,19 @@ python test_simple_upload.py
 python test_system.py
 ```
 
+### 6. Test File Watcher (Optional)
+```bash
+# Add a file to the watch folder
+echo "Test content" > watch_folder/test_file.txt
+
+# Check file watcher status
+curl http://localhost:8009/api/v1/watch/status
+
+# Check uploaded files from parent directory
+cd ..
+./check_uploaded_files.sh watch
+```
+
 ## 📁 Directory Structure
 
 ```
@@ -106,7 +124,9 @@ core/
 ├── watch_folder/           # File watch directory
 ├── test_system.py          # Comprehensive system test
 ├── test_simple_upload.py   # Simple upload test
-└── test_upload_only.py     # Upload-only test
+├── test_upload_only.py     # Upload-only test
+├── test_file_watcher.py    # File watcher test
+└── demo_file_watcher.py    # File watcher demo
 ```
 
 ## 🔧 Configuration
@@ -161,6 +181,13 @@ The main configuration is in `config/main.yaml` and includes:
 - `GET /documents` - List documents with filtering
 - `DELETE /documents/{id}` - Delete document
 - `GET /stats` - System statistics
+- `POST /documents/{id}/job-status` - Update job status
+
+### File Watcher (Port 8009)
+- `GET /health` - Health check
+- `GET /api/v1/watch/status` - File watcher status
+- `GET /api/v1/watch/processed` - List processed files
+- `POST /api/v1/watch/process` - Manually process a file
 
 ### Text Processor (Port 8005)
 - `GET /health` - Health check
@@ -175,101 +202,58 @@ The main configuration is in `config/main.yaml` and includes:
 - `POST /api/v1/search/text` - Full-text search
 - `POST /api/v1/search/semantic` - Semantic search
 
-### File Watcher (Port 8009)
-- `GET /health` - Health check
-- `GET /` - Service information and status
-- `POST /api/v1/watch/start` - Start file watching
-- `POST /api/v1/watch/stop` - Stop file watching
-- `GET /api/v1/watch/status` - Get watcher status
-- `GET /api/v1/watch/processed` - List processed files
-- `GET /api/v1/watch/errors` - List error files
-- `POST /api/v1/watch/clear-history` - Clear processing history
-- `POST /api/v1/watch/process-file` - Manually process a specific file
-
 ## 🔄 Processing Workflow
 
-1. **Document Upload**: Document is uploaded via API Gateway
-2. **Document Routing**: Document Router analyzes content and determines processing steps
-3. **Processing Pipeline**: Orchestrated workflow through multiple processors:
+1. **Document Upload**: Document is uploaded via API Gateway or File Watcher
+2. **Duplicate Detection**: System checks for existing files by hash
+3. **Document Routing**: Document Router analyzes content and determines processing steps
+4. **Processing Pipeline**: Orchestrated workflow through multiple processors:
    - Text extraction
    - Metadata extraction
    - Embedding generation
    - Entity extraction
    - Relationship mapping
-4. **Domain Analysis**: Specialized analysis (climate, financial, legal)
-5. **Storage**: Results stored across multiple databases
-6. **Search Indexing**: Content indexed for search and retrieval
+5. **Domain Analysis**: Specialized analysis (climate, financial, legal)
+6. **Storage**: Results stored across multiple databases
+7. **Search Indexing**: Content indexed for search and retrieval
 
-## 📁 File Watcher Functionality
+## 📁 File Monitoring
 
-The File Watcher service provides automatic document processing by monitoring designated folders for new files.
+### File Watcher Service
+The file watcher service monitors the `watch_folder` directory for new files and automatically processes them:
 
-### Features
-- **Automatic Detection**: Monitors the `watch_folder` for new files
-- **File Validation**: Validates file types and sizes before processing
-- **Supported Formats**: PDF, DOCX, TXT, HTML, Images (PNG, JPG, etc.), CSV, Excel files
-- **Automatic Processing**: Sends valid files to the Core Processor for full processing
-- **File Organization**: Moves processed files to `processed/` folder and errors to `error/` folder
-- **Status Monitoring**: Real-time status tracking and processing history
-- **Manual Processing**: API endpoint for manually processing specific files
-
-### Usage
-
-#### Automatic Processing
-1. Start the file watcher:
-   ```bash
-   curl -X POST http://localhost:8009/api/v1/watch/start
-   ```
-
-2. Place files in the watch folder:
-   ```bash
-   cp document.pdf ./watch_folder/
-   ```
-
-3. Monitor processing status:
-   ```bash
-   curl http://localhost:8009/api/v1/watch/status
-   ```
-
-#### Manual Processing
 ```bash
-# Process a specific file
-curl -X POST "http://localhost:8009/api/v1/watch/process-file?file_path=/path/to/file.pdf"
+# Check file watcher status
+curl http://localhost:8009/api/v1/watch/status
+
+# Add a file to the watch folder
+echo "Test content" > watch_folder/test_file.txt
 ```
 
-#### Monitoring
+### File Upload Monitoring
+Use the provided script from the parent directory to monitor uploaded files:
+
 ```bash
-# Check processed files
-curl http://localhost:8009/api/v1/watch/processed
+# Show all uploaded files
+../check_uploaded_files.sh all
 
-# Check error files
-curl http://localhost:8009/api/v1/watch/errors
+# Show only watch folder files
+../check_uploaded_files.sh watch
 
-# Clear history
-curl -X POST http://localhost:8009/api/v1/watch/clear-history
-```
+# Show processing status summary
+../check_uploaded_files.sh status
 
-### File Processing Flow
-1. **File Detection**: File watcher detects new files in `watch_folder`
-2. **Validation**: Checks file extension and size (max 100MB)
-3. **Metadata Creation**: Generates file hash and metadata
-4. **Processing**: Sends to Core Processor via API
-5. **File Movement**: Moves file to appropriate folder based on result
-6. **Status Update**: Updates processing history and status
+# Show recent uploads
+../check_uploaded_files.sh recent
 
-### Supported File Types
-- **Documents**: `.pdf`, `.docx`, `.doc`
-- **Text**: `.txt`, `.html`, `.htm`
-- **Images**: `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tiff`
-- **Data**: `.csv`, `.xlsx`, `.xls`
+# Show failed uploads
+../check_uploaded_files.sh failed
 
-### Testing
-```bash
-# Run file watcher tests
-python test_file_watcher.py
+# Show file watcher status
+../check_uploaded_files.sh watcher
 
-# Run demonstration
-python demo_file_watcher.py
+# Show file counts
+../check_uploaded_files.sh count
 ```
 
 ## 🗄️ Data Storage
@@ -282,35 +266,6 @@ The system uses multiple specialized databases:
 - **Neo4j**: Graph relationships and entity mapping
 - **MinIO**: Object storage for files
 - **Redis**: Caching and session management
-
-## 🔧 Recent Fixes and Improvements
-
-### UUID Type Handling
-- **Fixed**: UUID to string conversion in all SQL queries
-- **Fixed**: JSON serialization for metadata fields
-- **Fixed**: Database schema initialization with proper UUID support
-- **Fixed**: API endpoint parameter handling for UUIDs
-
-### Database Connectivity
-- **Fixed**: PostgreSQL connection pool initialization
-- **Fixed**: Elasticsearch client configuration
-- **Fixed**: Qdrant API key authentication
-- **Fixed**: Neo4j driver initialization
-- **Fixed**: Redis connection handling
-- **Fixed**: MinIO client setup
-
-### Service Health
-- **Fixed**: Prometheus metrics registration conflicts
-- **Fixed**: Health check endpoints for all services
-- **Fixed**: Service startup sequence and dependencies
-- **Fixed**: Environment variable loading in startup scripts
-
-### Testing and Validation
-- **Added**: Comprehensive system test script (`test_system.py`)
-- **Added**: Simple upload test script (`test_simple_upload.py`)
-- **Added**: Upload-only test script (`test_upload_only.py`)
-- **Added**: Detailed logging and error reporting
-- **Added**: Health check validation for all services
 
 ## 📈 Monitoring and Observability
 
@@ -364,30 +319,22 @@ python test_simple_upload.py
 # Run upload-only test
 python test_upload_only.py
 
-# Run file watcher tests
+# Run file watcher test
 python test_file_watcher.py
 
-# Run file watcher demonstration
+# Run file watcher demo
 python demo_file_watcher.py
 ```
 
-### Unit Tests
+### API Tests
 ```bash
-# Run tests for core processor
-cd core_processor
-python -m pytest tests/
-
-# Run tests for text processor
-cd ../processors/text_processor
-python -m pytest tests/
-```
-
-### Integration Tests
-```bash
-# Test API endpoints
+# Test document upload
 curl -X POST http://localhost:8000/api/v1/documents \
   -H "Content-Type: application/json" \
   -d '{"filename": "test.pdf", "file_path": "/app/documents/test.pdf"}'
+
+# Test file watcher status
+curl http://localhost:8009/api/v1/watch/status
 ```
 
 ## 🚨 Troubleshooting
@@ -426,12 +373,25 @@ curl -X POST http://localhost:8000/api/v1/documents \
    # Increase Docker memory limit if needed
    ```
 
-5. **UUID type mismatch errors**
+5. **File watcher not detecting files**
    ```bash
-   # Rebuild containers after UUID fixes
-   docker-compose down
-   docker-compose build --no-cache
-   docker-compose up -d
+   # Check file watcher status
+   curl http://localhost:8009/api/v1/watch/status
+   
+   # Check file watcher logs
+   docker-compose logs -f file-watcher
+   
+   # Verify watch folder permissions
+   ls -la watch_folder/
+   ```
+
+6. **Duplicate file errors**
+   ```bash
+   # Check for duplicate files
+   ../check_uploaded_files.sh failed
+   
+   # The system now handles duplicates automatically
+   # Check the changelog for recent fixes
    ```
 
 ### Log Analysis
@@ -466,15 +426,12 @@ docker-compose logs | grep ERROR
 2. Restart affected services: `docker-compose restart <service>`
 3. Verify configuration: `curl http://localhost:8000/health`
 
-### Database Schema Changes
-1. Update schema files in `core_processor/app/database/`
-2. Rebuild containers: `docker-compose build --no-cache`
-3. Restart services: `docker-compose up -d`
-4. Verify schema initialization in logs
-
 ## 📚 Documentation
 
 - [Architecture Document](../README_architecture.md)
+- [Technical Details](../TECHNICAL_DETAILS.md)
+- [Quick Reference](../QUICK_REFERENCE.md)
+- [Changelog](../CHANGELOG.md)
 - [API Documentation](api_documentation.md)
 - [Deployment Guide](deployment_guide.md)
 - [Development Guide](development_guide.md)
@@ -486,8 +443,6 @@ docker-compose logs | grep ERROR
 3. Update documentation for any changes
 4. Use structured logging and metrics
 5. Follow security best practices
-6. Test UUID handling for new database operations
-7. Validate service health checks
 
 ## 📄 License
 

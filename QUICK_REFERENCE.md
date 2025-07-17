@@ -25,6 +25,7 @@ curl http://localhost:8001/health
 curl http://localhost:8002/health
 curl http://localhost:8003/health
 curl http://localhost:8004/health
+curl http://localhost:8009/health
 
 # View logs
 docker-compose logs -f
@@ -37,6 +38,9 @@ python test_simple_upload.py
 
 # Run comprehensive test
 python test_system.py
+
+# Test file watcher
+python test_file_watcher.py
 ```
 
 ## 📊 Service Ports
@@ -53,6 +57,44 @@ python test_system.py
 | Embedding Processor | 8007 | Vector embeddings |
 | Entity Processor | 8008 | Entity extraction |
 | File Watcher | 8009 | File monitoring |
+
+## 📁 File Monitoring
+
+### File Watcher Commands
+```bash
+# Check file watcher status
+curl http://localhost:8009/api/v1/watch/status
+
+# List processed files
+curl http://localhost:8009/api/v1/watch/processed
+
+# Add file to watch folder
+echo "Test content" > core/watch_folder/test_file.txt
+```
+
+### File Upload Monitoring Script
+```bash
+# Show all uploaded files
+./check_uploaded_files.sh all
+
+# Show only watch folder files
+./check_uploaded_files.sh watch
+
+# Show processing status summary
+./check_uploaded_files.sh status
+
+# Show recent uploads
+./check_uploaded_files.sh recent
+
+# Show failed uploads
+./check_uploaded_files.sh failed
+
+# Show file watcher status
+./check_uploaded_files.sh watcher
+
+# Show file counts
+./check_uploaded_files.sh count
+```
 
 ## 🗄️ Database Connections
 
@@ -90,6 +132,31 @@ GET /documents?status=processed&limit=10
 
 # Get processing status
 GET /documents/{document_id}/processing-status
+
+# Update job status
+POST /documents/{document_id}/job-status
+{
+  "status": "completed",
+  "message": "Processing finished"
+}
+```
+
+### File Watcher (8009)
+```bash
+# Health check
+GET /health
+
+# Get status
+GET /api/v1/watch/status
+
+# List processed files
+GET /api/v1/watch/processed
+
+# Manually process file
+POST /api/v1/watch/process
+{
+  "file_path": "/app/watch_folder/test.txt"
+}
 ```
 
 ### API Gateway (8000)
@@ -145,6 +212,30 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
+#### File Watcher Issues
+```bash
+# Check file watcher status
+curl http://localhost:8009/api/v1/watch/status
+
+# Check file watcher logs
+docker-compose logs -f file-watcher
+
+# Verify watch folder permissions
+ls -la core/watch_folder/
+
+# Restart file watcher if needed
+docker-compose restart file-watcher
+```
+
+#### Duplicate File Errors
+```bash
+# Check for duplicate files
+./check_uploaded_files.sh failed
+
+# The system now handles duplicates automatically
+# Check the changelog for recent fixes
+```
+
 ### Log Analysis
 ```bash
 # View all logs
@@ -158,6 +249,9 @@ docker-compose logs | grep ERROR
 
 # Search for UUID errors
 docker-compose logs | grep "inconsistent types"
+
+# Search for file watcher activity
+docker-compose logs | grep "file_watcher"
 ```
 
 ## 📁 File Structure
@@ -173,11 +267,15 @@ mep_ainabox/
 │   ├── env.example           # Environment template
 │   ├── core_processor/       # Main processor
 │   ├── processors/           # Document processors
+│   ├── file_watcher/         # File monitoring service
 │   ├── documents/            # Document storage
 │   ├── processed/            # Processed files
 │   ├── temp/                 # Temporary files
 │   ├── logs/                 # Application logs
-│   └── test_*.py             # Test scripts
+│   ├── watch_folder/         # File watch directory
+│   ├── test_*.py             # Test scripts
+│   └── demo_*.py             # Demo scripts
+├── check_uploaded_files.sh   # File upload monitoring script
 └── README.md                 # Main documentation
 ```
 
@@ -198,150 +296,70 @@ QDRANT_API_KEY=your-api-key
 
 # API keys
 OPENAI_API_KEY=your-openai-key
-ANTHROPIC_API_KEY=your-anthropic-key
-HUGGINGFACE_API_TOKEN=your-huggingface-token
+
+# File watcher
+WATCH_FOLDER_PATH=./watch_folder
 ```
 
-### Database Schema
-```sql
--- Key tables
-documents              # Document metadata
-processing_jobs        # Processing status
-document_content       # Extracted content
-document_embeddings    # Vector embeddings
-document_entities      # Extracted entities
-document_relationships # Document relationships
-```
+## 🆘 Emergency Commands
 
-## 🧪 Testing
-
-### Test Scripts
-```bash
-# Simple upload test
-python test_simple_upload.py
-
-# Comprehensive system test
-python test_system.py
-
-# Upload-only test
-python test_upload_only.py
-```
-
-### Manual Testing
-```bash
-# Test document upload
-curl -X POST http://localhost:8001/documents/upload \
-  -H "Content-Type: application/json" \
-  -d '{
-    "filename": "test.pdf",
-    "file_path": "/app/documents/test.pdf",
-    "file_type": "pdf",
-    "file_size": 1024,
-    "metadata": {"source": "test"}
-  }'
-
-# Test health check
-curl http://localhost:8001/health
-```
-
-## 📈 Monitoring
-
-### Health Checks
-```bash
-# All services
-for port in 8000 8001 8002 8003 8004; do
-  echo "Port $port: $(curl -s http://localhost:$port/health | jq -r '.status')"
-done
-```
-
-### Metrics
-```bash
-# Prometheus metrics
-curl http://localhost:8001/metrics
-```
-
-### Resource Usage
-```bash
-# Docker stats
-docker stats
-
-# Container logs
-docker-compose logs -f
-```
-
-## 🔒 Security
-
-### API Keys
-- Qdrant API key required for vector database
-- OpenAI/Anthropic keys for AI processing
-- HuggingFace token for model access
-
-### Network Security
-- Services communicate over internal Docker network
-- Only API Gateway exposed externally
-- All internal communication isolated
-
-## 🚨 Emergency Procedures
-
-### System Reset
+### Restart All Services
 ```bash
 # Stop all services
 docker-compose down
 
-# Remove volumes (WARNING: deletes all data)
-docker-compose down -v
+# Start infrastructure
+cd services && docker-compose up -d
 
-# Rebuild and restart
-docker-compose build --no-cache
-docker-compose up -d
+# Start core system
+cd ../core && ./start.sh
 ```
 
-### Database Reset
+### Reset File Watcher
 ```bash
-# Backup first
-docker-compose exec postgres pg_dump -U mep_user mep_ainabox > backup.sql
+# Restart file watcher
+docker-compose restart file-watcher
 
-# Reset database
-docker-compose exec postgres psql -U mep_user -d mep_ainabox -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+# Check status
+curl http://localhost:8009/api/v1/watch/status
 ```
 
-### Log Cleanup
+### Clear Failed Documents
 ```bash
-# Clear logs
-docker-compose logs --tail=0
-rm -rf logs/*
+# Check failed documents
+./check_uploaded_files.sh failed
+
+# Reprocess specific document
+curl -X POST http://localhost:8001/documents/{document_id}/reprocess
 ```
 
-## 📞 Support
+## 📊 Monitoring Commands
 
-### Documentation
-- [Main README](README.md)
-- [Architecture](README_architecture.md)
-- [Technical Details](TECHNICAL_DETAILS.md)
-- [Changelog](CHANGELOG.md)
-
-### Debugging
-1. Check service health: `curl http://localhost:8001/health`
-2. Review logs: `docker-compose logs -f`
-3. Check database: `docker-compose exec postgres psql -U mep_user -d mep_ainabox`
-4. Verify network: `docker network ls`
-
-### Common Commands
+### System Status
 ```bash
-# Restart specific service
-docker-compose restart core-processor
+# Check all service health
+for port in 8000 8001 8002 8003 8004 8009; do
+  echo "Port $port: $(curl -s http://localhost:$port/health | jq -r '.status // .message // "Unknown"')"
+done
+```
 
-# View service logs
-docker-compose logs -f core-processor
+### File Processing Status
+```bash
+# Get processing summary
+./check_uploaded_files.sh status
 
-# Execute in container
-docker-compose exec core-processor bash
+# Get recent activity
+./check_uploaded_files.sh recent
 
-# Check resource usage
-docker stats
+# Get file watcher status
+./check_uploaded_files.sh watcher
+```
 
-# Update environment
-docker-compose down
-# Edit .env file
-docker-compose up -d
+### Resource Usage
+```bash
+# Check container resource usage
+docker stats --no-stream
+
+# Check disk usage
+du -sh core/documents core/processed core/temp
 ``` 
