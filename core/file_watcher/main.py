@@ -1,10 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import httpx
 import os
 import mimetypes
 import hashlib
-import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -33,8 +33,6 @@ app.add_middleware(
 # Service URLs
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://core-processor:8001")
 WATCH_PATHS = os.getenv("WATCH_PATHS", "./watch_folder")
-PROCESSED_FOLDER = os.getenv("PROCESSED_FOLDER", "./processed")
-ERROR_FOLDER = os.getenv("ERROR_FOLDER", "./error")
 
 # Supported file extensions
 SUPPORTED_EXTENSIONS = {
@@ -54,6 +52,14 @@ SUPPORTED_EXTENSIONS = {
     '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.xls': 'application/vnd.ms-excel'
 }
+
+# Pydantic models
+class ScanFolderRequest(BaseModel):
+    folder_path: str
+    recursive: bool = True
+    max_depth: Optional[int] = None
+    concurrent_limit: int = 5
+    dry_run: bool = False
 
 # File watcher state
 watcher_state = {
@@ -113,7 +119,12 @@ class DocumentHandler(FileSystemEventHandler):
             # Validate file
             if not self._is_valid_file(file_path):
                 logger.warning(f"Invalid file type or size: {file_path}")
-                await self._move_to_error_folder(file_path, "Invalid file type or size")
+                await self._mark_as_error(file_path, "Invalid file type or size")
+                watcher_state["error_files"].append({
+                    "file_path": file_path,
+                    "error_at": datetime.utcnow().isoformat(),
+                    "error": "Invalid file type or size"
+                })
                 return
             
             # Create document metadata
@@ -123,8 +134,8 @@ class DocumentHandler(FileSystemEventHandler):
             result = await self._send_to_processor(metadata)
             
             if result:
-                # Move to processed folder
-                await self._move_to_processed_folder(file_path)
+                # Mark as processed (no file movement)
+                await self._mark_as_processed(file_path)
                 watcher_state["processed_files"].append({
                     "file_path": file_path,
                     "processed_at": datetime.utcnow().isoformat(),
@@ -132,8 +143,8 @@ class DocumentHandler(FileSystemEventHandler):
                 })
                 logger.info(f"Successfully processed: {file_path}")
             else:
-                # Move to error folder
-                await self._move_to_error_folder(file_path, "Processing failed")
+                # Mark as error (no file movement)
+                await self._mark_as_error(file_path, "Processing failed")
                 watcher_state["error_files"].append({
                     "file_path": file_path,
                     "error_at": datetime.utcnow().isoformat(),
@@ -145,7 +156,7 @@ class DocumentHandler(FileSystemEventHandler):
             
         except Exception as e:
             logger.error(f"Error processing document {file_path}: {str(e)}")
-            await self._move_to_error_folder(file_path, str(e))
+            await self._mark_as_error(file_path, str(e))
             watcher_state["error_files"].append({
                 "file_path": file_path,
                 "error_at": datetime.utcnow().isoformat(),
@@ -256,49 +267,19 @@ class DocumentHandler(FileSystemEventHandler):
             logger.error(f"Error sending to processor: {e}")
             return None
     
-    async def _move_to_processed_folder(self, file_path: str):
-        """Move file to processed folder"""
+    async def _mark_as_processed(self, file_path: str):
+        """Mark file as processed (no file movement)"""
         try:
-            if not os.path.exists(PROCESSED_FOLDER):
-                os.makedirs(PROCESSED_FOLDER, exist_ok=True)
-            
-            filename = Path(file_path).name
-            dest_path = os.path.join(PROCESSED_FOLDER, filename)
-            
-            # Handle duplicate filenames
-            counter = 1
-            while os.path.exists(dest_path):
-                name, ext = os.path.splitext(filename)
-                dest_path = os.path.join(PROCESSED_FOLDER, f"{name}_{counter}{ext}")
-                counter += 1
-            
-            shutil.move(file_path, dest_path)
-            logger.info(f"Moved to processed: {dest_path}")
-            
+            logger.info(f"File processed successfully: {file_path}")
         except Exception as e:
-            logger.error(f"Error moving to processed folder: {e}")
+            logger.error(f"Error marking file as processed: {e}")
     
-    async def _move_to_error_folder(self, file_path: str, error_message: str):
-        """Move file to error folder"""
+    async def _mark_as_error(self, file_path: str, error_message: str):
+        """Mark file as error (no file movement)"""
         try:
-            if not os.path.exists(ERROR_FOLDER):
-                os.makedirs(ERROR_FOLDER, exist_ok=True)
-            
-            filename = Path(file_path).name
-            dest_path = os.path.join(ERROR_FOLDER, filename)
-            
-            # Handle duplicate filenames
-            counter = 1
-            while os.path.exists(dest_path):
-                name, ext = os.path.splitext(filename)
-                dest_path = os.path.join(ERROR_FOLDER, f"{name}_{counter}{ext}")
-                counter += 1
-            
-            shutil.move(file_path, dest_path)
-            logger.info(f"Moved to error folder: {dest_path}")
-            
+            logger.error(f"File processing failed: {file_path} - {error_message}")
         except Exception as e:
-            logger.error(f"Error moving to error folder: {e}")
+            logger.error(f"Error marking file as error: {e}")
 
 # Initialize file watcher
 observer = Observer()
@@ -427,6 +408,54 @@ async def process_specific_file(file_path: str):
         logger.error(f"Error processing specific file: {e}")
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
+@app.post("/api/v1/watch/scan-folder")
+async def scan_and_process_folder(request: ScanFolderRequest):
+    """Scan and process all files in a folder"""
+    try:
+        if not os.path.exists(request.folder_path):
+            raise HTTPException(status_code=404, detail="Folder not found")
+        
+        if not os.path.isdir(request.folder_path):
+            raise HTTPException(status_code=400, detail="Path is not a directory")
+        
+        # Import the folder scanner
+        from folder_scanner import FolderScanner
+        
+        # Create scanner instance
+        scanner = FolderScanner(dry_run=request.dry_run)
+        
+        # Process the folder
+        await scanner.process_folder(
+            folder_path=request.folder_path,
+            recursive=request.recursive,
+            max_depth=request.max_depth,
+            concurrent_limit=request.concurrent_limit
+        )
+        
+        # Prepare response
+        response = {
+            "status": "completed",
+            "folder_path": request.folder_path,
+            "dry_run": request.dry_run,
+            "summary": {
+                "processed_files": len(scanner.processed_files),
+                "error_files": len(scanner.error_files),
+                "skipped_files": len(scanner.skipped_files),
+                "total_files": len(scanner.processed_files) + len(scanner.error_files) + len(scanner.skipped_files)
+            },
+            "processed_files": scanner.processed_files,
+            "error_files": scanner.error_files,
+            "skipped_files": scanner.skipped_files
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error scanning folder: {e}")
+        raise HTTPException(status_code=500, detail=f"Error scanning folder: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     import asyncio
@@ -436,8 +465,6 @@ if __name__ == "__main__":
         try:
             # Ensure watch folder exists
             os.makedirs(WATCH_PATHS, exist_ok=True)
-            os.makedirs(PROCESSED_FOLDER, exist_ok=True)
-            os.makedirs(ERROR_FOLDER, exist_ok=True)
             
             observer.schedule(event_handler, WATCH_PATHS, recursive=False)
             observer.start()
