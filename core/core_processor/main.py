@@ -11,8 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
-from fastapi import status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
@@ -79,7 +78,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize services
     app.state.document_service = DocumentService()
-    app.state.processing_service = ProcessingService()
+    app.state.processing_service = ProcessingService(document_service=app.state.document_service)
     app.state.storage_service = StorageService()
     
     logger.info("Core Processor service started successfully")
@@ -234,6 +233,57 @@ async def get_processing_job(job_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get processing job: {str(e)}"
+        )
+
+@app.post("/processing/jobs/{job_id}/status")
+async def update_job_status(job_id: str, status_update: dict):
+    """Update processing job status"""
+    try:
+        from uuid import UUID
+        from app.models.document import JobStatus
+        
+        job_uuid = UUID(job_id)
+        status = status_update.get("status")
+        result_data = status_update.get("result_data", {})
+        
+        # Convert status string to JobStatus enum
+        if status == "pending":
+            job_status = JobStatus.PENDING
+        elif status == "running":
+            job_status = JobStatus.RUNNING
+        elif status == "completed":
+            job_status = JobStatus.COMPLETED
+        elif status == "failed":
+            job_status = JobStatus.FAILED
+        elif status == "cancelled":
+            job_status = JobStatus.CANCELLED
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status: {status}"
+            )
+        
+        success = await app.state.processing_service.update_job_status(
+            job_uuid, 
+            job_status, 
+            result_data
+        )
+        
+        if success:
+            return {"message": "Job status updated successfully"}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Job not found"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update job status for {job_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update job status: {str(e)}"
         )
 
 @app.get("/documents")

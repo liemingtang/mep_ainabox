@@ -21,10 +21,11 @@ from app.models.document import (
 class ProcessingService(LoggerMixin):
     """Service for managing document processing jobs and workflow"""
     
-    def __init__(self):
+    def __init__(self, document_service=None):
         self.postgres_pool = get_postgres_pool()
         self.processing_pipeline_url = "http://processing-pipeline:8003"
         self.document_router_url = "http://document-router:8002"
+        self.document_service = document_service
     
     async def route_document(self, document_id: UUID, document: DocumentMetadata) -> ProcessingJob:
         """Route document for processing"""
@@ -219,12 +220,24 @@ class ProcessingService(LoggerMixin):
     async def _send_to_document_router(self, document_id: UUID, document: DocumentMetadata):
         """Send document to document router for analysis"""
         try:
+            # Convert document to dict with string UUIDs and ISO datetime strings for JSON serialization
+            document_dict = document.model_dump()
+            document_dict['id'] = str(document_dict['id'])
+            
+            # Convert datetime objects to ISO format strings
+            if 'created_at' in document_dict and document_dict['created_at']:
+                document_dict['created_at'] = document_dict['created_at'].isoformat()
+            if 'updated_at' in document_dict and document_dict['updated_at']:
+                document_dict['updated_at'] = document_dict['updated_at'].isoformat()
+            if 'processed_at' in document_dict and document_dict['processed_at']:
+                document_dict['processed_at'] = document_dict['processed_at'].isoformat()
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.document_router_url}/analyze",
                     json={
                         "document_id": str(document_id),
-                        "document": document.model_dump()
+                        "document": document_dict
                     },
                     timeout=30.0
                 )
@@ -259,21 +272,26 @@ class ProcessingService(LoggerMixin):
     ):
         """Update document processing status"""
         try:
-            async with self.postgres_pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE documents 
-                    SET processing_status = $1, 
-                        error_message = $2, 
-                        updated_at = $3,
-                        processed_at = CASE WHEN $1 = 'completed' THEN $3 ELSE processed_at END
-                    WHERE id = $4
-                    """,
-                    status.value,
-                    error_message,
-                    datetime.utcnow(),
-                    str(document_id)
-                )
+            if self.document_service:
+                # Use the document service's method for consistent type handling
+                await self.document_service.update_document_status(document_id, status, error_message)
+            else:
+                # Fallback to local implementation
+                async with self.postgres_pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        UPDATE documents 
+                        SET processing_status = $1::character varying(50), 
+                            error_message = $2, 
+                            updated_at = $3,
+                            processed_at = CASE WHEN $1 = 'completed' THEN $3 ELSE processed_at END
+                        WHERE id = $4
+                        """,
+                        status.value,
+                        str(error_message) if error_message is not None else None,
+                        datetime.utcnow(),
+                        str(document_id)
+                    )
                 
         except Exception as e:
             self.logger.error(f"Failed to update document status: {e}")

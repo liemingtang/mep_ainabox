@@ -130,14 +130,14 @@ class DocumentService(LoggerMixin):
                 result = await conn.execute(
                     """
                     UPDATE documents 
-                    SET processing_status = $1, 
+                    SET processing_status = $1::character varying(50), 
                         error_message = $2, 
                         updated_at = $3,
                         processed_at = CASE WHEN $1 = 'completed' THEN $3 ELSE processed_at END
                     WHERE id = $4
                     """,
                     status.value,
-                    error_message,
+                    str(error_message) if error_message is not None else None,
                     datetime.utcnow(),
                     str(document_id)
                 )
@@ -247,21 +247,20 @@ class DocumentService(LoggerMixin):
                 RETURNING id
                 """,
                 str(document.id),
-                document.filename,
-                document.file_path,
-                document.file_size,
-                document.mime_type,
-                document.file_hash,
-                document.source,
-                document.processing_status.value,
-                document.document_type.value if document.document_type else None,
-                document.company,
-                document.year,
-                json.dumps(document.metadata) if document.metadata else '{}',
+                str(document.filename) if document.filename is not None else None,
+                str(document.file_path) if document.file_path is not None else None,
+                int(document.file_size) if document.file_size is not None else None,
+                str(document.mime_type) if document.mime_type is not None else None,
+                str(document.file_hash) if document.file_hash is not None else None,
+                str(document.source) if document.source is not None else None,
+                str(document.processing_status.value) if document.processing_status is not None else None,
+                str(document.document_type.value) if document.document_type is not None else None,
+                str(document.company) if document.company is not None else None,
+                int(document.year) if document.year is not None else None,
+                json.dumps(document.metadata if isinstance(document.metadata, dict) else {}),
                 document.created_at,
                 document.updated_at
             )
-            
             return row['id']
     
     async def _index_document_elasticsearch(self, doc_id: UUID, document: DocumentMetadata):

@@ -274,17 +274,22 @@ services:
       dockerfile: Dockerfile
     container_name: mep-file-watcher
     restart: unless-stopped
+    ports:
+      - "8009:8009"
     environment:
       - CONFIG_PATH=/app/config
-      - DOCUMENT_ROUTER_URL=http://document-router:8002
-      - WATCH_PATHS=${WATCH_FOLDER_PATH:-./watch_folder}
+      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - WATCH_PATHS=/app/watch_folder
+      - PROCESSED_FOLDER=/app/processed
+      - ERROR_FOLDER=/app/error
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
-      - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:ro
-      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:rw
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+      - ${ERROR_FOLDER_PATH:-./error}:/app/error:rw
     depends_on:
-      - document-router
+      - core-processor
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
       interval: 30s

@@ -98,7 +98,7 @@ core/
 │   ├── metadata_processor/ # Metadata extraction
 │   ├── embedding_processor/ # Embedding generation
 │   └── entity_processor/   # Entity extraction
-├── file_watcher/           # File monitoring service
+├── file_watcher/           # File monitoring service (fully functional)
 ├── documents/              # Local document storage
 ├── processed/              # Processed document storage
 ├── temp/                   # Temporary processing files
@@ -175,6 +175,17 @@ The main configuration is in `config/main.yaml` and includes:
 - `POST /api/v1/search/text` - Full-text search
 - `POST /api/v1/search/semantic` - Semantic search
 
+### File Watcher (Port 8009)
+- `GET /health` - Health check
+- `GET /` - Service information and status
+- `POST /api/v1/watch/start` - Start file watching
+- `POST /api/v1/watch/stop` - Stop file watching
+- `GET /api/v1/watch/status` - Get watcher status
+- `GET /api/v1/watch/processed` - List processed files
+- `GET /api/v1/watch/errors` - List error files
+- `POST /api/v1/watch/clear-history` - Clear processing history
+- `POST /api/v1/watch/process-file` - Manually process a specific file
+
 ## 🔄 Processing Workflow
 
 1. **Document Upload**: Document is uploaded via API Gateway
@@ -188,6 +199,78 @@ The main configuration is in `config/main.yaml` and includes:
 4. **Domain Analysis**: Specialized analysis (climate, financial, legal)
 5. **Storage**: Results stored across multiple databases
 6. **Search Indexing**: Content indexed for search and retrieval
+
+## 📁 File Watcher Functionality
+
+The File Watcher service provides automatic document processing by monitoring designated folders for new files.
+
+### Features
+- **Automatic Detection**: Monitors the `watch_folder` for new files
+- **File Validation**: Validates file types and sizes before processing
+- **Supported Formats**: PDF, DOCX, TXT, HTML, Images (PNG, JPG, etc.), CSV, Excel files
+- **Automatic Processing**: Sends valid files to the Core Processor for full processing
+- **File Organization**: Moves processed files to `processed/` folder and errors to `error/` folder
+- **Status Monitoring**: Real-time status tracking and processing history
+- **Manual Processing**: API endpoint for manually processing specific files
+
+### Usage
+
+#### Automatic Processing
+1. Start the file watcher:
+   ```bash
+   curl -X POST http://localhost:8009/api/v1/watch/start
+   ```
+
+2. Place files in the watch folder:
+   ```bash
+   cp document.pdf ./watch_folder/
+   ```
+
+3. Monitor processing status:
+   ```bash
+   curl http://localhost:8009/api/v1/watch/status
+   ```
+
+#### Manual Processing
+```bash
+# Process a specific file
+curl -X POST "http://localhost:8009/api/v1/watch/process-file?file_path=/path/to/file.pdf"
+```
+
+#### Monitoring
+```bash
+# Check processed files
+curl http://localhost:8009/api/v1/watch/processed
+
+# Check error files
+curl http://localhost:8009/api/v1/watch/errors
+
+# Clear history
+curl -X POST http://localhost:8009/api/v1/watch/clear-history
+```
+
+### File Processing Flow
+1. **File Detection**: File watcher detects new files in `watch_folder`
+2. **Validation**: Checks file extension and size (max 100MB)
+3. **Metadata Creation**: Generates file hash and metadata
+4. **Processing**: Sends to Core Processor via API
+5. **File Movement**: Moves file to appropriate folder based on result
+6. **Status Update**: Updates processing history and status
+
+### Supported File Types
+- **Documents**: `.pdf`, `.docx`, `.doc`
+- **Text**: `.txt`, `.html`, `.htm`
+- **Images**: `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tiff`
+- **Data**: `.csv`, `.xlsx`, `.xls`
+
+### Testing
+```bash
+# Run file watcher tests
+python test_file_watcher.py
+
+# Run demonstration
+python demo_file_watcher.py
+```
 
 ## 🗄️ Data Storage
 
@@ -280,6 +363,12 @@ python test_simple_upload.py
 
 # Run upload-only test
 python test_upload_only.py
+
+# Run file watcher tests
+python test_file_watcher.py
+
+# Run file watcher demonstration
+python demo_file_watcher.py
 ```
 
 ### Unit Tests
