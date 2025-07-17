@@ -207,9 +207,12 @@ services:
       dockerfile: Dockerfile
     container_name: mep-metadata-processor
     restart: unless-stopped
+    ports:
+      - "8006:8006"
     environment:
       - CONFIG_PATH=/app/config
       - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://core-processor:8001
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
@@ -224,24 +227,51 @@ services:
       retries: 3
       start_period: 30s
 
-  # Embedding Processor - Vector embedding generation
+  # Ollama - Self-hosted LLM and embedding service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mep-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Embedding Processor - Vector embedding generation using Ollama
   embedding-processor:
     build:
       context: ./processors/embedding_processor
       dockerfile: Dockerfile
     container_name: mep-embedding-processor
     restart: unless-stopped
+    ports:
+      - "8007:8007"
     environment:
       - CONFIG_PATH=/app/config
       - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://core-processor:8001
       - QDRANT_HOST=qdrant
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=qdrant_api_key
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+      - DEFAULT_EMBEDDING_MODEL=nomic-embed-text
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
     depends_on:
       - processing-pipeline
+      - ollama
     # Qdrant is managed externally
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
@@ -257,10 +287,16 @@ services:
       dockerfile: Dockerfile
     container_name: mep-entity-processor
     restart: unless-stopped
+    ports:
+      - "8008:8008"
     environment:
       - CONFIG_PATH=/app/config
       - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://core-processor:8001
       - NEO4J_HOST=neo4j
+      - NEO4J_PORT=7474
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=password
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
@@ -313,4 +349,6 @@ volumes:
   temp:
     driver: local
   logs:
+    driver: local
+  ollama_data:
     driver: local 
