@@ -1,0 +1,180 @@
+{
+  "api_keys": [
+    {
+      "key": "OPENAI_API_KEY",
+      "value": "",
+      "description": "OpenAI API key for text processing",
+      "category": "api_keys",
+      "is_sensitive": true
+    },
+    {
+      "key": "ANTHROPIC_API_KEY",
+      "value": "",
+      "description": "Anthropic API key for Claude models",
+      "category": "api_keys",
+      "is_sensitive": true
+    },
+    {
+      "key": "HUGGINGFACE_API_TOKEN",
+      "value": "",
+      "description": "Hugging Face API token",
+      "category": "api_keys",
+      "is_sensitive": true
+    },
+    {
+      "key": "QDRANT_API_KEY",
+      "value": "qdrant_api_key",
+      "description": "Qdrant vector database API key",
+      "category": "api_keys",
+      "is_sensitive": true
+    }
+  ],
+  "service_endpoints": [
+    {
+      "key": "CORE_PROCESSOR_URL",
+      "value": "http://localhost:8001",
+      "description": "Core processor service URL",
+      "category": "service_endpoints"
+    },
+    {
+      "key": "FILE_WATCHER_URL",
+      "value": "http://localhost:8009",
+      "description": "File watcher service URL",
+      "category": "service_endpoints"
+    },
+    {
+      "key": "STORAGE_MANAGER_URL",
+      "value": "http://localhost:8004",
+      "description": "Storage manager service URL",
+      "category": "service_endpoints"
+    },
+    {
+      "key": "ELASTICSEARCH_URL",
+      "value": "http://localhost:9200",
+      "description": "Elasticsearch service URL",
+      "category": "service_endpoints"
+    },
+    {
+      "key": "QDRANT_URL",
+      "value": "http://localhost:6333",
+      "description": "Qdrant vector database URL",
+      "category": "service_endpoints"
+    },
+    {
+      "key": "NEO4J_URL",
+      "value": "http://localhost:7474",
+      "description": "Neo4j graph database URL",
+      "category": "service_endpoints"
+    }
+  ],
+  "database_credentials": [
+    {
+      "key": "POSTGRES_HOST",
+      "value": "localhost",
+      "description": "PostgreSQL database host",
+      "category": "database_credentials"
+    },
+    {
+      "key": "POSTGRES_PORT",
+      "value": "5432",
+      "description": "PostgreSQL database port",
+      "category": "database_credentials"
+    },
+    {
+      "key": "POSTGRES_DB",
+      "value": "mep_ainabox",
+      "description": "PostgreSQL database name",
+      "category": "database_credentials"
+    },
+    {
+      "key": "POSTGRES_USER",
+      "value": "mep_user",
+      "description": "PostgreSQL database user",
+      "category": "database_credentials"
+    },
+    {
+      "key": "POSTGRES_PASSWORD",
+      "value": "",
+      "description": "PostgreSQL database password",
+      "category": "database_credentials",
+      "is_sensitive": true
+    },
+    {
+      "key": "NEO4J_USER",
+      "value": "neo4j",
+      "description": "Neo4j database user",
+      "category": "database_credentials"
+    },
+    {
+      "key": "NEO4J_PASSWORD",
+      "value": "neo4j_password",
+      "description": "Neo4j database password",
+      "category": "database_credentials",
+      "is_sensitive": true
+    }
+  ],
+  "system_settings": [
+    {
+      "key": "ADMIN_EMAIL",
+      "value": "admin@example.com",
+      "description": "Administrator email address",
+      "category": "system_settings"
+    },
+    {
+      "key": "SYSTEM_ENVIRONMENT",
+      "value": "development",
+      "description": "System environment (development/production)",
+      "category": "system_settings"
+    },
+    {
+      "key": "DEBUG",
+      "value": "true",
+      "description": "Enable debug mode",
+      "category": "system_settings"
+    },
+    {
+      "key": "LOG_LEVEL",
+      "value": "INFO",
+      "description": "Logging level",
+      "category": "system_settings"
+    },
+    {
+      "key": "MAX_FILE_SIZE",
+      "value": "100MB",
+      "description": "Maximum file size for processing",
+      "category": "system_settings"
+    },
+    {
+      "key": "SUPPORTED_FORMATS",
+      "value": "pdf,docx,txt,html",
+      "description": "Supported document formats",
+      "category": "system_settings"
+    }
+  ],
+  "processing_settings": [
+    {
+      "key": "EMBEDDING_MODEL",
+      "value": "text-embedding-ada-002",
+      "description": "Default embedding model",
+      "category": "processing_settings"
+    },
+    {
+      "key": "TEXT_MODEL",
+      "value": "gpt-3.5-turbo",
+      "description": "Default text processing model",
+      "category": "processing_settings"
+    },
+    {
+      "key": "BATCH_SIZE",
+      "value": "10",
+      "description": "Processing batch size",
+      "category": "processing_settings"
+    },
+    {
+      "key": "TIMEOUT_SECONDS",
+      "value": "300",
+      "description": "Processing timeout in seconds",
+      "category": "processing_settings"
+    }
+  ]
+}

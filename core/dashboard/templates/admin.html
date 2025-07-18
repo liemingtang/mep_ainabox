@@ -174,7 +174,7 @@
                     <h5 class="mb-0"><i class="fas fa-play-circle"></i> Service Control</h5>
                 </div>
                 <div class="card-body">
-                    <div class="row align-items-center">
+                    <div class="row align-items-center mb-3">
                         <div class="col-md-8">
                             <h6>Start All Services</h6>
                             <p class="text-muted mb-0">Launch infrastructure and core system services</p>
@@ -185,11 +185,23 @@
                             </button>
                         </div>
                     </div>
+                    <hr>
+                    <div class="row align-items-center">
+                        <div class="col-md-8">
+                            <h6>Stop All Services</h6>
+                            <p class="text-muted mb-0">Shutdown infrastructure and core system services</p>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <button id="stopServicesBtn" class="btn btn-danger">
+                                <i class="fas fa-stop-circle"></i> Stop All Services
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Progress Section -->
-            <div id="progressSection" class="progress-container" style="display: none;">
+            <!-- Startup Progress Section -->
+            <div id="startupProgressSection" class="progress-container" style="display: none;">
                 <h5><i class="fas fa-spinner fa-spin"></i> Startup Progress</h5>
                 <div class="progress mb-3">
                     <div id="startupProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
@@ -197,6 +209,18 @@
                 </div>
                 <div class="log-container" id="startupLogs">
                     <div class="log-entry info">Waiting for startup to begin...</div>
+                </div>
+            </div>
+
+            <!-- Shutdown Progress Section -->
+            <div id="shutdownProgressSection" class="progress-container" style="display: none;">
+                <h5><i class="fas fa-spinner fa-spin"></i> Shutdown Progress</h5>
+                <div class="progress mb-3">
+                    <div id="shutdownProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" 
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <div class="log-container" id="shutdownLogs">
+                    <div class="log-entry info">Waiting for shutdown to begin...</div>
                 </div>
             </div>
 
@@ -214,6 +238,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let startupInterval;
+        let shutdownInterval;
         let statusInterval;
 
         // Initialize the admin panel
@@ -249,6 +274,8 @@
             document.getElementById('startup-status').innerHTML = 
                 status.startup_in_progress ? 
                 '<span class="status-indicator status-starting"></span>Starting' : 
+                status.shutdown_in_progress ?
+                '<span class="status-indicator status-starting"></span>Stopping' :
                 '<span class="status-indicator status-stopped"></span>Idle';
             
             document.getElementById('last-update').textContent = 
@@ -256,19 +283,40 @@
 
             // Update button state
             const startBtn = document.getElementById('startServicesBtn');
+            const stopBtn = document.getElementById('stopServicesBtn');
+            
             if (status.startup_in_progress) {
                 startBtn.disabled = true;
+                stopBtn.disabled = true;
                 startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
-                document.getElementById('progressSection').style.display = 'block';
+                document.getElementById('startupProgressSection').style.display = 'block';
+                document.getElementById('shutdownProgressSection').style.display = 'none';
                 if (!startupInterval) {
                     startupInterval = setInterval(loadStartupLogs, 1000);
                 }
+            } else if (status.shutdown_in_progress) {
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+                document.getElementById('startupProgressSection').style.display = 'none';
+                document.getElementById('shutdownProgressSection').style.display = 'block';
+                if (!shutdownInterval) {
+                    shutdownInterval = setInterval(loadShutdownLogs, 1000);
+                }
             } else {
                 startBtn.disabled = false;
+                stopBtn.disabled = false;
                 startBtn.innerHTML = '<i class="fas fa-rocket"></i> Start All Services';
+                stopBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop All Services';
+                document.getElementById('startupProgressSection').style.display = 'none';
+                document.getElementById('shutdownProgressSection').style.display = 'none';
                 if (startupInterval) {
                     clearInterval(startupInterval);
                     startupInterval = null;
+                }
+                if (shutdownInterval) {
+                    clearInterval(shutdownInterval);
+                    shutdownInterval = null;
                 }
             }
         }
@@ -328,6 +376,33 @@
             }
         }
 
+        async function stopAllServices() {
+            if (!confirm('Are you sure you want to stop all services? This will shutdown the entire MEP AI NABOX system.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/stop-services', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Shutdown initiated:', result);
+                    loadAdminStatus(); // Refresh status immediately
+                } else {
+                    const error = await response.json();
+                    alert('Error stopping services: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error stopping services:', error);
+                alert('Error stopping services: ' + error.message);
+            }
+        }
+
         async function loadStartupLogs() {
             try {
                 const response = await fetch('/api/admin/startup-logs');
@@ -377,15 +452,68 @@
             }
         }
 
+        async function loadShutdownLogs() {
+            try {
+                const response = await fetch('/api/admin/shutdown-logs');
+                const data = await response.json();
+                
+                const logContainer = document.getElementById('shutdownLogs');
+                logContainer.innerHTML = '';
+                
+                data.logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    
+                    // Determine log type based on content
+                    if (log.includes('❌') || log.includes('Failed')) {
+                        logEntry.classList.add('error');
+                    } else if (log.includes('✅') || log.includes('successfully')) {
+                        logEntry.classList.add('success');
+                    } else if (log.includes('⚠️') || log.includes('Warning')) {
+                        logEntry.classList.add('warning');
+                    } else {
+                        logEntry.classList.add('info');
+                    }
+                    
+                    logEntry.textContent = log;
+                    logContainer.appendChild(logEntry);
+                });
+                
+                // Auto-scroll to bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+                
+                // Update progress bar
+                const progressBar = document.getElementById('shutdownProgress');
+                if (data.logs.length > 0) {
+                    const progress = Math.min((data.logs.length / 15) * 100, 100); // Estimate progress
+                    progressBar.style.width = progress + '%';
+                    progressBar.textContent = Math.round(progress) + '%';
+                }
+                
+                // Stop polling if shutdown is complete
+                if (!data.in_progress && shutdownInterval) {
+                    clearInterval(shutdownInterval);
+                    shutdownInterval = null;
+                    loadAdminStatus(); // Final status update
+                }
+            } catch (error) {
+                console.error('Error loading shutdown logs:', error);
+            }
+        }
+
         function refreshStatus() {
             loadAdminStatus();
             if (startupInterval) {
                 loadStartupLogs();
             }
+            if (shutdownInterval) {
+                loadShutdownLogs();
+            }
         }
 
         // Event listeners
         document.getElementById('startServicesBtn').addEventListener('click', startAllServices);
+        document.getElementById('stopServicesBtn').addEventListener('click', stopAllServices);
     </script>
 </body>
 </html> 

@@ -46,7 +46,8 @@ Open your browser and go to:
 
 ### Service Control
 - **Start All Services**: One-click startup of infrastructure and core services
-- **Real-time Progress**: Visual progress bar and detailed logs
+- **Stop All Services**: One-click shutdown of all services with confirmation
+- **Real-time Progress**: Visual progress bar and detailed logs for both startup and shutdown
 - **Status Monitoring**: Live updates every 5 seconds
 
 ### Log Monitoring
@@ -65,7 +66,7 @@ Open your browser and go to:
 │  Infrastructure: ● Running    Core System: ● Running     │
 │  Startup Status: ○ Idle       Last Update: 14:30:25     │
 ├─────────────────────────────────────────────────────────┤
-│  [🚀 Start All Services]                                 │
+│  [🚀 Start All Services]  [🛑 Stop All Services]        │
 ├─────────────────────────────────────────────────────────┤
 │  📦 Infrastructure Services: ● Running                   │
 │  🔧 Core System Services: ● Running                      │
@@ -85,6 +86,22 @@ Open your browser and go to:
 │  [14:30:45] 🔧 Starting core system services...         │
 │  [14:31:00] ✅ Core system services started              │
 │  [14:31:01] 🎉 MEP AI NABOX startup completed!          │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Shutdown Progress View
+```
+┌─────────────────────────────────────────────────────────┐
+│  🛑 Shutdown Progress                                    │
+│  ████████████████████████████████████████████████████ 100% │
+├─────────────────────────────────────────────────────────┤
+│  [14:35:01] 🛑 Stopping MEP AI NABOX services...        │
+│  [14:35:02] 🔧 Stopping core system services...          │
+│  [14:35:05] ✅ Core system services stopped              │
+│  [14:35:06] 📦 Stopping infrastructure services...       │
+│  [14:35:10] ✅ Infrastructure services stopped           │
+│  [14:35:11] 🔍 Performing final status checks...         │
+│  [14:35:12] 🎉 MEP AI NABOX shutdown completed!         │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -116,7 +133,9 @@ Open your browser and go to:
 ### Admin API Endpoints
 - `GET /api/admin/status` - Get current admin status
 - `POST /api/admin/start-services` - Start all services
+- `POST /api/admin/stop-services` - Stop all services
 - `GET /api/admin/startup-logs` - Get startup logs
+- `GET /api/admin/shutdown-logs` - Get shutdown logs
 
 ### Service Detection
 The admin panel automatically detects:

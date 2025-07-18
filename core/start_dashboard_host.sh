@@ -80,13 +80,13 @@ if [ "$BACKGROUND_MODE" = false ]; then
 fi
 
 # Start the dashboard service
-cd "$DASHBOARD_DIR"
-
 if [ "$BACKGROUND_MODE" = true ]; then
     # Run in background and redirect output to log file
+    cd "$DASHBOARD_DIR"
     nohup python3 main.py > "$SCRIPT_DIR/logs/dashboard.log" 2>&1 &
     echo $! > "$SCRIPT_DIR/dashboard.pid"
 else
     # Run in foreground
+    cd "$DASHBOARD_DIR"
     python3 main.py
 fi 

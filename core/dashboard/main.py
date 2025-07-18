@@ -339,13 +339,18 @@ class AdminStatus(BaseModel):
     core_system_running: bool
     startup_in_progress: bool
     startup_logs: List[str]
+    shutdown_in_progress: bool
+    shutdown_logs: List[str]
     last_update: datetime
 
 # Global admin state
 admin_state = {
     "startup_in_progress": False,
     "startup_logs": [],
-    "startup_thread": None
+    "startup_thread": None,
+    "shutdown_in_progress": False,
+    "shutdown_logs": [],
+    "shutdown_thread": None
 }
 
 async def check_service_health(service_name: str, url: str) -> ServiceHealth:
@@ -1019,6 +1024,92 @@ def startup_services():
         admin_state["startup_thread"] = threading.Thread(target=startup_worker, daemon=True)
         admin_state["startup_thread"].start()
 
+def shutdown_services():
+    """Stop all services in the background"""
+    
+    def shutdown_worker():
+        admin_state["shutdown_in_progress"] = True
+        admin_state["shutdown_logs"] = []
+        
+        try:
+            # Add initial log
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛑 Stopping MEP AI NABOX services...")
+            
+            # Get the current working directory
+            current_dir = os.getcwd()
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Current directory: {current_dir}")
+            
+            # Step 1: Stop core services first
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Stopping core system services...")
+            
+            # Navigate to the core directory
+            core_dir = os.path.dirname(current_dir)
+            
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for core directory: {core_dir}")
+            
+            if os.path.exists(core_dir):
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found core directory")
+                os.chdir(core_dir)
+                result = subprocess.run(
+                    ["docker", "compose", "down"],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Core system services stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to stop core services: {result.stderr}")
+            else:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Core directory not found: {core_dir}")
+            
+            # Step 2: Stop infrastructure services
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📦 Stopping infrastructure services...")
+            
+            # Navigate to the services directory
+            # Since we're in core/dashboard, we need to go up one level to reach the project root
+            project_root = os.path.dirname(current_dir)
+            services_dir = os.path.join(project_root, 'services')
+            
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for services directory: {services_dir}")
+            
+            if os.path.exists(services_dir):
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found services directory")
+                os.chdir(services_dir)
+                result = subprocess.run(
+                    ["docker", "compose", "down"],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Infrastructure services stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to stop infrastructure services: {result.stderr}")
+            else:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Services directory not found: {services_dir}")
+            
+            # Final status check
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Performing final status checks...")
+            
+            if not check_infrastructure_services():
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Infrastructure services stopped")
+            else:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Some infrastructure services may still be running")
+            
+            if not check_core_services():
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Core services stopped")
+            else:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Some core services may still be running")
+            
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎉 MEP AI NABOX shutdown completed!")
+            
+        except Exception as e:
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Shutdown failed with error: {str(e)}")
+        finally:
+            admin_state["shutdown_in_progress"] = False
+    
+    # Start the worker thread
+    if not admin_state["shutdown_in_progress"]:
+        admin_state["shutdown_thread"] = threading.Thread(target=shutdown_worker, daemon=True)
+        admin_state["shutdown_thread"].start()
+
 # Admin endpoints
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(request: Request):
@@ -1033,6 +1124,8 @@ async def get_admin_status():
         core_system_running=check_core_services(),
         startup_in_progress=admin_state["startup_in_progress"],
         startup_logs=admin_state["startup_logs"],
+        shutdown_in_progress=admin_state["shutdown_in_progress"],
+        shutdown_logs=admin_state["shutdown_logs"],
         last_update=datetime.now()
     )
 
@@ -1045,12 +1138,29 @@ async def start_all_services():
     startup_services()
     return {"message": "Service startup initiated", "status": "starting"}
 
+@app.post("/api/admin/stop-services")
+async def stop_all_services():
+    """Stop all services"""
+    if admin_state["shutdown_in_progress"]:
+        raise HTTPException(status_code=400, detail="Shutdown already in progress")
+    
+    shutdown_services()
+    return {"message": "Service shutdown initiated", "status": "stopping"}
+
 @app.get("/api/admin/startup-logs")
 async def get_startup_logs():
     """Get startup logs"""
     return {
         "logs": admin_state["startup_logs"],
         "in_progress": admin_state["startup_in_progress"]
+    }
+
+@app.get("/api/admin/shutdown-logs")
+async def get_shutdown_logs():
+    """Get shutdown logs"""
+    return {
+        "logs": admin_state["shutdown_logs"],
+        "in_progress": admin_state["shutdown_in_progress"]
     }
 
 if __name__ == "__main__":
