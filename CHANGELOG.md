@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Port Configuration Updates**: 
+  - Changed Grafana port from 3000 to 3002 to avoid conflicts
+  - Changed API Gateway port from 8000 to 8011 to avoid conflicts
+  - Updated all service configurations and documentation accordingly
+- **Health Check Improvements**: 
+  - Fixed health check logic to properly handle 302 redirects from Prometheus and Grafana
+  - Services now correctly show as healthy when returning redirect responses
+  - Fixed API Gateway health check by installing curl in container for Docker health checks
+
 ### Added
 - **Web Dashboard System**: Complete web-based monitoring and management interface
   - **Host-based Dashboard**: Runs directly on host for better performance and access
@@ -77,13 +87,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - MinIO Console (port 9001) for object storage management
   - Kibana (port 5601) for Elasticsearch visualization
   - Neo4j Browser (port 7474) for graph database interface
+  - Qdrant UI (port 7070) for vector database management
   - n8n Workflows (port 5678) for automation platform
   - Flowise (port 3001) for LLM flow builder
   - pgAdmin (port 8080) for PostgreSQL administration
   - Redis Commander (port 8081) for Redis management
   - Elasticsearch Head (port 9100) for cluster management
   - Prometheus (port 9090) for metrics collection
-  - Grafana (port 3000) for monitoring dashboards
+  - Grafana (port 3002) for monitoring dashboards
 - **Service Admin UIs Reference**: Comprehensive documentation for all service interfaces
 
 ### Changed

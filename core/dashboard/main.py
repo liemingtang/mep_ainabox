@@ -191,8 +191,8 @@ SERVICE_INFO = {
     "api-gateway": {
         "name": "API Gateway",
         "description": "Unified entry point for all client interactions",
-        "port": 8000,
-        "url": "http://localhost:8000",
+        "port": 8011,
+        "url": "http://localhost:8011",
         "endpoints": ["/health", "/api/v1/documents", "/api/v1/search"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/api-gateway.log", "/app/logs/app.log"],
@@ -223,7 +223,11 @@ SERVICE_INFO = {
         "config_paths": ["/qdrant/config/config.yaml"],
         "log_paths": ["/qdrant/logs/qdrant.log"],
         "docker_container": "mep-qdrant",
-        "admin_ui": None
+        "admin_ui": {
+            "url": "http://localhost:7070/index.html",
+            "name": "Qdrant UI",
+            "description": "Vector database management interface"
+        }
     },
     "neo4j": {
         "name": "Neo4j",
@@ -333,18 +337,34 @@ SERVICE_INFO = {
     "grafana": {
         "name": "Grafana",
         "description": "Monitoring dashboards",
-        "port": 3000,
-        "url": "http://localhost:3000",
+        "port": 3002,
+        "url": "http://localhost:3002",
         "endpoints": ["/", "/api/health", "/api/datasources"],
         "config_paths": ["/etc/grafana/grafana.ini"],
         "log_paths": ["/var/log/grafana/grafana.log"],
         "docker_container": "mep-grafana",
         "admin_ui": {
-            "url": "http://localhost:3000",
+            "url": "http://localhost:3002",
             "name": "Grafana",
             "description": "Monitoring dashboards"
         }
+    },
+    "qdrantui": {
+        "name": "Qdrant UI",
+        "description": "Vector database management interface",
+        "port": 7070,
+        "url": "http://localhost:7070",
+        "endpoints": ["/"],
+        "config_paths": [],
+        "log_paths": [],
+        "docker_container": None,
+        "admin_ui": {
+            "url": "http://localhost:7070/index.html",
+            "name": "Qdrant UI",
+            "description": "Vector database management interface"
+        }
     }
+
 }
 
 # Service endpoints for health checks
@@ -358,7 +378,7 @@ SERVICES = {
     "entity-processor": "http://localhost:8008/health",
     "processing-pipeline": "http://localhost:8003/health",
     "document-router": "http://localhost:8002/health",
-    "api-gateway": "http://localhost:8000/health",
+    "api-gateway": "http://localhost:8011/health",
     "elasticsearch": f"{ELASTICSEARCH_URL}/_cluster/health",
     "qdrant": f"{QDRANT_URL}/collections",
     "neo4j": f"{NEO4J_URL}/db/data/",
@@ -368,7 +388,8 @@ SERVICES = {
     "flowise": "http://localhost:3001/",
     "n8n": "http://localhost:5678/healthz",
     "prometheus": "http://localhost:9090/",
-    "grafana": "http://localhost:3000/"
+    "grafana": "http://localhost:3002/",
+    "qdrantui": "http://localhost:7070/"
 }
 
 app = FastAPI(title="MDIS Dashboard", version="1.0.0")
@@ -507,14 +528,16 @@ async def check_service_health(service_name: str, url: str) -> ServiceHealth:
             response = await client.get(url, headers=headers)
             response_time = (datetime.now() - start_time).total_seconds()
             
-            if response.status_code == 200:
+            # Consider both 200 (OK) and 302 (Found/Redirect) as healthy
+            # Many services redirect to their main page or login
+            if response.status_code in [200, 302]:
                 details = response.json() if response.headers.get("content-type", "").startswith("application/json") else None
                 return ServiceHealth(
                     service=service_name,
                     status="healthy",
                     response_time=response_time,
                     last_check=datetime.now(),
-                    details=details
+                    details={"status_code": response.status_code, "redirect": response.status_code == 302}
                 )
             else:
                 return ServiceHealth(
@@ -630,6 +653,9 @@ async def get_service_logs(service_name: str, lines: int = 50) -> List[str]:
                     logger.warning(f"Docker logs command failed for {docker_container}: {result.stderr}")
             except Exception as e:
                 logger.warning(f"Error getting Docker logs for {docker_container}: {e}")
+        else:
+            # For services without Docker containers, try to get process logs
+            logger.debug(f"No Docker container for {service_name}, trying alternative log sources")
         
         # Fallback to local log files
         log_paths = service_info.get("log_paths", [])
@@ -661,7 +687,10 @@ async def get_service_logs(service_name: str, lines: int = 50) -> List[str]:
                 except Exception as e:
                     logger.warning(f"Error reading alternative log file {alt_log}: {e}")
         
-        return [f"No logs available for {service_name}. Try checking Docker logs manually: docker logs {docker_container}"]
+        if docker_container:
+            return [f"No logs available for {service_name}. Try checking Docker logs manually: docker logs {docker_container}"]
+        else:
+            return [f"No logs available for {service_name}. This service runs outside of Docker."]
     except Exception as e:
         logger.error(f"Error getting logs for {service_name}: {e}")
         return [f"Error retrieving logs: {str(e)}"]
@@ -722,6 +751,16 @@ async def get_service_metrics(service_name: str) -> Dict[str, Any]:
                                 "description": service_info.get("description", "")
                             }
                         }
+                else:
+                    # For services without Docker containers, return basic service info
+                    return {
+                        "service_info": {
+                            "name": service_info.get("name", service_name),
+                            "port": service_info.get("port", "N/A"),
+                            "description": service_info.get("description", ""),
+                            "note": "This service runs outside of Docker"
+                        }
+                    }
             except Exception as e:
                 logger.debug(f"Failed to get Docker stats for {service_name}: {e}")
             

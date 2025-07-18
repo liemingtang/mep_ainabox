@@ -45,9 +45,20 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
   - Database management
   - Relationship exploration
 
+### 4. Qdrant UI
+- **URL**: http://localhost:7070/index.html
+- **Description**: Vector database management interface
+- **Purpose**: Manage Qdrant collections and perform vector searches
+- **Features**:
+  - Collection management (create, view, delete)
+  - Vector search functionality
+  - Point management (add, update, delete)
+  - API documentation
+  - Real-time updates
+
 ## Application Services
 
-### 4. n8n Workflows
+### 5. n8n Workflows
 - **URL**: http://localhost:5678
 - **Description**: Workflow automation platform
 - **Purpose**: Create and manage automated workflows
@@ -57,7 +68,7 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
   - API integrations
   - Workflow monitoring
 
-### 5. Flowise
+### 6. Flowise
 - **URL**: http://localhost:3001
 - **Description**: LLM Flow Builder
 - **Purpose**: Create and manage AI/LLM workflows
@@ -72,7 +83,7 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
 
 ## Development Tools (Dev Profile)
 
-### 6. pgAdmin
+### 7. pgAdmin
 - **URL**: http://localhost:8080
 - **Description**: PostgreSQL administration
 - **Purpose**: Database management and administration
@@ -85,7 +96,7 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
   - Schema management
   - User management
 
-### 7. Redis Commander
+### 8. Redis Commander
 - **URL**: http://localhost:8081
 - **Description**: Redis management interface
 - **Purpose**: Monitor and manage Redis data
@@ -95,7 +106,7 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
   - Memory monitoring
   - Performance metrics
 
-### 8. Elasticsearch Head
+### 9. Elasticsearch Head
 - **URL**: http://localhost:9100
 - **Description**: Elasticsearch cluster management
 - **Purpose**: Advanced Elasticsearch administration
@@ -107,7 +118,13 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
 
 ## Monitoring Services (Monitoring Profile)
 
-### 9. Prometheus
+**Note**: Prometheus and Grafana are part of the monitoring profile and are not started by default. To start them, use:
+```bash
+cd mep_ainabox/services
+docker compose --profile monitoring up -d prometheus grafana
+```
+
+### 10. Prometheus
 - **URL**: http://localhost:9090
 - **Description**: Metrics collection and monitoring
 - **Purpose**: System metrics and alerting
@@ -117,8 +134,8 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
   - Query language
   - Service discovery
 
-### 10. Grafana
-- **URL**: http://localhost:3000
+### 11. Grafana
+- **URL**: http://localhost:3002
 - **Description**: Monitoring dashboards
 - **Purpose**: Advanced monitoring and visualization
 - **Default Credentials**:

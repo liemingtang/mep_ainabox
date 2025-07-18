@@ -20,7 +20,7 @@ services:
       - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
       - STORAGE_MANAGER_URL=http://storage-manager:8004
     ports:
-      - "8000:8000"
+      - "8011:8000"
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs

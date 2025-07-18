@@ -412,7 +412,7 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin_password}
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - ./volumes/grafana:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
