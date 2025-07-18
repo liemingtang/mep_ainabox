@@ -14,6 +14,7 @@ RECURSIVE=true
 MAX_DEPTH=""
 CONCURRENT=5
 SAVE_REPORT=""
+PROCESSOR_URL=""
 
 # Function to show usage
 show_usage() {
@@ -25,6 +26,7 @@ show_usage() {
     echo "  --max-depth <depth>    Maximum depth for recursive scanning"
     echo "  --concurrent <num>     Number of concurrent processing tasks (default: 5)"
     echo "  --save-report <file>   Save processing report to specific file"
+    echo "  --processor-url <url>  Core processor URL (default: http://localhost:8001)"
     echo "  --help, -h             Show this help message"
     echo ""
     echo "Examples:"
@@ -33,6 +35,7 @@ show_usage() {
     echo "  $0 /path/to/folder --max-depth 3"
     echo "  $0 /path/to/folder --no-recursive"
     echo "  $0 /path/to/folder --concurrent 10 --save-report my_report.json"
+    echo "  $0 /path/to/folder --processor-url http://localhost:8001"
 }
 
 # Parse command line arguments
@@ -58,6 +61,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --save-report)
             SAVE_REPORT="$2"
+            shift 2
+            ;;
+        --processor-url)
+            PROCESSOR_URL="$2"
             shift 2
             ;;
         --help|-h)
@@ -92,6 +99,12 @@ fi
 if [[ ! -d "$FOLDER_PATH" ]]; then
     echo "Error: Folder does not exist: $FOLDER_PATH"
     exit 1
+fi
+
+# Set environment variable if processor URL is provided
+if [[ -n "$PROCESSOR_URL" ]]; then
+    export CORE_PROCESSOR_URL="$PROCESSOR_URL"
+    echo "Using core processor URL: $PROCESSOR_URL"
 fi
 
 # Build the command
