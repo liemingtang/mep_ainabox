@@ -356,6 +356,54 @@ admin_state = {
 async def check_service_health(service_name: str, url: str) -> ServiceHealth:
     """Check health of a single service"""
     start_time = datetime.now()
+    
+    # Handle database services that don't have HTTP endpoints
+    if service_name in ["postgres", "redis"]:
+        try:
+            # Extract port from URL for database services
+            if service_name == "postgres":
+                port = 5432
+            elif service_name == "redis":
+                port = 6379
+            else:
+                port = 5432  # Default fallback
+            
+            # Check port connectivity
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            result = sock.connect_ex(("localhost", port))
+            sock.close()
+            
+            response_time = (datetime.now() - start_time).total_seconds()
+            
+            if result == 0:
+                return ServiceHealth(
+                    service=service_name,
+                    status="healthy",
+                    response_time=response_time,
+                    last_check=datetime.now(),
+                    details={"port": port, "connection": "successful"}
+                )
+            else:
+                return ServiceHealth(
+                    service=service_name,
+                    status="unhealthy",
+                    response_time=response_time,
+                    last_check=datetime.now(),
+                    details={"port": port, "connection": "failed", "error_code": result}
+                )
+        except Exception as e:
+            response_time = (datetime.now() - start_time).total_seconds()
+            return ServiceHealth(
+                service=service_name,
+                status="error",
+                response_time=response_time,
+                last_check=datetime.now(),
+                details={"error": str(e)}
+            )
+    
+    # Handle HTTP services
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             # Add authentication headers for specific services
