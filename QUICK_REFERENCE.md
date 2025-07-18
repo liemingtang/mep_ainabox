@@ -4,7 +4,18 @@ This guide provides essential information for working with the MEP AI NABOX syst
 
 ## 🚀 Quick Start Commands
 
-### Start the System
+### Option 1: Admin Mode (Recommended)
+```bash
+# Start admin mode with web interface
+cd mep_ainabox
+./start_admin.sh
+
+# Access dashboard and admin panel
+# Dashboard: http://localhost:8010
+# Admin Panel: http://localhost:8010/admin
+```
+
+### Option 2: Traditional Startup
 ```bash
 # Start infrastructure services
 cd mep_ainabox/services
@@ -47,6 +58,7 @@ python test_file_watcher.py
 
 | Service | Port | Description |
 |---------|------|-------------|
+| **Dashboard** | **8010** | **Web monitoring interface** |
 | API Gateway | 8000 | Main entry point |
 | Core Processor | 8001 | Document processing |
 | Document Router | 8002 | Document routing |
@@ -159,6 +171,39 @@ POST /api/v1/watch/process
 }
 ```
 
+### Dashboard (8010)
+```bash
+# Main dashboard
+GET /
+
+# Admin panel
+GET /admin
+
+# System health
+GET /api/health
+
+# Service status
+GET /api/services
+
+# Admin status
+GET /api/admin/status
+
+# Start all services
+POST /api/admin/start-services
+
+# Get startup logs
+GET /api/admin/startup-logs
+
+# Service details
+GET /service/{service_name}
+
+# Service logs
+GET /api/service/{service_name}/logs
+
+# Service metrics
+GET /api/service/{service_name}/metrics
+```
+
 ### API Gateway (8000)
 ```bash
 # Health check
@@ -225,6 +270,21 @@ ls -la core/watch_folder/
 
 # Restart file watcher if needed
 docker-compose restart file-watcher
+```
+
+#### Dashboard Issues
+```bash
+# Check if dashboard is running
+curl http://localhost:8010/api/health
+
+# Check dashboard logs
+tail -f core/logs/dashboard.log
+
+# Restart dashboard
+cd core && ./stop_dashboard_host.sh && ./start_dashboard_host.sh --background
+
+# Check if port 8010 is available
+netstat -tulpn | grep 8010
 ```
 
 #### Duplicate File Errors

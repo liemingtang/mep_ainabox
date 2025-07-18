@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Web Dashboard System**: Complete web-based monitoring and management interface
+  - **Host-based Dashboard**: Runs directly on host for better performance and access
+  - **Admin Panel**: Web-based service management with one-click startup
+  - **Real-time Monitoring**: Live service status, logs, and metrics
+  - **Service Management**: Start, stop, and monitor all services through web interface
+  - **Admin Startup Mode**: `start_admin.sh` script for easy system startup
+  - **Host Dashboard Scripts**: `start_dashboard_host.sh` and `stop_dashboard_host.sh`
+  - **Modern UI**: Responsive design with real-time updates and progress tracking
+  - **Service Details**: Individual service monitoring with logs, metrics, and configuration
+  - **Health Monitoring**: Automatic health checks and status updates
+  - **Startup Progress**: Real-time startup logs with visual progress tracking
+  - **Configuration Management**: Secure configuration viewing with sensitive data masking
+  - **Log Streaming**: Real-time log streaming with syntax highlighting
+  - **Metrics Collection**: Docker stats and service metrics collection
+  - **Error Handling**: Comprehensive error handling and user feedback
 - **File Watcher Service**: Complete implementation with full functionality
   - Real-time file monitoring using watchdog library
   - Automatic file detection and upload to core processor
@@ -59,6 +74,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Database schema initialization with proper UUID support
 
 ### Changed
+- **Dashboard Architecture**: Moved from Docker-based to host-based dashboard
+  - Dashboard now runs directly on host for better performance
+  - Removed dashboard service from docker-compose.yml
+  - Enhanced connectivity to local services and files
+  - Improved startup scripts with virtual environment management
+- **Startup Process**: Enhanced with admin mode and web-based management
+  - New `start_admin.sh` script for easy system startup
+  - Web-based service management through admin panel
+  - Real-time startup progress monitoring
+  - Improved service dependency management
 - **Docker Compose Configuration**: Enhanced file watcher service configuration
   - Proper environment variables and volume mounts
   - Port mappings and network configuration
@@ -82,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced database connection handling across all services
 
 ### Fixed
+- **Critical**: Dashboard template not found errors
+- **Critical**: Dashboard running from wrong directory issues
+- **Critical**: Docker container path resolution problems
+- **Critical**: Dashboard connectivity to localhost services
+- **Critical**: Admin panel startup log path resolution
+- **Critical**: Dashboard permission and environment variable loading
 - **Critical**: File watcher service startup and threading issues
 - **Critical**: UUID serialization in processing service
 - **Critical**: Datetime serialization in JSON operations

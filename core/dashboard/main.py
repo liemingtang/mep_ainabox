@@ -14,10 +14,12 @@ import asyncio
 import httpx
 import json
 import subprocess
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -331,6 +333,20 @@ class ServiceDetail(BaseModel):
     configuration: List[ConfigurationItem]
     logs: List[str]
     metrics: Dict[str, Any]
+
+class AdminStatus(BaseModel):
+    infrastructure_running: bool
+    core_system_running: bool
+    startup_in_progress: bool
+    startup_logs: List[str]
+    last_update: datetime
+
+# Global admin state
+admin_state = {
+    "startup_in_progress": False,
+    "startup_logs": [],
+    "startup_thread": None
+}
 
 async def check_service_health(service_name: str, url: str) -> ServiceHealth:
     """Check health of a single service"""
@@ -846,6 +862,196 @@ async def get_service_configuration_api(service_name: str):
         return {"service": service_name, "configuration": config}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting service configuration: {str(e)}")
+
+# Admin functions
+def check_infrastructure_services() -> bool:
+    """Check if infrastructure services are running"""
+    try:
+        # Check key infrastructure services
+        services_to_check = [
+            ("postgres", 5432),
+            ("elasticsearch", 9200),
+            ("qdrant", 6333),
+            ("redis", 6379)
+        ]
+        
+        for service_name, port in services_to_check:
+            try:
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                result = sock.connect_ex(("localhost", port))
+                sock.close()
+                if result != 0:
+                    return False
+            except:
+                return False
+        return True
+    except:
+        return False
+
+def check_core_services() -> bool:
+    """Check if core services are running"""
+    try:
+        # Check key core services
+        services_to_check = [
+            ("api-gateway", 8000),
+            ("core-processor", 8001),
+            ("file-watcher", 8009)
+        ]
+        
+        for service_name, port in services_to_check:
+            try:
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(2)
+                result = sock.connect_ex(("localhost", port))
+                sock.close()
+                if result != 0:
+                    return False
+            except:
+                return False
+        return True
+    except:
+        return False
+
+def startup_services():
+    """Start all services in the background"""
+    def startup_worker():
+        admin_state["startup_in_progress"] = True
+        admin_state["startup_logs"] = []
+        
+        try:
+            # Add initial log
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 Starting MEP AI NABOX services...")
+            
+            # Step 1: Start infrastructure services
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📦 Starting infrastructure services...")
+            
+            # Get the current working directory and navigate to services
+            # Since we're in host network mode, we need to find the project root
+            current_dir = os.getcwd()
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Current directory: {current_dir}")
+            
+            # Try to find the services directory
+            # Since the dashboard is now running on the host, we need to navigate to the project root
+            # The dashboard is in core/dashboard, so we need to go up two levels to reach the project root
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+            services_dir = os.path.join(project_root, 'services')
+            
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for services directory: {services_dir}")
+            
+            if os.path.exists(services_dir):
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found services directory")
+                os.chdir(services_dir)
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d"],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Infrastructure services started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to start infrastructure services: {result.stderr}")
+                    admin_state["startup_in_progress"] = False
+                    return
+            else:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Services directory not found: {services_dir}")
+                admin_state["startup_in_progress"] = False
+                return
+            
+            # Wait for infrastructure services to be ready
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏳ Waiting for infrastructure services to be ready...")
+            time.sleep(30)
+            
+            # Step 2: Start core services
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Starting core system services...")
+            
+            # Navigate to the core directory (where the current docker-compose.yml is)
+            # Since the dashboard is now running on the host, we need to go up one level from core/dashboard
+            core_dir = os.path.dirname(current_dir)
+            
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for core directory: {core_dir}")
+            
+            if os.path.exists(core_dir):
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found core directory")
+                os.chdir(core_dir)
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d"],
+                    capture_output=True, text=True, timeout=300
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Core system services started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to start core services: {result.stderr}")
+                    admin_state["startup_in_progress"] = False
+                    return
+            else:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Core directory not found: {core_dir}")
+                admin_state["startup_in_progress"] = False
+                return
+            
+            # Wait for core services to be ready
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏳ Waiting for core services to be ready...")
+            time.sleep(30)
+            
+            # Final status check
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Performing final health checks...")
+            
+            if check_infrastructure_services():
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Infrastructure services are healthy")
+            else:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Infrastructure services may have issues")
+            
+            if check_core_services():
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Core services are healthy")
+            else:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Core services may have issues")
+            
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎉 MEP AI NABOX startup completed!")
+            
+        except Exception as e:
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Startup failed with error: {str(e)}")
+        finally:
+            admin_state["startup_in_progress"] = False
+    
+    # Start the worker thread
+    if not admin_state["startup_in_progress"]:
+        admin_state["startup_thread"] = threading.Thread(target=startup_worker, daemon=True)
+        admin_state["startup_thread"].start()
+
+# Admin endpoints
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(request: Request):
+    """Admin panel page"""
+    return templates.TemplateResponse("admin.html", {"request": request})
+
+@app.get("/api/admin/status")
+async def get_admin_status():
+    """Get admin status and service states"""
+    return AdminStatus(
+        infrastructure_running=check_infrastructure_services(),
+        core_system_running=check_core_services(),
+        startup_in_progress=admin_state["startup_in_progress"],
+        startup_logs=admin_state["startup_logs"],
+        last_update=datetime.now()
+    )
+
+@app.post("/api/admin/start-services")
+async def start_all_services():
+    """Start all services"""
+    if admin_state["startup_in_progress"]:
+        raise HTTPException(status_code=400, detail="Startup already in progress")
+    
+    startup_services()
+    return {"message": "Service startup initiated", "status": "starting"}
+
+@app.get("/api/admin/startup-logs")
+async def get_startup_logs():
+    """Get startup logs"""
+    return {
+        "logs": admin_state["startup_logs"],
+        "in_progress": admin_state["startup_in_progress"]
+    }
 
 if __name__ == "__main__":
     import uvicorn
