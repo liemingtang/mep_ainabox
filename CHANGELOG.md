@@ -73,6 +73,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured JSON logging throughout the system
 - File permission management in startup scripts
 - Database schema initialization with proper UUID support
+- **Service Admin UI Integration**: Direct access to service admin interfaces
+  - MinIO Console (port 9001) for object storage management
+  - Kibana (port 5601) for Elasticsearch visualization
+  - Neo4j Browser (port 7474) for graph database interface
+  - n8n Workflows (port 5678) for automation platform
+  - Flowise (port 3001) for LLM flow builder
+  - pgAdmin (port 8080) for PostgreSQL administration
+  - Redis Commander (port 8081) for Redis management
+  - Elasticsearch Head (port 9100) for cluster management
+  - Prometheus (port 9090) for metrics collection
+  - Grafana (port 3000) for monitoring dashboards
+- **Service Admin UIs Reference**: Comprehensive documentation for all service interfaces
 
 ### Changed
 - **Dashboard Architecture**: Moved from Docker-based to host-based dashboard

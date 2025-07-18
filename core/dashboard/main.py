@@ -97,7 +97,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/documents", "/stats", "/metrics"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/core-processor.log", "/app/logs/app.log"],
-        "docker_container": "mep-core-processor"
+        "docker_container": "mep-core-processor",
+        "admin_ui": None
     },
     "file-watcher": {
         "name": "File Watcher",
@@ -107,7 +108,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/api/v1/watch/status", "/api/v1/watch/processed"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/file-watcher.log", "/app/logs/app.log"],
-        "docker_container": "mep-file-watcher"
+        "docker_container": "mep-file-watcher",
+        "admin_ui": None
     },
     "storage-manager": {
         "name": "Storage Manager",
@@ -117,7 +119,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/storage/stats", "/storage/backup"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/storage-manager.log", "/app/logs/app.log"],
-        "docker_container": "mep-storage-manager"
+        "docker_container": "mep-storage-manager",
+        "admin_ui": None
     },
     "text-processor": {
         "name": "Text Processor",
@@ -127,7 +130,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/extract-text", "/process"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/text-processor.log", "/app/logs/app.log"],
-        "docker_container": "mep-text-processor"
+        "docker_container": "mep-text-processor",
+        "admin_ui": None
     },
     "metadata-processor": {
         "name": "Metadata Processor",
@@ -137,7 +141,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/extract-metadata", "/validate"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/metadata-processor.log", "/app/logs/app.log"],
-        "docker_container": "mep-metadata-processor"
+        "docker_container": "mep-metadata-processor",
+        "admin_ui": None
     },
     "embedding-processor": {
         "name": "Embedding Processor",
@@ -147,7 +152,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/generate-embeddings", "/similarity"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/embedding-processor.log", "/app/logs/app.log"],
-        "docker_container": "mep-embedding-processor"
+        "docker_container": "mep-embedding-processor",
+        "admin_ui": None
     },
     "entity-processor": {
         "name": "Entity Processor",
@@ -157,7 +163,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/extract-entities", "/relationships"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/entity-processor.log", "/app/logs/app.log"],
-        "docker_container": "mep-entity-processor"
+        "docker_container": "mep-entity-processor",
+        "admin_ui": None
     },
     "processing-pipeline": {
         "name": "Processing Pipeline",
@@ -167,7 +174,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/pipeline/status", "/pipeline/start"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/processing-pipeline.log", "/app/logs/app.log"],
-        "docker_container": "mep-processing-pipeline"
+        "docker_container": "mep-processing-pipeline",
+        "admin_ui": None
     },
     "document-router": {
         "name": "Document Router",
@@ -177,7 +185,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/route", "/analyze"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/document-router.log", "/app/logs/app.log"],
-        "docker_container": "mep-document-router"
+        "docker_container": "mep-document-router",
+        "admin_ui": None
     },
     "api-gateway": {
         "name": "API Gateway",
@@ -187,7 +196,8 @@ SERVICE_INFO = {
         "endpoints": ["/health", "/api/v1/documents", "/api/v1/search"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/api-gateway.log", "/app/logs/app.log"],
-        "docker_container": "mep-api-gateway"
+        "docker_container": "mep-api-gateway",
+        "admin_ui": None
     },
     "elasticsearch": {
         "name": "Elasticsearch",
@@ -197,7 +207,12 @@ SERVICE_INFO = {
         "endpoints": ["/_cluster/health", "/_cat/indices", "/_stats"],
         "config_paths": ["/usr/share/elasticsearch/config/elasticsearch.yml"],
         "log_paths": ["/usr/share/elasticsearch/logs/elasticsearch.log"],
-        "docker_container": "mep-elasticsearch"
+        "docker_container": "mep-elasticsearch",
+        "admin_ui": {
+            "url": "http://localhost:5601",
+            "name": "Kibana",
+            "description": "Elasticsearch management and visualization"
+        }
     },
     "qdrant": {
         "name": "Qdrant",
@@ -207,7 +222,8 @@ SERVICE_INFO = {
         "endpoints": ["/collections", "/health", "/metrics"],
         "config_paths": ["/qdrant/config/config.yaml"],
         "log_paths": ["/qdrant/logs/qdrant.log"],
-        "docker_container": "mep-qdrant"
+        "docker_container": "mep-qdrant",
+        "admin_ui": None
     },
     "neo4j": {
         "name": "Neo4j",
@@ -217,7 +233,12 @@ SERVICE_INFO = {
         "endpoints": ["/db/data/", "/browser/", "/metrics"],
         "config_paths": ["/conf/neo4j.conf"],
         "log_paths": ["/logs/neo4j.log", "/logs/debug.log"],
-        "docker_container": "mep-neo4j"
+        "docker_container": "mep-neo4j",
+        "admin_ui": {
+            "url": "http://localhost:7474",
+            "name": "Neo4j Browser",
+            "description": "Graph database interface"
+        }
     },
     "postgres": {
         "name": "PostgreSQL",
@@ -227,7 +248,12 @@ SERVICE_INFO = {
         "endpoints": ["/health"],
         "config_paths": ["/etc/postgresql/postgresql.conf"],
         "log_paths": ["/var/log/postgresql/postgresql.log"],
-        "docker_container": "mep-postgres"
+        "docker_container": "mep-postgres",
+        "admin_ui": {
+            "url": "http://localhost:8080",
+            "name": "pgAdmin",
+            "description": "PostgreSQL administration"
+        }
     },
     "redis": {
         "name": "Redis",
@@ -237,7 +263,12 @@ SERVICE_INFO = {
         "endpoints": ["/health"],
         "config_paths": ["/usr/local/etc/redis/redis.conf"],
         "log_paths": ["/var/log/redis/redis.log"],
-        "docker_container": "mep-redis"
+        "docker_container": "mep-redis",
+        "admin_ui": {
+            "url": "http://localhost:8081",
+            "name": "Redis Commander",
+            "description": "Redis management interface"
+        }
     },
     "minio": {
         "name": "MinIO",
@@ -247,7 +278,12 @@ SERVICE_INFO = {
         "endpoints": ["/minio/health/live", "/minio/health/ready"],
         "config_paths": ["/etc/minio/minio.conf"],
         "log_paths": ["/var/log/minio/minio.log"],
-        "docker_container": "mep-minio"
+        "docker_container": "mep-minio",
+        "admin_ui": {
+            "url": "http://localhost:9001",
+            "name": "MinIO Console",
+            "description": "Object storage management interface"
+        }
     },
     "flowise": {
         "name": "Flowise",
@@ -257,7 +293,57 @@ SERVICE_INFO = {
         "endpoints": ["/", "/api/v1/flows", "/api/v1/chatflows"],
         "config_paths": ["/usr/src/app/config/flowise.json"],
         "log_paths": ["/usr/src/app/logs/flowise.log"],
-        "docker_container": "mep-flowise"
+        "docker_container": "mep-flowise",
+        "admin_ui": {
+            "url": "http://localhost:3001",
+            "name": "Flowise",
+            "description": "LLM Flow Builder"
+        }
+    },
+    "n8n": {
+        "name": "n8n",
+        "description": "Workflow automation platform",
+        "port": 5678,
+        "url": "http://localhost:5678",
+        "endpoints": ["/", "/healthz", "/api/v1/workflows"],
+        "config_paths": ["/home/node/.n8n/config"],
+        "log_paths": ["/home/node/.n8n/logs"],
+        "docker_container": "mep-n8n",
+        "admin_ui": {
+            "url": "http://localhost:5678",
+            "name": "n8n Workflows",
+            "description": "Workflow automation platform"
+        }
+    },
+    "prometheus": {
+        "name": "Prometheus",
+        "description": "Metrics collection and monitoring",
+        "port": 9090,
+        "url": "http://localhost:9090",
+        "endpoints": ["/", "/metrics", "/api/v1/status"],
+        "config_paths": ["/etc/prometheus/prometheus.yml"],
+        "log_paths": ["/prometheus/prometheus.log"],
+        "docker_container": "mep-prometheus",
+        "admin_ui": {
+            "url": "http://localhost:9090",
+            "name": "Prometheus",
+            "description": "Metrics collection and monitoring"
+        }
+    },
+    "grafana": {
+        "name": "Grafana",
+        "description": "Monitoring dashboards",
+        "port": 3000,
+        "url": "http://localhost:3000",
+        "endpoints": ["/", "/api/health", "/api/datasources"],
+        "config_paths": ["/etc/grafana/grafana.ini"],
+        "log_paths": ["/var/log/grafana/grafana.log"],
+        "docker_container": "mep-grafana",
+        "admin_ui": {
+            "url": "http://localhost:3000",
+            "name": "Grafana",
+            "description": "Monitoring dashboards"
+        }
     }
 }
 
@@ -279,7 +365,10 @@ SERVICES = {
     "postgres": "http://localhost:5432",
     "redis": "http://localhost:6379",
     "minio": "http://localhost:9000/minio/health/live",
-    "flowise": "http://localhost:3001/"
+    "flowise": "http://localhost:3001/",
+    "n8n": "http://localhost:5678/healthz",
+    "prometheus": "http://localhost:9090/",
+    "grafana": "http://localhost:3000/"
 }
 
 app = FastAPI(title="MDIS Dashboard", version="1.0.0")
@@ -333,6 +422,7 @@ class ServiceDetail(BaseModel):
     configuration: List[ConfigurationItem]
     logs: List[str]
     metrics: Dict[str, Any]
+    admin_ui: Optional[Dict[str, str]] = None
 
 class AdminStatus(BaseModel):
     infrastructure_running: bool
@@ -881,7 +971,8 @@ async def get_service_detail(service_name: str):
             description=service_info.get("description", ""),
             configuration=service_config,
             logs=logs,
-            metrics=metrics
+            metrics=metrics,
+            admin_ui=service_info.get("admin_ui")
         )
         
         return service_detail

@@ -131,10 +131,16 @@
                     </div>
                 </div>
                 <div class="col-md-4 text-end">
-                    <button class="btn btn-light" onclick="refreshServiceData()">
+                    <button class="btn btn-light me-2" onclick="refreshServiceData()">
                         <i class="fas fa-sync-alt me-1"></i>
                         Refresh
                     </button>
+                    <div id="admin-ui-button" style="display: none;">
+                        <a href="#" target="_blank" class="btn btn-primary">
+                            <i class="fas fa-external-link-alt me-1"></i>
+                            <span id="admin-ui-text">Admin UI</span>
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -283,6 +289,19 @@
             const statusBadge = document.getElementById('service-status');
             statusBadge.textContent = data.status;
             statusBadge.className = `badge status-badge me-3 ${getStatusClass(data.status)}`;
+
+            // Handle admin UI button
+            const adminUiButton = document.getElementById('admin-ui-button');
+            const adminUiLink = adminUiButton.querySelector('a');
+            const adminUiText = document.getElementById('admin-ui-text');
+            
+            if (data.admin_ui) {
+                adminUiLink.href = data.admin_ui.url;
+                adminUiText.textContent = data.admin_ui.name;
+                adminUiButton.style.display = 'inline-block';
+            } else {
+                adminUiButton.style.display = 'none';
+            }
 
             // Render overview
             renderOverview(data);

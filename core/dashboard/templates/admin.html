@@ -248,6 +248,21 @@
             <div class="service-grid" id="serviceGrid">
                 <!-- Service cards will be populated here -->
             </div>
+
+            <!-- Service Admin UIs Section -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-external-link-alt me-2"></i>
+                        Service Admin Interfaces
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row" id="service-uis">
+                        <!-- Service UI links will be populated here -->
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -282,6 +297,7 @@
                 
                 updateStatusDisplay(status);
                 updateServiceGrid(status);
+                updateServiceUIs();
             } catch (error) {
                 console.error('Error loading admin status:', error);
             }
@@ -378,6 +394,105 @@
                     </div>
                 `;
                 grid.appendChild(card);
+            });
+        }
+
+        function updateServiceUIs() {
+            const container = document.getElementById('service-uis');
+            container.innerHTML = '';
+
+            const serviceUIs = [
+                {
+                    name: 'MinIO Console',
+                    description: 'Object storage management interface',
+                    url: 'http://localhost:9001',
+                    icon: 'fas fa-database',
+                    color: 'primary'
+                },
+                {
+                    name: 'Kibana',
+                    description: 'Elasticsearch management and visualization',
+                    url: 'http://localhost:5601',
+                    icon: 'fas fa-search',
+                    color: 'success'
+                },
+                {
+                    name: 'Neo4j Browser',
+                    description: 'Graph database interface',
+                    url: 'http://localhost:7474',
+                    icon: 'fas fa-project-diagram',
+                    color: 'info'
+                },
+                {
+                    name: 'n8n Workflows',
+                    description: 'Workflow automation platform',
+                    url: 'http://localhost:5678',
+                    icon: 'fas fa-sitemap',
+                    color: 'warning'
+                },
+                {
+                    name: 'Flowise',
+                    description: 'LLM Flow Builder',
+                    url: 'http://localhost:3001',
+                    icon: 'fas fa-brain',
+                    color: 'dark'
+                },
+                {
+                    name: 'pgAdmin',
+                    description: 'PostgreSQL administration',
+                    url: 'http://localhost:8080',
+                    icon: 'fas fa-server',
+                    color: 'secondary'
+                },
+                {
+                    name: 'Redis Commander',
+                    description: 'Redis management interface',
+                    url: 'http://localhost:8081',
+                    icon: 'fas fa-memory',
+                    color: 'danger'
+                },
+                {
+                    name: 'Elasticsearch Head',
+                    description: 'Elasticsearch cluster management',
+                    url: 'http://localhost:9100',
+                    icon: 'fas fa-heading',
+                    color: 'success'
+                },
+                {
+                    name: 'Prometheus',
+                    description: 'Metrics collection and monitoring',
+                    url: 'http://localhost:9090',
+                    icon: 'fas fa-chart-line',
+                    color: 'warning'
+                },
+                {
+                    name: 'Grafana',
+                    description: 'Monitoring dashboards',
+                    url: 'http://localhost:3000',
+                    icon: 'fas fa-chart-bar',
+                    color: 'info'
+                }
+            ];
+
+            serviceUIs.forEach(service => {
+                const col = document.createElement('div');
+                col.className = 'col-md-6 col-lg-4 mb-3';
+                col.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-body text-center">
+                            <div class="mb-3">
+                                <i class="${service.icon} fa-2x text-${service.color}"></i>
+                            </div>
+                            <h6 class="card-title">${service.name}</h6>
+                            <p class="card-text text-muted small">${service.description}</p>
+                            <a href="${service.url}" target="_blank" class="btn btn-outline-${service.color} btn-sm">
+                                <i class="fas fa-external-link-alt me-1"></i>
+                                Open Interface
+                            </a>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(col);
             });
         }
 
