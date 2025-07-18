@@ -361,6 +361,8 @@ services:
       - NEO4J_PASSWORD=neo4j_password
     volumes:
       - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config:/app/config:ro
     # No depends_on - dashboard is independent
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8010/api/health"]

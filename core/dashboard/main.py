@@ -13,6 +13,7 @@ import os
 import asyncio
 import httpx
 import json
+import subprocess
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, HTTPException, Request
@@ -26,7 +27,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Service URLs
+# Service URLs - Use localhost with host-gateway mapping
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://localhost:8001")
 FILE_WATCHER_URL = os.getenv("FILE_WATCHER_URL", "http://localhost:8009")
 STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://localhost:8004")
@@ -38,6 +39,225 @@ NEO4J_URL = os.getenv("NEO4J_URL", "http://localhost:7474")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j_password")
+
+# Configuration management
+CONFIG_FILE = "config/dashboard_config.json"
+os.makedirs("config", exist_ok=True)
+
+# Default configuration items
+DEFAULT_CONFIG = {
+    "api_keys": [
+        {"key": "OPENAI_API_KEY", "value": "", "description": "OpenAI API key for text processing", "category": "api_keys", "is_sensitive": True},
+        {"key": "ANTHROPIC_API_KEY", "value": "", "description": "Anthropic API key for Claude models", "category": "api_keys", "is_sensitive": True},
+        {"key": "HUGGINGFACE_API_TOKEN", "value": "", "description": "Hugging Face API token", "category": "api_keys", "is_sensitive": True},
+        {"key": "QDRANT_API_KEY", "value": QDRANT_API_KEY, "description": "Qdrant vector database API key", "category": "api_keys", "is_sensitive": True},
+    ],
+    "service_endpoints": [
+        {"key": "CORE_PROCESSOR_URL", "value": CORE_PROCESSOR_URL, "description": "Core processor service URL", "category": "service_endpoints"},
+        {"key": "FILE_WATCHER_URL", "value": FILE_WATCHER_URL, "description": "File watcher service URL", "category": "service_endpoints"},
+        {"key": "STORAGE_MANAGER_URL", "value": STORAGE_MANAGER_URL, "description": "Storage manager service URL", "category": "service_endpoints"},
+        {"key": "ELASTICSEARCH_URL", "value": ELASTICSEARCH_URL, "description": "Elasticsearch service URL", "category": "service_endpoints"},
+        {"key": "QDRANT_URL", "value": QDRANT_URL, "description": "Qdrant vector database URL", "category": "service_endpoints"},
+        {"key": "NEO4J_URL", "value": NEO4J_URL, "description": "Neo4j graph database URL", "category": "service_endpoints"},
+    ],
+    "database_credentials": [
+        {"key": "POSTGRES_HOST", "value": "localhost", "description": "PostgreSQL database host", "category": "database_credentials"},
+        {"key": "POSTGRES_PORT", "value": "5432", "description": "PostgreSQL database port", "category": "database_credentials"},
+        {"key": "POSTGRES_DB", "value": "mep_ainabox", "description": "PostgreSQL database name", "category": "database_credentials"},
+        {"key": "POSTGRES_USER", "value": "mep_user", "description": "PostgreSQL database user", "category": "database_credentials"},
+        {"key": "POSTGRES_PASSWORD", "value": "", "description": "PostgreSQL database password", "category": "database_credentials", "is_sensitive": True},
+        {"key": "NEO4J_USER", "value": NEO4J_USER, "description": "Neo4j database user", "category": "database_credentials"},
+        {"key": "NEO4J_PASSWORD", "value": NEO4J_PASSWORD, "description": "Neo4j database password", "category": "database_credentials", "is_sensitive": True},
+    ],
+    "system_settings": [
+        {"key": "ADMIN_EMAIL", "value": "admin@example.com", "description": "Administrator email address", "category": "system_settings"},
+        {"key": "SYSTEM_ENVIRONMENT", "value": "development", "description": "System environment (development/production)", "category": "system_settings"},
+        {"key": "DEBUG", "value": "true", "description": "Enable debug mode", "category": "system_settings"},
+        {"key": "LOG_LEVEL", "value": "INFO", "description": "Logging level", "category": "system_settings"},
+        {"key": "MAX_FILE_SIZE", "value": "100MB", "description": "Maximum file size for processing", "category": "system_settings"},
+        {"key": "SUPPORTED_FORMATS", "value": "pdf,docx,txt,html", "description": "Supported document formats", "category": "system_settings"},
+    ],
+    "processing_settings": [
+        {"key": "EMBEDDING_MODEL", "value": "text-embedding-ada-002", "description": "Default embedding model", "category": "processing_settings"},
+        {"key": "TEXT_MODEL", "value": "gpt-3.5-turbo", "description": "Default text processing model", "category": "processing_settings"},
+        {"key": "BATCH_SIZE", "value": "10", "description": "Processing batch size", "category": "processing_settings"},
+        {"key": "TIMEOUT_SECONDS", "value": "300", "description": "Processing timeout in seconds", "category": "processing_settings"},
+    ]
+}
+
+# Service information with enhanced configuration and metrics endpoints
+SERVICE_INFO = {
+    "core-processor": {
+        "name": "Core Processor",
+        "description": "Main document processing orchestrator",
+        "port": 8001,
+        "url": CORE_PROCESSOR_URL,
+        "endpoints": ["/health", "/documents", "/stats", "/metrics"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/core-processor.log", "/app/logs/app.log"],
+        "docker_container": "mep-core-processor"
+    },
+    "file-watcher": {
+        "name": "File Watcher",
+        "description": "Monitors folders for new documents",
+        "port": 8009,
+        "url": FILE_WATCHER_URL,
+        "endpoints": ["/health", "/api/v1/watch/status", "/api/v1/watch/processed"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/file-watcher.log", "/app/logs/app.log"],
+        "docker_container": "mep-file-watcher"
+    },
+    "storage-manager": {
+        "name": "Storage Manager",
+        "description": "Unified data storage and retrieval interface",
+        "port": 8004,
+        "url": STORAGE_MANAGER_URL,
+        "endpoints": ["/health", "/storage/stats", "/storage/backup"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/storage-manager.log", "/app/logs/app.log"],
+        "docker_container": "mep-storage-manager"
+    },
+    "text-processor": {
+        "name": "Text Processor",
+        "description": "Text extraction and cleaning service",
+        "port": 8005,
+        "url": "http://localhost:8005",
+        "endpoints": ["/health", "/extract-text", "/process"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/text-processor.log", "/app/logs/app.log"],
+        "docker_container": "mep-text-processor"
+    },
+    "metadata-processor": {
+        "name": "Metadata Processor",
+        "description": "Metadata extraction and validation service",
+        "port": 8006,
+        "url": "http://localhost:8006",
+        "endpoints": ["/health", "/extract-metadata", "/validate"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/metadata-processor.log", "/app/logs/app.log"],
+        "docker_container": "mep-metadata-processor"
+    },
+    "embedding-processor": {
+        "name": "Embedding Processor",
+        "description": "Vector embedding generation service",
+        "port": 8007,
+        "url": "http://localhost:8007",
+        "endpoints": ["/health", "/generate-embeddings", "/similarity"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/embedding-processor.log", "/app/logs/app.log"],
+        "docker_container": "mep-embedding-processor"
+    },
+    "entity-processor": {
+        "name": "Entity Processor",
+        "description": "Entity extraction and relationship mapping",
+        "port": 8008,
+        "url": "http://localhost:8008",
+        "endpoints": ["/health", "/extract-entities", "/relationships"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/entity-processor.log", "/app/logs/app.log"],
+        "docker_container": "mep-entity-processor"
+    },
+    "processing-pipeline": {
+        "name": "Processing Pipeline",
+        "description": "Orchestrated document processing workflow",
+        "port": 8003,
+        "url": "http://localhost:8003",
+        "endpoints": ["/health", "/pipeline/status", "/pipeline/start"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/processing-pipeline.log", "/app/logs/app.log"],
+        "docker_container": "mep-processing-pipeline"
+    },
+    "document-router": {
+        "name": "Document Router",
+        "description": "Intelligent document routing and analysis",
+        "port": 8002,
+        "url": "http://localhost:8002",
+        "endpoints": ["/health", "/route", "/analyze"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/document-router.log", "/app/logs/app.log"],
+        "docker_container": "mep-document-router"
+    },
+    "api-gateway": {
+        "name": "API Gateway",
+        "description": "Unified entry point for all client interactions",
+        "port": 8000,
+        "url": "http://localhost:8000",
+        "endpoints": ["/health", "/api/v1/documents", "/api/v1/search"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/api-gateway.log", "/app/logs/app.log"],
+        "docker_container": "mep-api-gateway"
+    },
+    "elasticsearch": {
+        "name": "Elasticsearch",
+        "description": "Full-text search and content indexing",
+        "port": 9200,
+        "url": ELASTICSEARCH_URL,
+        "endpoints": ["/_cluster/health", "/_cat/indices", "/_stats"],
+        "config_paths": ["/usr/share/elasticsearch/config/elasticsearch.yml"],
+        "log_paths": ["/usr/share/elasticsearch/logs/elasticsearch.log"],
+        "docker_container": "mep-elasticsearch"
+    },
+    "qdrant": {
+        "name": "Qdrant",
+        "description": "Vector embeddings for semantic search",
+        "port": 6333,
+        "url": QDRANT_URL,
+        "endpoints": ["/collections", "/health", "/metrics"],
+        "config_paths": ["/qdrant/config/config.yaml"],
+        "log_paths": ["/qdrant/logs/qdrant.log"],
+        "docker_container": "mep-qdrant"
+    },
+    "neo4j": {
+        "name": "Neo4j",
+        "description": "Graph relationships and entity mapping",
+        "port": 7474,
+        "url": NEO4J_URL,
+        "endpoints": ["/db/data/", "/browser/", "/metrics"],
+        "config_paths": ["/conf/neo4j.conf"],
+        "log_paths": ["/logs/neo4j.log", "/logs/debug.log"],
+        "docker_container": "mep-neo4j"
+    },
+    "postgres": {
+        "name": "PostgreSQL",
+        "description": "Primary metadata database",
+        "port": 5432,
+        "url": "http://localhost:5432",
+        "endpoints": ["/health"],
+        "config_paths": ["/etc/postgresql/postgresql.conf"],
+        "log_paths": ["/var/log/postgresql/postgresql.log"],
+        "docker_container": "mep-postgres"
+    },
+    "redis": {
+        "name": "Redis",
+        "description": "Caching and session management",
+        "port": 6379,
+        "url": "http://localhost:6379",
+        "endpoints": ["/health"],
+        "config_paths": ["/usr/local/etc/redis/redis.conf"],
+        "log_paths": ["/var/log/redis/redis.log"],
+        "docker_container": "mep-redis"
+    },
+    "minio": {
+        "name": "MinIO",
+        "description": "Object storage for files and embeddings",
+        "port": 9000,
+        "url": "http://localhost:9000",
+        "endpoints": ["/minio/health/live", "/minio/health/ready"],
+        "config_paths": ["/etc/minio/minio.conf"],
+        "log_paths": ["/var/log/minio/minio.log"],
+        "docker_container": "mep-minio"
+    },
+    "flowise": {
+        "name": "Flowise",
+        "description": "LLM Flow Builder",
+        "port": 3001,
+        "url": "http://localhost:3001",
+        "endpoints": ["/", "/api/v1/flows", "/api/v1/chatflows"],
+        "config_paths": ["/usr/src/app/config/flowise.json"],
+        "log_paths": ["/usr/src/app/logs/flowise.log"],
+        "docker_container": "mep-flowise"
+    }
+}
 
 # Service endpoints for health checks
 SERVICES = {
@@ -54,20 +274,17 @@ SERVICES = {
     "elasticsearch": f"{ELASTICSEARCH_URL}/_cluster/health",
     "qdrant": f"{QDRANT_URL}/collections",
     "neo4j": f"{NEO4J_URL}/db/data/",
+    "postgres": "http://localhost:5432",
+    "redis": "http://localhost:6379",
+    "minio": "http://localhost:9000/minio/health/live",
+    "flowise": "http://localhost:3001/"
 }
 
 app = FastAPI(title="MDIS Dashboard", version="1.0.0")
 
-# Create templates directory
-os.makedirs("templates", exist_ok=True)
-os.makedirs("static", exist_ok=True)
-os.makedirs("static/css", exist_ok=True)
-os.makedirs("static/js", exist_ok=True)
-
-templates = Jinja2Templates(directory="templates")
-
-# Mount static files
+# Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
 class ServiceHealth(BaseModel):
     service: str
@@ -96,6 +313,24 @@ class DashboardStats(BaseModel):
     total_services: int
     elasticsearch_docs: int
     qdrant_collections: int
+
+class ConfigurationItem(BaseModel):
+    key: str
+    value: str
+    description: str
+    category: str
+    is_sensitive: bool = False
+    is_required: bool = True
+
+class ServiceDetail(BaseModel):
+    name: str
+    status: str
+    url: str
+    port: int
+    description: str
+    configuration: List[ConfigurationItem]
+    logs: List[str]
+    metrics: Dict[str, Any]
 
 async def check_service_health(service_name: str, url: str) -> ServiceHealth:
     """Check health of a single service"""
@@ -194,6 +429,222 @@ async def get_elasticsearch_stats() -> Dict:
     except Exception as e:
         logger.error(f"Error getting Elasticsearch stats: {e}")
         return {"total_documents": 0, "indices": []}
+
+def load_configuration() -> Dict:
+    """Load configuration from file or create default"""
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        else:
+            # Create default configuration
+            save_configuration(DEFAULT_CONFIG)
+            return DEFAULT_CONFIG
+    except Exception as e:
+        logger.error(f"Error loading configuration: {e}")
+        return DEFAULT_CONFIG
+
+def save_configuration(config: Dict):
+    """Save configuration to file"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving configuration: {e}")
+
+async def get_service_logs(service_name: str, lines: int = 50) -> List[str]:
+    """Get recent logs for a service"""
+    try:
+        service_info = SERVICE_INFO.get(service_name, {})
+        docker_container = service_info.get("docker_container")
+        
+        # First try to get logs from Docker container (most reliable)
+        if docker_container:
+            try:
+                result = subprocess.run(
+                    ["docker", "logs", docker_container, "--tail", str(lines)],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip().split('\n')
+                else:
+                    logger.warning(f"Docker logs command failed for {docker_container}: {result.stderr}")
+            except Exception as e:
+                logger.warning(f"Error getting Docker logs for {docker_container}: {e}")
+        
+        # Fallback to local log files
+        log_paths = service_info.get("log_paths", [])
+        for log_path in log_paths:
+            if os.path.exists(log_path):
+                try:
+                    with open(log_path, 'r') as f:
+                        lines_list = f.readlines()
+                        return lines_list[-lines:] if len(lines_list) > lines else lines_list
+                except Exception as e:
+                    logger.warning(f"Error reading log file {log_path}: {e}")
+            else:
+                logger.warning(f"Log file not found at {log_path}")
+        
+        # Try alternative log locations
+        alternative_logs = [
+            f"logs/{service_name}.log",
+            f"logs/app.log",
+            f"../logs/{service_name}.log",
+            f"../logs/app.log"
+        ]
+        
+        for alt_log in alternative_logs:
+            if os.path.exists(alt_log):
+                try:
+                    with open(alt_log, 'r') as f:
+                        lines_list = f.readlines()
+                        return lines_list[-lines:] if len(lines_list) > lines else lines_list
+                except Exception as e:
+                    logger.warning(f"Error reading alternative log file {alt_log}: {e}")
+        
+        return [f"No logs available for {service_name}. Try checking Docker logs manually: docker logs {docker_container}"]
+    except Exception as e:
+        logger.error(f"Error getting logs for {service_name}: {e}")
+        return [f"Error retrieving logs: {str(e)}"]
+
+async def get_service_metrics(service_name: str) -> Dict[str, Any]:
+    """Get metrics for a service"""
+    try:
+        service_info = SERVICE_INFO.get(service_name, {})
+        service_url = service_info.get("url", "")
+        
+        if not service_url:
+            return {"error": "Service URL not found"}
+        
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            headers = {}
+            if service_name == "qdrant":
+                headers["api-key"] = QDRANT_API_KEY
+            
+            # Try different metrics endpoints based on service type
+            metrics_endpoints = [
+                "/metrics",
+                "/health",
+                "/stats",
+                "/status",
+                "/_cluster/health",  # Elasticsearch
+                "/collections",      # Qdrant
+                "/db/data/"          # Neo4j
+            ]
+            
+            for endpoint in metrics_endpoints:
+                try:
+                    full_url = service_url + endpoint
+                    response = await client.get(full_url, headers=headers, timeout=5.0)
+                    if response.status_code == 200:
+                        data = response.json() if response.headers.get("content-type", "").startswith("application/json") else {"raw_response": response.text}
+                        return data
+                except Exception as e:
+                    logger.debug(f"Failed to get metrics from {endpoint} for {service_name}: {e}")
+                    continue
+            
+            # If no metrics endpoint works, try to get basic service info
+            try:
+                # Get Docker container stats
+                docker_container = service_info.get("docker_container")
+                if docker_container:
+                    result = subprocess.run(
+                        ["docker", "stats", docker_container, "--no-stream", "--format", "json"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0:
+                        import json
+                        stats = json.loads(result.stdout.strip())
+                        return {
+                            "container_stats": stats,
+                            "service_info": {
+                                "name": service_info.get("name", service_name),
+                                "port": service_info.get("port", "N/A"),
+                                "description": service_info.get("description", "")
+                            }
+                        }
+            except Exception as e:
+                logger.debug(f"Failed to get Docker stats for {service_name}: {e}")
+            
+            return {"error": f"Unable to retrieve metrics for {service_name}"}
+    except Exception as e:
+        logger.error(f"Error getting metrics for {service_name}: {e}")
+        return {"error": str(e)}
+
+async def get_service_configuration(service_name: str) -> List[ConfigurationItem]:
+    """Get configuration for a specific service"""
+    try:
+        service_info = SERVICE_INFO.get(service_name, {})
+        config_items = []
+        
+        # Get global configuration
+        global_config = load_configuration()
+        for category, items in global_config.items():
+            for item in items:
+                if service_name in item.get("key", "").lower() or service_name in item.get("description", "").lower():
+                    config_items.append(ConfigurationItem(**item))
+        
+        # Try to get service-specific configuration files
+        config_paths = service_info.get("config_paths", [])
+        for config_path in config_paths:
+            try:
+                if os.path.exists(config_path):
+                    with open(config_path, 'r') as f:
+                        content = f.read()
+                        config_items.append(ConfigurationItem(
+                            key=f"config_file_{os.path.basename(config_path)}",
+                            value=content[:500] + "..." if len(content) > 500 else content,
+                            description=f"Configuration file: {config_path}",
+                            category="service_config",
+                            is_sensitive=False
+                        ))
+                else:
+                    # Try to get config from Docker container
+                    docker_container = service_info.get("docker_container")
+                    if docker_container:
+                        result = subprocess.run(
+                            ["docker", "exec", docker_container, "cat", config_path],
+                            capture_output=True, text=True, timeout=10
+                        )
+                        if result.returncode == 0:
+                            content = result.stdout
+                            config_items.append(ConfigurationItem(
+                                key=f"config_file_{os.path.basename(config_path)}",
+                                value=content[:500] + "..." if len(content) > 500 else content,
+                                description=f"Configuration file from container: {config_path}",
+                                category="service_config",
+                                is_sensitive=False
+                            ))
+            except Exception as e:
+                logger.debug(f"Failed to read config file {config_path} for {service_name}: {e}")
+        
+        # Add service environment variables
+        docker_container = service_info.get("docker_container")
+        if docker_container:
+            try:
+                result = subprocess.run(
+                    ["docker", "inspect", docker_container, "--format", "{{range .Config.Env}}{{.}}{{\"\\n\"}}{{end}}"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if result.returncode == 0:
+                    env_vars = result.stdout.strip().split('\n')
+                    for env_var in env_vars[:10]:  # Limit to first 10 env vars
+                        if '=' in env_var:
+                            key, value = env_var.split('=', 1)
+                            config_items.append(ConfigurationItem(
+                                key=key,
+                                value=value if not any(sensitive in key.lower() for sensitive in ['password', 'secret', 'key', 'token']) else '••••••••',
+                                description=f"Environment variable",
+                                category="environment",
+                                is_sensitive=any(sensitive in key.lower() for sensitive in ['password', 'secret', 'key', 'token'])
+                            ))
+            except Exception as e:
+                logger.debug(f"Failed to get environment variables for {service_name}: {e}")
+        
+        return config_items
+    except Exception as e:
+        logger.error(f"Error getting configuration for {service_name}: {e}")
+        return []
 
 async def get_qdrant_stats() -> Dict:
     """Get Qdrant statistics"""
@@ -300,6 +751,102 @@ async def get_services():
     health_results = await get_all_service_health()
     return {"services": health_results}
 
+@app.get("/configuration", response_class=HTMLResponse)
+async def configuration_page(request: Request):
+    """Configuration management page"""
+    return templates.TemplateResponse("configuration.html", {"request": request})
+
+@app.get("/api/configuration")
+async def get_configuration():
+    """Get current configuration"""
+    config = load_configuration()
+    return config
+
+@app.post("/api/configuration")
+async def update_configuration(request: Request):
+    """Update configuration"""
+    try:
+        config_data = await request.json()
+        save_configuration(config_data)
+        return {"status": "success", "message": "Configuration updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error updating configuration: {str(e)}")
+
+@app.get("/service/{service_name}", response_class=HTMLResponse)
+async def service_detail_page(request: Request, service_name: str):
+    """Service detail page"""
+    return templates.TemplateResponse("service_detail.html", {"request": request, "service_name": service_name})
+
+@app.get("/api/service/{service_name}")
+async def get_service_detail(service_name: str):
+    """Get detailed information about a specific service"""
+    try:
+        service_info = SERVICE_INFO.get(service_name, {})
+        if not service_info:
+            raise HTTPException(status_code=404, detail="Service not found")
+        
+        logger.info(f"Getting details for service: {service_name}")
+        
+        # Get service health
+        health_url = SERVICES.get(service_name, "")
+        health = await check_service_health(service_name, health_url)
+        logger.info(f"Health status for {service_name}: {health.status}")
+        
+        # Get service logs
+        logs = await get_service_logs(service_name)
+        logger.info(f"Retrieved {len(logs)} log lines for {service_name}")
+        
+        # Get service metrics
+        metrics = await get_service_metrics(service_name)
+        logger.info(f"Retrieved metrics for {service_name}: {list(metrics.keys()) if isinstance(metrics, dict) else 'error'}")
+        
+        # Get service-specific configuration
+        service_config = await get_service_configuration(service_name)
+        logger.info(f"Retrieved {len(service_config)} configuration items for {service_name}")
+        
+        service_detail = ServiceDetail(
+            name=service_info.get("name", service_name),
+            status=health.status,
+            url=service_info.get("url", ""),
+            port=service_info.get("port", 0),
+            description=service_info.get("description", ""),
+            configuration=service_config,
+            logs=logs,
+            metrics=metrics
+        )
+        
+        return service_detail
+    except Exception as e:
+        logger.error(f"Error getting service details for {service_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting service details: {str(e)}")
+
+@app.get("/api/service/{service_name}/logs")
+async def get_service_logs_api(service_name: str, lines: int = 50):
+    """Get logs for a specific service"""
+    try:
+        logs = await get_service_logs(service_name, lines)
+        return {"service": service_name, "logs": logs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting service logs: {str(e)}")
+
+@app.get("/api/service/{service_name}/metrics")
+async def get_service_metrics_api(service_name: str):
+    """Get metrics for a specific service"""
+    try:
+        metrics = await get_service_metrics(service_name)
+        return {"service": service_name, "metrics": metrics}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting service metrics: {str(e)}")
+
+@app.get("/api/service/{service_name}/configuration")
+async def get_service_configuration_api(service_name: str):
+    """Get configuration for a specific service"""
+    try:
+        config = await get_service_configuration(service_name)
+        return {"service": service_name, "configuration": config}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting service configuration: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8010) 
+    uvicorn.run(app, host="0.0.0.0", port=8010, log_level="info") 

@@ -70,7 +70,10 @@ function updateServiceHealth(services) {
             <div class="service-status">
                 <div class="d-flex align-items-center">
                     <span class="status-indicator ${statusClass}"></span>
-                    <span class="service-name">${formatServiceName(service.service)}</span>
+                    <a href="/service/${service.service}" class="service-name text-decoration-none">
+                        ${formatServiceName(service.service)}
+                        <i class="fas fa-external-link-alt ms-1 text-muted" style="font-size: 0.8em;"></i>
+                    </a>
                 </div>
                 <div class="text-end">
                     <div class="status-text ${service.status}">${service.status}</div>

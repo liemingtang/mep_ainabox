@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MDIS Dashboard - Configuration View</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/dashboard.css" rel="stylesheet">
+    <style>
+        .config-section {
+            margin-bottom: 2rem;
+        }
+        .config-item {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .config-item:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+        .sensitive-field {
+            position: relative;
+        }
+        .toggle-password {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #6c757d;
+            cursor: pointer;
+        }
+        .toggle-password:hover {
+            color: #495057;
+        }
+        .category-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        .save-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1000;
+        }
+        .config-status {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1001;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>
+                MDIS Dashboard
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>
+                    Dashboard
+                </a>
+                <a class="nav-link active" href="/configuration">
+                    <i class="fas fa-cog me-1"></i>
+                    Configuration
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1><i class="fas fa-cog me-2"></i>Configuration View</h1>
+                    <div class="d-flex align-items-center">
+                        <span class="badge bg-secondary me-2">Read Only</span>
+                        <button class="btn btn-secondary" disabled>
+                            <i class="fas fa-save me-1"></i>Save All Changes
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Status Messages -->
+                <div id="config-status" class="config-status" style="display: none;"></div>
+
+                <!-- Read Only Notice -->
+                <div class="alert alert-info mb-4">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Read Only Mode:</strong> Configuration editing is currently disabled. This page displays the current system configuration for reference only.
+                </div>
+
+                <!-- Configuration Sections -->
+                <div id="configuration-content">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading configuration...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentConfig = {};
+
+        // Load configuration on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadConfiguration();
+        });
+
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/api/configuration');
+                const config = await response.json();
+                currentConfig = config;
+                renderConfiguration(config);
+            } catch (error) {
+                console.error('Error loading configuration:', error);
+                showStatus('Error loading configuration', 'danger');
+            }
+        }
+
+        function renderConfiguration(config) {
+            const container = document.getElementById('configuration-content');
+            let html = '';
+
+            // API Keys Section
+            html += createConfigSection('API Keys', 'api_keys', config.api_keys || [], 
+                'External API keys for AI services and integrations');
+
+            // Service Endpoints Section
+            html += createConfigSection('Service Endpoints', 'service_endpoints', config.service_endpoints || [], 
+                'URLs for internal and external services');
+
+            // Database Credentials Section
+            html += createConfigSection('Database Credentials', 'database_credentials', config.database_credentials || [], 
+                'Database connection settings and credentials');
+
+            // System Settings Section
+            html += createConfigSection('System Settings', 'system_settings', config.system_settings || [], 
+                'General system configuration and behavior');
+
+            // Processing Settings Section
+            html += createConfigSection('Processing Settings', 'processing_settings', config.processing_settings || [], 
+                'Document processing and AI model configuration');
+
+            container.innerHTML = html;
+        }
+
+        function createConfigSection(title, category, items, description) {
+            let html = `
+                <div class="config-section">
+                    <div class="category-header">
+                        <h3><i class="fas fa-${getCategoryIcon(category)} me-2"></i>${title}</h3>
+                        <p class="mb-0">${description}</p>
+                    </div>
+            `;
+
+            items.forEach(item => {
+                html += createConfigItem(item, category);
+            });
+
+            html += '</div>';
+            return html;
+        }
+
+        function createConfigItem(item, category) {
+            const inputType = item.is_sensitive ? 'password' : 'text';
+            const required = item.is_required ? 'required' : '';
+            
+            let html = `
+                <div class="config-item">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">${item.key}</label>
+                            ${item.is_required ? '<span class="text-danger">*</span>' : ''}
+                        </div>
+                        <div class="col-md-6">
+                            <div class="${item.is_sensitive ? 'sensitive-field' : ''}">
+                                <input type="${inputType}" 
+                                       class="form-control" 
+                                       id="${item.key}" 
+                                       value="${item.value || ''}" 
+                                       ${required}
+                                       disabled
+                                       readonly>
+                                ${item.is_sensitive ? `
+                                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('${item.key}')">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">${item.description}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return html;
+        }
+
+        function getCategoryIcon(category) {
+            const icons = {
+                'api_keys': 'key',
+                'service_endpoints': 'link',
+                'database_credentials': 'database',
+                'system_settings': 'cogs',
+                'processing_settings': 'microchip'
+            };
+            return icons[category] || 'setting';
+        }
+
+        function updateConfigValue(category, key, value) {
+            if (!currentConfig[category]) {
+                currentConfig[category] = [];
+            }
+            
+            const item = currentConfig[category].find(item => item.key === key);
+            if (item) {
+                item.value = value;
+            }
+        }
+
+        function togglePasswordVisibility(fieldId) {
+            const field = document.getElementById(fieldId);
+            const button = field.parentElement.querySelector('.toggle-password i');
+            
+            if (field.type === 'password') {
+                field.type = 'text';
+                button.className = 'fas fa-eye-slash';
+            } else {
+                field.type = 'password';
+                button.className = 'fas fa-eye';
+            }
+        }
+
+        async function saveConfiguration() {
+            try {
+                const response = await fetch('/api/configuration', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(currentConfig)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showStatus('Configuration saved successfully!', 'success');
+                } else {
+                    showStatus(`Error: ${result.detail}`, 'danger');
+                }
+            } catch (error) {
+                console.error('Error saving configuration:', error);
+                showStatus('Error saving configuration', 'danger');
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('config-status');
+            statusDiv.className = `alert alert-${type} alert-dismissible fade show config-status`;
+            statusDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            statusDiv.style.display = 'block';
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // Keyboard shortcut for saving (Ctrl+S) - DISABLED
+        // document.addEventListener('keydown', function(e) {
+        //     if (e.ctrlKey && e.key === 's') {
+        //         e.preventDefault();
+        //         saveConfiguration();
+        //     }
+        // });
+    </script>
+</body>
+</html> 

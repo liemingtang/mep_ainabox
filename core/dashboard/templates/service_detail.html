@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MDIS Dashboard - Service Details</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/dashboard.css" rel="stylesheet">
+    <style>
+        .service-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+        }
+        .status-badge {
+            font-size: 0.9rem;
+            padding: 0.5rem 1rem;
+        }
+        .detail-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .log-line {
+            margin-bottom: 0.25rem;
+            white-space: pre-wrap;
+        }
+        .log-line.error {
+            color: #ff6b6b;
+        }
+        .log-line.warning {
+            color: #ffd93d;
+        }
+        .log-line.info {
+            color: #6bcf7f;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        .metric-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #495057;
+        }
+        .metric-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .config-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        .nav-tabs .nav-link {
+            color: #495057;
+        }
+        .nav-tabs .nav-link.active {
+            background-color: #f8f9fa;
+            border-color: #dee2e6 #dee2e6 #f8f9fa;
+        }
+        .refresh-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>
+                MDIS Dashboard
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>
+                    Dashboard
+                </a>
+                <a class="nav-link" href="/configuration">
+                    <i class="fas fa-cog me-1"></i>
+                    Configuration
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Service Header -->
+        <div class="service-header">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1 id="service-name">
+                        <i class="fas fa-server me-2"></i>
+                        Loading...
+                    </h1>
+                    <p id="service-description" class="mb-2">Loading service information...</p>
+                    <div class="d-flex align-items-center">
+                        <span class="badge status-badge me-3" id="service-status">Loading...</span>
+                        <span class="text-light">
+                            <i class="fas fa-link me-1"></i>
+                            <span id="service-url">Loading...</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-light" onclick="refreshServiceData()">
+                        <i class="fas fa-sync-alt me-1"></i>
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Details Tabs -->
+        <ul class="nav nav-tabs" id="serviceTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">
+                    <i class="fas fa-info-circle me-1"></i>Overview
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="configuration-tab" data-bs-toggle="tab" data-bs-target="#configuration" type="button" role="tab">
+                    <i class="fas fa-cog me-1"></i>Configuration
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs" type="button" role="tab">
+                    <i class="fas fa-file-alt me-1"></i>Logs
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="metrics-tab" data-bs-toggle="tab" data-bs-target="#metrics" type="button" role="tab">
+                    <i class="fas fa-chart-bar me-1"></i>Metrics
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content mt-3" id="serviceTabContent">
+            <!-- Overview Tab -->
+            <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="detail-card">
+                            <h5><i class="fas fa-info-circle me-2"></i>Service Information</h5>
+                            <div id="service-info">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="detail-card">
+                            <h5><i class="fas fa-heartbeat me-2"></i>Health Status</h5>
+                            <div id="health-status">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Configuration Tab -->
+            <div class="tab-pane fade" id="configuration" role="tabpanel">
+                <div class="detail-card">
+                    <h5><i class="fas fa-cog me-2"></i>Service Configuration</h5>
+                    <div id="service-config">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs Tab -->
+            <div class="tab-pane fade" id="logs" role="tabpanel">
+                <div class="detail-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="fas fa-file-alt me-2"></i>Service Logs</h5>
+                        <div>
+                            <select class="form-select form-select-sm d-inline-block w-auto" id="logLines" onchange="loadLogs()">
+                                <option value="50">Last 50 lines</option>
+                                <option value="100">Last 100 lines</option>
+                                <option value="200">Last 200 lines</option>
+                                <option value="500">Last 500 lines</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="log-container" id="service-logs">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading logs...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metrics Tab -->
+            <div class="tab-pane fade" id="metrics" role="tabpanel">
+                <div class="detail-card">
+                    <h5><i class="fas fa-chart-bar me-2"></i>Service Metrics</h5>
+                    <div id="service-metrics">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading metrics...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const serviceName = '{{ service_name }}';
+        let serviceData = null;
+
+        // Load service data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadServiceData();
+        });
+
+        async function loadServiceData() {
+            try {
+                const response = await fetch(`/api/service/${serviceName}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                serviceData = await response.json();
+                renderServiceData(serviceData);
+            } catch (error) {
+                console.error('Error loading service data:', error);
+                showError('Error loading service data: ' + error.message);
+            }
+        }
+
+        function renderServiceData(data) {
+            // Update header
+            document.getElementById('service-name').innerHTML = `<i class="fas fa-server me-2"></i>${data.name}`;
+            document.getElementById('service-description').textContent = data.description;
+            document.getElementById('service-url').textContent = data.url;
+            
+            // Update status badge
+            const statusBadge = document.getElementById('service-status');
+            statusBadge.textContent = data.status;
+            statusBadge.className = `badge status-badge me-3 ${getStatusClass(data.status)}`;
+
+            // Render overview
+            renderOverview(data);
+            
+            // Render configuration
+            renderConfiguration(data.configuration);
+            
+            // Load logs
+            loadLogs();
+            
+            // Load metrics
+            loadMetrics();
+        }
+
+        function renderOverview(data) {
+            const infoHtml = `
+                <table class="table table-borderless">
+                    <tr>
+                        <td><strong>Service Name:</strong></td>
+                        <td>${data.name}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Status:</strong></td>
+                        <td><span class="badge ${getStatusClass(data.status)}">${data.status}</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>URL:</strong></td>
+                        <td><code>${data.url}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Port:</strong></td>
+                        <td>${data.port}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Description:</strong></td>
+                        <td>${data.description}</td>
+                    </tr>
+                </table>
+            `;
+            document.getElementById('service-info').innerHTML = infoHtml;
+
+            const healthHtml = `
+                <div class="text-center">
+                    <div class="mb-3">
+                        <i class="fas fa-heartbeat fa-3x ${getStatusColor(data.status)}"></i>
+                    </div>
+                    <h4 class="${getStatusColor(data.status)}">${data.status.toUpperCase()}</h4>
+                    <p class="text-muted">Last checked: ${new Date().toLocaleString()}</p>
+                </div>
+            `;
+            document.getElementById('health-status').innerHTML = healthHtml;
+        }
+
+        function renderConfiguration(config) {
+            if (!config || config.length === 0) {
+                document.getElementById('service-config').innerHTML = '<p class="text-muted">No configuration found for this service.</p>';
+                return;
+            }
+
+            // Group configuration by category
+            const configByCategory = {};
+            config.forEach(item => {
+                const category = item.category || 'general';
+                if (!configByCategory[category]) {
+                    configByCategory[category] = [];
+                }
+                configByCategory[category].push(item);
+            });
+
+            let html = '';
+            Object.entries(configByCategory).forEach(([category, items]) => {
+                html += `<h6 class="mt-3 mb-2 text-primary">${category.replace('_', ' ').toUpperCase()}</h6>`;
+                items.forEach(item => {
+                    const valueDisplay = item.is_sensitive ? '••••••••' : 
+                        (item.value && item.value.length > 100 ? item.value.substring(0, 100) + '...' : item.value);
+                    html += `
+                        <div class="config-item">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <strong>${item.key}</strong>
+                                </div>
+                                <div class="col-md-6">
+                                    <code style="word-break: break-all;">${valueDisplay}</code>
+                                </div>
+                                <div class="col-md-3">
+                                    <small class="text-muted">${item.description}</small>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+            document.getElementById('service-config').innerHTML = html;
+        }
+
+        async function loadLogs() {
+            const lines = document.getElementById('logLines').value;
+            try {
+                const response = await fetch(`/api/service/${serviceName}/logs?lines=${lines}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                renderLogs(data.logs);
+            } catch (error) {
+                console.error('Error loading logs:', error);
+                document.getElementById('service-logs').innerHTML = `<div class="text-danger">Error loading logs: ${error.message}</div>`;
+            }
+        }
+
+        function renderLogs(logs) {
+            if (!logs || logs.length === 0) {
+                document.getElementById('service-logs').innerHTML = '<div class="text-muted">No logs available.</div>';
+                return;
+            }
+
+            let html = '';
+            logs.forEach(log => {
+                const logClass = getLogClass(log);
+                html += `<div class="log-line ${logClass}">${escapeHtml(log)}</div>`;
+            });
+            document.getElementById('service-logs').innerHTML = html;
+            
+            // Scroll to bottom
+            const logContainer = document.getElementById('service-logs');
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        async function loadMetrics() {
+            try {
+                const response = await fetch(`/api/service/${serviceName}/metrics`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                renderMetrics(data.metrics);
+            } catch (error) {
+                console.error('Error loading metrics:', error);
+                document.getElementById('service-metrics').innerHTML = `<div class="text-danger">Error loading metrics: ${error.message}</div>`;
+            }
+        }
+
+        function renderMetrics(metrics) {
+            if (!metrics || Object.keys(metrics).length === 0) {
+                document.getElementById('service-metrics').innerHTML = '<p class="text-muted">No metrics available for this service.</p>';
+                return;
+            }
+
+            if (metrics.error) {
+                document.getElementById('service-metrics').innerHTML = `<div class="text-warning">${metrics.error}</div>`;
+                return;
+            }
+
+            let html = '<div class="metrics-grid">';
+            
+            // Handle different types of metrics
+            Object.entries(metrics).forEach(([key, value]) => {
+                if (typeof value === 'object' && value !== null) {
+                    if (key === 'container_stats') {
+                        // Docker container stats
+                        const stats = value;
+                        html += `
+                            <div class="metric-card">
+                                <div class="metric-value">${stats.CPUPerc || 'N/A'}</div>
+                                <div class="metric-label">CPU Usage</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value">${stats.MemPerc || 'N/A'}</div>
+                                <div class="metric-label">Memory Usage</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value">${stats.MemUsage || 'N/A'}</div>
+                                <div class="metric-label">Memory Used</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value">${stats.NetIO || 'N/A'}</div>
+                                <div class="metric-label">Network I/O</div>
+                            </div>
+                        `;
+                    } else if (key === 'service_info') {
+                        // Service info
+                        const info = value;
+                        html += `
+                            <div class="metric-card">
+                                <div class="metric-value">${info.name}</div>
+                                <div class="metric-label">Service Name</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-value">${info.port}</div>
+                                <div class="metric-label">Port</div>
+                            </div>
+                        `;
+                    } else {
+                        // Generic nested objects
+                        html += `
+                            <div class="metric-card">
+                                <div class="metric-value">${Object.keys(value).length}</div>
+                                <div class="metric-label">${key} (items)</div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    // Simple values
+                    const displayValue = typeof value === 'string' && value.length > 20 ? 
+                        value.substring(0, 20) + '...' : value;
+                    html += `
+                        <div class="metric-card">
+                            <div class="metric-value">${displayValue}</div>
+                            <div class="metric-label">${key}</div>
+                        </div>
+                    `;
+                }
+            });
+            html += '</div>';
+            document.getElementById('service-metrics').innerHTML = html;
+        }
+
+        function getStatusClass(status) {
+            switch (status.toLowerCase()) {
+                case 'healthy': return 'bg-success';
+                case 'unhealthy': return 'bg-danger';
+                case 'error': return 'bg-warning';
+                default: return 'bg-secondary';
+            }
+        }
+
+        function getStatusColor(status) {
+            switch (status.toLowerCase()) {
+                case 'healthy': return 'text-success';
+                case 'unhealthy': return 'text-danger';
+                case 'error': return 'text-warning';
+                default: return 'text-secondary';
+            }
+        }
+
+        function getLogClass(log) {
+            if (log.toLowerCase().includes('error')) return 'error';
+            if (log.toLowerCase().includes('warning')) return 'warning';
+            if (log.toLowerCase().includes('info')) return 'info';
+            return '';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function refreshServiceData() {
+            loadServiceData();
+        }
+
+        function showError(message) {
+            // You can implement a toast notification here
+            console.error(message);
+        }
+
+        // Auto-refresh logs when logs tab is shown
+        document.getElementById('logs-tab').addEventListener('shown.bs.tab', function() {
+            loadLogs();
+        });
+
+        // Auto-refresh metrics when metrics tab is shown
+        document.getElementById('metrics-tab').addEventListener('shown.bs.tab', function() {
+            loadMetrics();
+        });
+    </script>
+</body>
+</html> 
