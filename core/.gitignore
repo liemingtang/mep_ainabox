@@ -197,4 +197,7 @@ watch_folder/*.tiff
 watch_folder/*.bmp
 
 # Keep the watch folder structure but ignore contents
-!watch_folder/.gitkeep 
+!watch_folder/.gitkeep
+
+# Folder scan reports
+folder_scan_report* 
