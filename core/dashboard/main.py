@@ -1745,7 +1745,7 @@ async def get_service_status():
     infrastructure_services = [
         {"name": "PostgreSQL", "port": 5432, "endpoint": None, "description": "Primary database"},
         {"name": "Elasticsearch", "port": 9200, "endpoint": "/_cluster/health", "description": "Search and analytics engine"},
-        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database"},
+        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database", "api_key": "qdrant_api_key"},
         {"name": "Redis", "port": 6379, "endpoint": None, "description": "In-memory data structure store"},
         {"name": "MinIO", "port": 9000, "endpoint": "/minio/health/live", "description": "Object storage"},
         {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database"},
@@ -1778,7 +1778,12 @@ async def get_service_status():
                     try:
                         import httpx
                         with httpx.Client(timeout=3.0) as client:
-                            response = client.get(f"http://localhost:{service['port']}{service['endpoint']}")
+                            # Add API key header if service requires it
+                            headers = {}
+                            if "api_key" in service:
+                                headers["api-key"] = service["api_key"]
+                            
+                            response = client.get(f"http://localhost:{service['port']}{service['endpoint']}", headers=headers)
                             return "running" if response.status_code in [200, 302, 404] else "unhealthy"
                     except:
                         return "running"  # Port open but HTTP failed, assume running
