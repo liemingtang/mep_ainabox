@@ -1102,26 +1102,45 @@ def check_infrastructure_services() -> bool:
 def check_core_services() -> bool:
     """Check if core services are running"""
     try:
-        # Check key core services
+        # Check key core services with correct ports
         services_to_check = [
-            ("api-gateway", 8000),
-            ("core-processor", 8001),
-            ("file-watcher", 8009)
+            ("api-gateway", 8011, "/health"),  # API Gateway runs on port 8011, not 8000
+            ("core-processor", 8001, "/docs"),  # Core processor responds on /docs
+            ("file-watcher", 8009, "/health")
         ]
         
-        for service_name, port in services_to_check:
+        for service_name, port, endpoint in services_to_check:
             try:
+                # First check if port is open
                 import socket
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(2)
                 result = sock.connect_ex(("localhost", port))
                 sock.close()
+                
                 if result != 0:
+                    logger.warning(f"Core service {service_name} not responding on port {port}")
                     return False
-            except:
+                
+                # If port is open, try HTTP request for better verification
+                try:
+                    import httpx
+                    with httpx.Client(timeout=3.0) as client:
+                        response = client.get(f"http://localhost:{port}{endpoint}")
+                        if response.status_code not in [200, 302, 404]:  # 404 is OK for some endpoints
+                            logger.warning(f"Core service {service_name} returned status {response.status_code}")
+                            return False
+                except Exception as http_error:
+                    # HTTP request failed, but port is open, so service might be starting
+                    logger.debug(f"HTTP check failed for {service_name} on port {port}: {http_error}")
+                    # Don't fail here, just log it
+                    
+            except Exception as e:
+                logger.warning(f"Error checking {service_name} on port {port}: {e}")
                 return False
         return True
-    except:
+    except Exception as e:
+        logger.error(f"Error in check_core_services: {e}")
         return False
 
 def startup_services():
