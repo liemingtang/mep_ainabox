@@ -1778,7 +1778,7 @@ async def get_service_status():
     infrastructure_services = [
         {"name": "PostgreSQL", "port": 5432, "endpoint": None, "description": "Primary database", "service_key": "postgres", "admin_url": "http://localhost:8080"},
         {"name": "Elasticsearch", "port": 9200, "endpoint": "/_cluster/health", "description": "Search and analytics engine", "service_key": "elasticsearch", "admin_url": "http://localhost:5601"},
-        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database", "api_key": "qdrant_api_key", "service_key": "qdrant", "admin_url": "http://localhost:7070/index.html"},
+        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database", "api_key": "qdrant_api_key", "service_key": "qdrant", "admin_url": f"http://localhost:7070/index.html?api_token={QDRANT_API_KEY}"},
         {"name": "Redis", "port": 6379, "endpoint": None, "description": "In-memory data structure store", "service_key": "redis", "admin_url": "http://localhost:8081"},
         {"name": "MinIO", "port": 9000, "endpoint": "/minio/health/live", "description": "Object storage", "service_key": "minio", "admin_url": "http://localhost:9001"},
         {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database", "service_key": "neo4j", "admin_url": "http://localhost:7474"},
@@ -1791,7 +1791,7 @@ async def get_service_status():
     admin_ui_services = [
         {"name": "Prometheus", "port": 9090, "endpoint": "/-/healthy", "description": "Metrics collection and monitoring", "service_key": "prometheus", "admin_url": "http://localhost:9090"},
         {"name": "Grafana", "port": 3002, "endpoint": "/api/health", "description": "Monitoring dashboards", "service_key": "grafana", "admin_url": "http://localhost:3002"},
-        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface", "service_key": "qdrantui", "admin_url": "http://localhost:7070/index.html"},
+        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface", "service_key": "qdrantui", "admin_url": f"http://localhost:7070/index.html?api_token={QDRANT_API_KEY}"},
         {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration", "service_key": "pgadmin", "admin_url": "http://localhost:8080"},
         {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface", "service_key": "redis-commander", "admin_url": "http://localhost:8081"}
     ]

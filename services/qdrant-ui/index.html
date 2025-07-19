@@ -41,6 +41,35 @@
             color: #666;
         }
         
+        .api-token-section {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .api-token-section h3 {
+            color: #374151;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .api-token-input {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .api-token-input input {
+            flex: 1;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .api-token-input button {
+            white-space: nowrap;
+        }
+        
         .card {
             background: #fff;
             padding: 20px;
@@ -146,6 +175,12 @@
             color: #059669;
         }
         
+        .warning {
+            background: #fffbeb;
+            border-color: #fed7aa;
+            color: #d97706;
+        }
+        
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -214,6 +249,18 @@
         <div class="header">
             <h1>🔍 Qdrant Database Manager</h1>
             <p>Manage your vector database collections, points, and perform searches</p>
+        </div>
+
+        <!-- API Token Section -->
+        <div class="api-token-section">
+            <h3>🔑 API Authentication</h3>
+            <div class="api-token-input">
+                <input type="password" id="api-token" placeholder="Enter Qdrant API token (optional)" />
+                <button class="btn btn-secondary" onclick="toggleApiTokenVisibility()">👁️</button>
+                <button class="btn" onclick="testConnection()">Test Connection</button>
+                <button class="btn btn-secondary" onclick="clearApiToken()">Clear</button>
+            </div>
+            <div id="connection-status"></div>
         </div>
 
         <div class="tabs">
@@ -337,18 +384,21 @@ Qdrant API Base URL: http://localhost:6333
 Available Endpoints:
 - GET / - Health check
 - GET /collections - List all collections
-- POST /collections - Create collection
+- PUT /collections/{name} - Create collection
 - DELETE /collections/{name} - Delete collection
 - GET /collections/{name} - Get collection info
-- POST /collections/{name}/points - Upsert points
+- PUT /collections/{name}/points - Upsert points
 - POST /collections/{name}/points/search - Search points
 - DELETE /collections/{name}/points - Delete points
 
-Example Usage:
-curl -X GET http://localhost:6333/collections
-curl -X POST http://localhost:6333/collections \
+Example Usage (with API token):
+curl -X GET http://localhost:6333/collections \
+  -H "api-key: YOUR_API_TOKEN"
+
+curl -X PUT http://localhost:6333/collections/test \
   -H "Content-Type: application/json" \
-  -d '{"name": "test", "vectors": {"size": 1536, "distance": "Cosine"}}'
+  -H "api-key: YOUR_API_TOKEN" \
+  -d '{"vectors": {"size": 1536, "distance": "Cosine"}}'
                 </div>
             </div>
         </div>
@@ -356,6 +406,99 @@ curl -X POST http://localhost:6333/collections \
 
     <script>
         const QDRANT_URL = 'http://localhost:6333';
+        let apiToken = 'qdrant_api_key'; // Default API key
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check for API token in URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const tokenFromUrl = urlParams.get('api_token');
+            if (tokenFromUrl) {
+                document.getElementById('api-token').value = tokenFromUrl;
+                apiToken = tokenFromUrl;
+            } else {
+                // Use default API key if none provided in URL
+                document.getElementById('api-token').value = apiToken;
+            }
+            
+            // Test connection and load data
+            testConnection();
+        });
+        
+        // Get headers for API requests
+        function getHeaders() {
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (apiToken) {
+                headers['api-key'] = apiToken;
+                console.log('Adding API key to headers:', apiToken);
+            } else {
+                console.log('No API token available');
+            }
+            console.log('Final headers:', headers);
+            return headers;
+        }
+        
+        // Toggle API token visibility
+        function toggleApiTokenVisibility() {
+            const input = document.getElementById('api-token');
+            const button = event.target;
+            if (input.type === 'password') {
+                input.type = 'text';
+                button.textContent = '🙈';
+            } else {
+                input.type = 'password';
+                button.textContent = '👁️';
+            }
+        }
+        
+        // Clear API token
+        function clearApiToken() {
+            document.getElementById('api-token').value = '';
+            apiToken = '';
+            document.getElementById('connection-status').innerHTML = '';
+        }
+        
+        // Test connection
+        async function testConnection() {
+            // Ensure apiToken is set from the input field
+            const inputToken = document.getElementById('api-token').value;
+            if (inputToken) {
+                apiToken = inputToken;
+            }
+            console.log('Testing connection with API token:', apiToken);
+            const statusDiv = document.getElementById('connection-status');
+            
+            try {
+                const response = await fetch(QDRANT_URL, {
+                    headers: getHeaders()
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    statusDiv.innerHTML = `
+                        <div class="success">
+                            ✅ Connected successfully! Version: ${data.version}
+                        </div>
+                    `;
+                    loadStatus();
+                    loadCollections();
+                } else {
+                    statusDiv.innerHTML = `
+                        <div class="error">
+                            ❌ Connection failed: ${response.status} ${response.statusText}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="error">
+                        ❌ Connection error: ${error.message}
+                    </div>
+                `;
+            }
+        }
         
         // Tab management
         function showTab(tabName) {
@@ -386,7 +529,9 @@ curl -X POST http://localhost:6333/collections \
         // Load database status
         async function loadStatus() {
             try {
-                const response = await fetch(QDRANT_URL);
+                const response = await fetch(QDRANT_URL, {
+                    headers: getHeaders()
+                });
                 const data = await response.json();
                 
                 document.getElementById('status-info').innerHTML = `
@@ -408,16 +553,26 @@ curl -X POST http://localhost:6333/collections \
         // Load collections
         async function loadCollections() {
             try {
-                const response = await fetch(`${QDRANT_URL}/collections`);
+                console.log('Loading collections with API token:', apiToken);
+                console.log('Headers:', getHeaders());
+                
+                const response = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: getHeaders()
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
                 const data = await response.json();
+                console.log('Response data:', data);
                 
                 const collectionsList = document.getElementById('collections-list');
                 const searchCollection = document.getElementById('search-collection');
                 const pointsCollection = document.getElementById('points-collection');
                 
-                if (data.collections && data.collections.length > 0) {
+                if (data.result && data.result.collections && data.result.collections.length > 0) {
                     let html = '';
-                    data.collections.forEach(collection => {
+                    data.result.collections.forEach(collection => {
                         html += `
                             <div class="collection-item">
                                 <div class="collection-name">${collection.name}</div>
@@ -433,7 +588,7 @@ curl -X POST http://localhost:6333/collections \
                     collectionsList.innerHTML = html;
                     
                     // Update select options
-                    const options = data.collections.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+                    const options = data.result.collections.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
                     searchCollection.innerHTML = '<option value="">Select collection...</option>' + options;
                     pointsCollection.innerHTML = '<option value="">Select collection...</option>' + options;
                 } else {
@@ -462,13 +617,10 @@ curl -X POST http://localhost:6333/collections \
             }
             
             try {
-                const response = await fetch(`${QDRANT_URL}/collections`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                const response = await fetch(`${QDRANT_URL}/collections/${name}`, {
+                    method: 'PUT',
+                    headers: getHeaders(),
                     body: JSON.stringify({
-                        name: name,
                         vectors: {
                             size: size,
                             distance: distance
@@ -481,8 +633,24 @@ curl -X POST http://localhost:6333/collections \
                     document.getElementById('collection-name').value = '';
                     loadCollections();
                 } else {
-                    const error = await response.text();
-                    alert(`Error: ${error}`);
+                    let errorMessage = '';
+                    try {
+                        const errorText = await response.text();
+                        if (errorText) {
+                            // Try to parse as JSON for better error messages
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                errorMessage = errorJson.status?.error_message || errorJson.error || errorText;
+                            } catch {
+                                errorMessage = errorText;
+                            }
+                        } else {
+                            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                        }
+                    } catch {
+                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    alert(`Error: ${errorMessage}`);
                 }
             } catch (error) {
                 alert(`Error: ${error.message}`);
@@ -497,15 +665,32 @@ curl -X POST http://localhost:6333/collections \
             
             try {
                 const response = await fetch(`${QDRANT_URL}/collections/${name}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: getHeaders()
                 });
                 
                 if (response.ok) {
                     alert('Collection deleted successfully!');
                     loadCollections();
                 } else {
-                    const error = await response.text();
-                    alert(`Error: ${error}`);
+                    let errorMessage = '';
+                    try {
+                        const errorText = await response.text();
+                        if (errorText) {
+                            // Try to parse as JSON for better error messages
+                            try {
+                                const errorJson = JSON.parse(errorText);
+                                errorMessage = errorJson.status?.error_message || errorJson.error || errorText;
+                            } catch {
+                                errorMessage = errorText;
+                            }
+                        } else {
+                            errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                        }
+                    } catch {
+                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    alert(`Error: ${errorMessage}`);
                 }
             } catch (error) {
                 alert(`Error: ${error.message}`);
@@ -528,9 +713,7 @@ curl -X POST http://localhost:6333/collections \
                 
                 const response = await fetch(`${QDRANT_URL}/collections/${collection}/points/search`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: getHeaders(),
                     body: JSON.stringify({
                         vector: vector,
                         limit: parseInt(limit)
@@ -584,9 +767,7 @@ curl -X POST http://localhost:6333/collections \
                 
                 const response = await fetch(`${QDRANT_URL}/collections/${collection}/points`, {
                     method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: getHeaders(),
                     body: JSON.stringify({
                         points: [{
                             id: id,
@@ -597,16 +778,28 @@ curl -X POST http://localhost:6333/collections \
                 });
                 
                 if (response.ok) {
-                    alert('Point upserted successfully!');
+                    document.getElementById('points-results').innerHTML = `
+                        <div class="success">
+                            Point upserted successfully!
+                        </div>
+                    `;
                     document.getElementById('point-id').value = '';
                     document.getElementById('point-vector').value = '';
                     document.getElementById('point-payload').value = '';
                 } else {
                     const error = await response.text();
-                    alert(`Error: ${error}`);
+                    document.getElementById('points-results').innerHTML = `
+                        <div class="error">
+                            <strong>Error:</strong> ${error}
+                        </div>
+                    `;
                 }
             } catch (error) {
-                alert(`Error: ${error.message}`);
+                document.getElementById('points-results').innerHTML = `
+                    <div class="error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
             }
         }
         
@@ -620,38 +813,42 @@ curl -X POST http://localhost:6333/collections \
                 return;
             }
             
-            if (!confirm(`Are you sure you want to delete point "${id}"?`)) {
+            if (!confirm(`Are you sure you want to delete point "${id}" from collection "${collection}"?`)) {
                 return;
             }
             
             try {
                 const response = await fetch(`${QDRANT_URL}/collections/${collection}/points`, {
                     method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: getHeaders(),
                     body: JSON.stringify({
                         points: [id]
                     })
                 });
                 
                 if (response.ok) {
-                    alert('Point deleted successfully!');
+                    document.getElementById('points-results').innerHTML = `
+                        <div class="success">
+                            Point deleted successfully!
+                        </div>
+                    `;
                     document.getElementById('point-id').value = '';
                 } else {
                     const error = await response.text();
-                    alert(`Error: ${error}`);
+                    document.getElementById('points-results').innerHTML = `
+                        <div class="error">
+                            <strong>Error:</strong> ${error}
+                        </div>
+                    `;
                 }
             } catch (error) {
-                alert(`Error: ${error.message}`);
+                document.getElementById('points-results').innerHTML = `
+                    <div class="error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>
+                `;
             }
         }
-        
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadStatus();
-            loadCollections();
-        });
     </script>
 </body>
 </html> 
