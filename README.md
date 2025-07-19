@@ -16,6 +16,29 @@ MEP AI NABOX is designed to be a universal file intelligence system that:
 - **Real-time file monitoring** with automatic processing of new files
 - **Duplicate file handling** with intelligent deduplication
 
+## ✨ Recent Improvements
+
+### Dashboard Reliability Enhancements (Latest)
+The dashboard system has been significantly improved for better reliability and user experience:
+
+**Enhanced Error Handling**:
+- **Service Unavailability**: Dashboard gracefully handles when backend services (Elasticsearch, Qdrant, Core Processor) are not running
+- **JavaScript Error Prevention**: Global error handlers prevent browser alerts for expected service unavailability
+- **Data Validation**: All API responses are validated before processing with safe fallback values
+- **Graceful Degradation**: Dashboard continues functioning even when services are down
+
+**Improved User Experience**:
+- **No Error Alerts**: Dashboard loads successfully without showing "Failed to load dashboard data" alerts
+- **Empty State Handling**: Appropriate messages when no data is available
+- **Auto-recovery**: Dashboard automatically updates when services become available
+- **Console Logging**: Detailed warnings for debugging without user-facing errors
+
+**Expected Behavior**:
+- **Fresh Start**: After `./stop_admin.sh` and `./start_admin.sh`, dashboard shows clean empty state
+- **Service Startup**: Use admin panel to start services, dashboard updates automatically
+- **Service Failures**: Dashboard continues working, shows failed services as "unhealthy"
+- **Network Issues**: Connection failures are handled gracefully without breaking the interface
+
 ## 🏗️ Current Architecture
 
 ### Core System (Implemented)
@@ -484,7 +507,14 @@ curl http://localhost:8009/api/v1/watch/status
    netstat -tulpn | grep 8010
    ```
 
-7. **Duplicate file errors**
+7. **Dashboard error handling**
+   - **Expected Behavior**: Dashboard loads without error alerts even when services are down
+   - **Empty State**: Shows zero values and "No documents found" when no data is available
+   - **Service Unavailability**: Handles gracefully without breaking the interface
+   - **If You See Errors**: Check browser console (F12) for warnings, not user-facing alerts
+   - **Auto-recovery**: Dashboard updates automatically when services become available
+
+8. **Duplicate file errors**
    ```bash
    # Check for duplicate files
    ./check_uploaded_files.sh failed

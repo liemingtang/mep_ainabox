@@ -287,6 +287,37 @@ cd core && ./stop_dashboard_host.sh && ./start_dashboard_host.sh --background
 netstat -tulpn | grep 8010
 ```
 
+#### Dashboard Error Handling
+The dashboard has been enhanced with comprehensive error handling:
+
+**Expected Behavior When Services Are Down**:
+- Dashboard loads without error alerts
+- Statistics show zero values (0 documents, 0 services)
+- Service health shows all services as unavailable
+- Documents table shows "No documents found"
+- Pipeline status shows services as "unknown" or "error"
+
+**If You See Error Alerts**:
+```bash
+# Check browser console for warnings (not errors)
+# Open Developer Tools (F12) and check Console tab
+
+# Verify dashboard is running
+curl http://localhost:8010/api/health
+
+# Check if services are running
+docker ps | grep mep-
+
+# Restart dashboard if needed
+cd core && ./stop_dashboard_host.sh && ./start_dashboard_host.sh --background
+```
+
+**Common Dashboard Scenarios**:
+- **Fresh Start**: After `./stop_admin.sh` and `./start_admin.sh`, dashboard shows empty state (normal)
+- **Service Startup**: Use admin panel to start services, dashboard will update automatically
+- **Service Failures**: Dashboard continues working, shows failed services as "unhealthy"
+- **Network Issues**: Dashboard handles connection failures gracefully
+
 #### Duplicate File Errors
 ```bash
 # Check for duplicate files

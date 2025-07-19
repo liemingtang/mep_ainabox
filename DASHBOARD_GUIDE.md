@@ -31,6 +31,41 @@ The dashboard runs directly on the host (not in Docker) for several advantages:
 - **Logging**: Structured JSON logging
 - **Monitoring**: Real-time health checks and metrics
 
+### JavaScript Architecture and Error Handling
+
+The dashboard's JavaScript implementation includes comprehensive error handling and reliability features:
+
+#### Core Functions
+- **`loadDashboardData()`**: Main data loading function with parallel API calls and error handling
+- **`updateStatistics()`**: Updates dashboard statistics with safe property access
+- **`updateServiceHealthSummary()`**: Updates service health counts with array validation
+- **`updateDocumentsTable()`**: Updates documents table with comprehensive error handling
+- **`updatePipelineStatus()`**: Updates pipeline status with container validation
+
+#### Error Handling Features
+- **Global Error Handlers**: Catch unhandled exceptions and promise rejections
+- **HTTP Status Checking**: Validate API responses before processing
+- **Safe Property Access**: Use optional chaining and fallback values
+- **Array Validation**: Ensure arrays exist before processing
+- **Individual Error Handling**: Each function has try-catch blocks
+- **Console Logging**: Detailed warnings for debugging without user alerts
+
+#### Data Flow
+1. **Initial Load**: Dashboard loads with fallback values
+2. **API Calls**: Parallel requests to `/api/stats`, `/api/health`, `/api/documents`
+3. **Error Handling**: Each API call has individual error handling
+4. **Data Validation**: Responses are validated before processing
+5. **UI Updates**: Safe updates to DOM elements with fallback values
+6. **Auto-refresh**: Continuous updates every 30 seconds with error handling
+
+#### Service Unavailability Handling
+When backend services are not running:
+- API calls return default values instead of throwing errors
+- Dashboard displays appropriate "empty state" messages
+- No browser error alerts are shown
+- Console warnings provide debugging information
+- Auto-refresh continues without interruption
+
 ## 🚀 Getting Started
 
 ### Quick Start
@@ -215,6 +250,29 @@ Each service has a dedicated page with:
 
 ### Common Dashboard Issues
 
+#### Dashboard Error Handling and Reliability
+The dashboard has been enhanced with comprehensive error handling to provide a smooth user experience even when backend services are not running:
+
+**Automatic Error Recovery**:
+- **Service Unavailability**: Dashboard gracefully handles when services (Elasticsearch, Qdrant, Core Processor) are not running
+- **API Failures**: HTTP errors are caught and handled without showing browser alerts
+- **Data Validation**: All API responses are validated before processing
+- **Fallback Values**: Default values (0s, empty arrays) are used when data is unavailable
+
+**JavaScript Error Prevention**:
+- **Global Error Handlers**: Unhandled JavaScript exceptions are caught and logged
+- **Promise Rejection Handling**: Unhandled promise rejections are prevented from showing alerts
+- **Safe Property Access**: All object properties are accessed safely with fallback values
+- **Array Validation**: All arrays are validated before processing
+
+**Expected Behavior When Services Are Down**:
+- Dashboard loads successfully without error alerts
+- Statistics show zero values (0 documents, 0 services)
+- Service health shows all services as unavailable
+- Documents table shows "No documents found"
+- Pipeline status shows services as "unknown" or "error"
+- Console warnings are logged for debugging (not user-facing)
+
 #### Dashboard Not Starting
 ```bash
 # Check if port 8010 is available
@@ -387,4 +445,18 @@ curl http://localhost:8010/api/services
 
 ---
 
-The MEP AI NABOX dashboard provides a comprehensive monitoring and management interface for the entire system, making it easy to deploy, monitor, and maintain your AI-powered document processing system. 
+The MEP AI NABOX dashboard provides a comprehensive monitoring and management interface for the entire system, making it easy to deploy, monitor, and maintain your AI-powered document processing system.
+
+## 📝 Recent Updates
+
+### Error Handling Improvements (Latest)
+The dashboard has been enhanced with comprehensive error handling to provide a smooth user experience:
+
+- **Service Unavailability**: Dashboard gracefully handles when backend services are not running
+- **JavaScript Error Prevention**: Global error handlers prevent browser alerts
+- **Data Validation**: All API responses are validated with safe fallback values
+- **Graceful Degradation**: Dashboard continues functioning even when services are down
+- **No Error Alerts**: Dashboard loads successfully without showing "Failed to load dashboard data" alerts
+- **Auto-recovery**: Dashboard automatically updates when services become available
+
+For detailed information about these improvements, see the [Changelog](CHANGELOG.md) and [Quick Reference](QUICK_REFERENCE.md) guides. 

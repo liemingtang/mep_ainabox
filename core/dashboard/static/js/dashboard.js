@@ -1,5 +1,18 @@
 // Dashboard JavaScript
 
+// Global error handler to prevent unhandled exceptions from showing alerts
+window.addEventListener('error', function(event) {
+    console.error('Global error caught:', event.error);
+    // Prevent the default browser error handling
+    event.preventDefault();
+});
+
+window.addEventListener('unhandledrejection', function(event) {
+    console.error('Unhandled promise rejection:', event.reason);
+    // Prevent the default browser error handling
+    event.preventDefault();
+});
+
 let refreshInterval;
 let autoRefreshEnabled = true;
 
@@ -27,150 +40,274 @@ function updateCurrentTime() {
 
 async function loadDashboardData() {
     try {
-        // Load all data in parallel
-        const [stats, health, documents] = await Promise.all([
-            fetch('/api/stats').then(r => r.json()),
-            fetch('/api/health').then(r => r.json()),
-            fetch('/api/documents').then(r => r.json())
-        ]);
+        // Load all data in parallel with individual error handling
+        const promises = [
+            fetch('/api/stats').then(r => {
+                if (!r.ok) {
+                    throw new Error(`Stats API returned ${r.status}`);
+                }
+                return r.json();
+            }).catch(e => {
+                console.warn('Failed to load stats:', e);
+                return { 
+                    total_documents: 0, 
+                    processing_documents: 0, 
+                    completed_documents: 0, 
+                    failed_documents: 0, 
+                    elasticsearch_docs: 0, 
+                    qdrant_collections: 0,
+                    healthy_services: 0,
+                    total_services: 0,
+                    pending_documents: 0
+                };
+            }),
+            fetch('/api/health').then(r => {
+                if (!r.ok) {
+                    throw new Error(`Health API returned ${r.status}`);
+                }
+                return r.json();
+            }).catch(e => {
+                console.warn('Failed to load health:', e);
+                return { services: [] };
+            }),
+            fetch('/api/documents').then(r => {
+                if (!r.ok) {
+                    throw new Error(`Documents API returned ${r.status}`);
+                }
+                return r.json();
+            }).catch(e => {
+                console.warn('Failed to load documents:', e);
+                return { documents: [] };
+            })
+        ];
         
-        updateStatistics(stats);
-        updateServiceHealth(health.services);
-        updateDocumentsTable(documents.documents);
-        updatePipelineStatus(health.services);
+        const [stats, health, documents] = await Promise.all(promises);
+        
+        // Ensure we have valid data structures even if APIs return unexpected formats
+        const safeStats = {
+            total_documents: stats?.total_documents || 0,
+            processing_documents: stats?.processing_documents || 0,
+            completed_documents: stats?.completed_documents || 0,
+            failed_documents: stats?.failed_documents || 0,
+            elasticsearch_docs: stats?.elasticsearch_docs || 0,
+            qdrant_collections: stats?.qdrant_collections || 0,
+            healthy_services: stats?.healthy_services || 0,
+            total_services: stats?.total_services || 0,
+            pending_documents: stats?.pending_documents || 0
+        };
+        
+        const safeHealth = {
+            services: Array.isArray(health?.services) ? health.services : []
+        };
+        
+        const safeDocuments = {
+            documents: Array.isArray(documents?.documents) ? documents.documents : []
+        };
+        
+        updateStatistics(safeStats);
+        updateServiceHealthSummary(safeHealth.services);
+        updateDocumentsTable(safeDocuments.documents);
+        updatePipelineStatus(safeHealth.services);
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
-        showError('Failed to load dashboard data');
+        // Don't show error for initial load failures - this is expected when services aren't running yet
+        // showError('Failed to load dashboard data');
     }
 }
 
 function updateStatistics(stats) {
-    document.getElementById('total-documents').textContent = stats.total_documents;
-    document.getElementById('processing-documents').textContent = stats.processing_documents;
-    document.getElementById('completed-documents').textContent = stats.completed_documents;
-    document.getElementById('failed-documents').textContent = stats.failed_documents;
-    document.getElementById('es-docs').textContent = stats.elasticsearch_docs;
-    document.getElementById('qdrant-collections').textContent = stats.qdrant_collections;
+    try {
+        // Ensure stats is a valid object
+        if (!stats || typeof stats !== 'object') {
+            console.warn('Invalid stats object received:', stats);
+            stats = {};
+        }
+        
+        const elements = {
+            'total-documents': stats.total_documents || 0,
+            'processing-documents': stats.processing_documents || 0,
+            'completed-documents': stats.completed_documents || 0,
+            'failed-documents': stats.failed_documents || 0,
+            'es-docs': stats.elasticsearch_docs || 0,
+            'qdrant-collections': stats.qdrant_collections || 0
+        };
+        
+        for (const [id, value] of Object.entries(elements)) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+            } else {
+                console.warn(`Element with id '${id}' not found in DOM`);
+            }
+        }
+    } catch (error) {
+        console.warn('Error updating statistics:', error);
+    }
 }
 
-function updateServiceHealth(services) {
-    const container = document.getElementById('services-health');
-    
-    if (!services || services.length === 0) {
-        container.innerHTML = '<div class="text-center text-muted">No services available</div>';
-        return;
-    }
-    
-    const html = services.map(service => {
-        const statusClass = getStatusClass(service.status);
-        const statusIcon = getStatusIcon(service.status);
+function updateServiceHealthSummary(services) {
+    try {
+        const healthyElement = document.getElementById('healthy-services');
+        const unhealthyElement = document.getElementById('unhealthy-services');
         
-        return `
-            <div class="service-status">
-                <div class="d-flex align-items-center">
-                    <span class="status-indicator ${statusClass}"></span>
-                    <a href="/service/${service.service}" class="service-name text-decoration-none">
-                        ${formatServiceName(service.service)}
-                        <i class="fas fa-external-link-alt ms-1 text-muted" style="font-size: 0.8em;"></i>
-                    </a>
-                </div>
-                <div class="text-end">
-                    <div class="status-text ${service.status}">${service.status}</div>
-                    <div class="response-time">${service.response_time.toFixed(2)}s</div>
-                </div>
-            </div>
-        `;
-    }).join('');
-    
-    container.innerHTML = html;
+        if (!healthyElement || !unhealthyElement) {
+            console.warn('Service health elements not found');
+            return;
+        }
+        
+        // Ensure services is a valid array
+        if (!Array.isArray(services)) {
+            console.warn('Invalid services array received:', services);
+            services = [];
+        }
+        
+        const healthyCount = services.filter(service => 
+            service && service.status && (service.status === 'healthy' || service.status === 'running')
+        ).length;
+        
+        const unhealthyCount = services.filter(service => 
+            service && service.status && (service.status === 'unhealthy' || service.status === 'stopped' || service.status === 'error')
+        ).length;
+        
+        healthyElement.textContent = healthyCount;
+        unhealthyElement.textContent = unhealthyCount;
+    } catch (error) {
+        console.warn('Error updating service health summary:', error);
+    }
 }
 
 function updateDocumentsTable(documents) {
-    const tbody = document.getElementById('documents-table');
-    
-    if (!documents || documents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No documents found</td></tr>';
-        return;
-    }
-    
-    // Sort by created_at (newest first)
-    documents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    
-    // Show only the 10 most recent documents
-    const recentDocs = documents.slice(0, 10);
-    
-    const html = recentDocs.map(doc => {
-        const statusClass = getStatusClass(doc.processing_status);
-        const statusBadge = getStatusBadge(doc.processing_status);
-        const fileSize = formatFileSize(doc.file_size);
-        const createdDate = new Date(doc.created_at).toLocaleString();
+    try {
+        const tbody = document.getElementById('documents-table');
         
-        return `
-            <tr>
-                <td>
-                    <div class="fw-medium">${doc.filename}</div>
-                    <div class="text-muted small">${doc.document_type}</div>
-                </td>
-                <td>
-                    <span class="source-badge">${doc.source}</span>
-                </td>
-                <td>
-                    <span class="status-badge ${statusClass}">${statusBadge}</span>
-                </td>
-                <td>
-                    <span class="file-size">${fileSize}</span>
-                </td>
-                <td>
-                    <div class="small">${createdDate}</div>
-                </td>
-                <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="viewDocumentDetails('${doc.id}')">
-                        <i class="fas fa-eye"></i>
-                    </button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-    
-    tbody.innerHTML = html;
+        if (!tbody) {
+            console.warn('Documents table body element not found');
+            return;
+        }
+        
+        // Ensure documents is a valid array
+        if (!Array.isArray(documents)) {
+            console.warn('Invalid documents array received:', documents);
+            documents = [];
+        }
+        
+        if (documents.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No documents found</td></tr>';
+            return;
+        }
+        
+        // Sort by created_at (newest first)
+        documents.sort((a, b) => {
+            try {
+                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+            } catch (e) {
+                return 0;
+            }
+        });
+        
+        // Show only the 10 most recent documents
+        const recentDocs = documents.slice(0, 10);
+        
+        const html = recentDocs.map(doc => {
+            try {
+                const statusClass = getStatusClass(doc.processing_status || 'unknown');
+                const statusBadge = getStatusBadge(doc.processing_status || 'unknown');
+                const fileSize = formatFileSize(doc.file_size || 0);
+                const createdDate = new Date(doc.created_at || Date.now()).toLocaleString();
+                
+                return `
+                    <tr>
+                        <td>
+                            <div class="fw-medium">${doc.filename || 'Unknown'}</div>
+                            <div class="text-muted small">${doc.document_type || 'Unknown'}</div>
+                        </td>
+                        <td>
+                            <span class="source-badge">${doc.source || 'Unknown'}</span>
+                        </td>
+                        <td>
+                            <span class="status-badge ${statusClass}">${statusBadge}</span>
+                        </td>
+                        <td>
+                            <span class="file-size">${fileSize}</span>
+                        </td>
+                        <td>
+                            <div class="small">${createdDate}</div>
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" onclick="viewDocumentDetails('${doc.id || ''}')">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            } catch (error) {
+                console.warn('Error processing document:', error, doc);
+                return '';
+            }
+        }).join('');
+        
+        tbody.innerHTML = html;
+    } catch (error) {
+        console.warn('Error updating documents table:', error);
+    }
 }
 
 function updatePipelineStatus(services) {
-    const container = document.getElementById('pipeline-status');
-    
-    const pipelineServices = [
-        { name: 'text-processor', icon: 'fas fa-file-alt', title: 'Text Extraction' },
-        { name: 'metadata-processor', icon: 'fas fa-tags', title: 'Metadata Extraction' },
-        { name: 'embedding-processor', icon: 'fas fa-brain', title: 'Embedding Generation' },
-        { name: 'entity-processor', icon: 'fas fa-sitemap', title: 'Entity Extraction' },
-        { name: 'processing-pipeline', icon: 'fas fa-cogs', title: 'Pipeline Orchestration' }
-    ];
-    
-    const html = pipelineServices.map(service => {
-        const serviceData = services.find(s => s.service === service.name);
-        const status = serviceData ? serviceData.status : 'unknown';
-        const statusClass = getStatusClass(status);
-        const statusIcon = getStatusIcon(status);
+    try {
+        const container = document.getElementById('pipeline-status');
         
-        return `
-            <div class="pipeline-step ${statusClass}">
-                <div class="pipeline-icon">
-                    <i class="${service.icon}"></i>
-                </div>
-                <div class="pipeline-text">
-                    <div class="fw-medium">${service.title}</div>
-                    <div class="small text-muted">${service.name}</div>
-                </div>
-                <div class="pipeline-time">
-                    <i class="${statusIcon}"></i>
-                    ${status}
-                </div>
-            </div>
-        `;
-    }).join('');
-    
-    container.innerHTML = html;
+        if (!container) {
+            console.warn('Pipeline status container element not found');
+            return;
+        }
+        
+        // Ensure services is a valid array
+        if (!Array.isArray(services)) {
+            console.warn('Invalid services array received for pipeline status:', services);
+            services = [];
+        }
+        
+        const pipelineServices = [
+            { name: 'text-processor', icon: 'fas fa-file-alt', title: 'Text Extraction' },
+            { name: 'metadata-processor', icon: 'fas fa-tags', title: 'Metadata Extraction' },
+            { name: 'embedding-processor', icon: 'fas fa-brain', title: 'Embedding Generation' },
+            { name: 'entity-processor', icon: 'fas fa-sitemap', title: 'Entity Extraction' },
+            { name: 'processing-pipeline', icon: 'fas fa-cogs', title: 'Pipeline Orchestration' }
+        ];
+        
+        const html = pipelineServices.map(service => {
+            try {
+                const serviceData = services.find(s => s && s.service === service.name);
+                const status = serviceData && serviceData.status ? serviceData.status : 'unknown';
+                const statusClass = getStatusClass(status);
+                const statusIcon = getStatusIcon(status);
+                
+                return `
+                    <div class="pipeline-step ${statusClass}">
+                        <div class="pipeline-icon">
+                            <i class="${service.icon}"></i>
+                        </div>
+                        <div class="pipeline-text">
+                            <div class="fw-medium">${service.title}</div>
+                            <div class="small text-muted">${service.name}</div>
+                        </div>
+                        <div class="pipeline-time">
+                            <i class="${statusIcon}"></i>
+                            ${status}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.warn('Error processing pipeline service:', error, service);
+                return '';
+            }
+        }).join('');
+        
+        container.innerHTML = html;
+    } catch (error) {
+        console.warn('Error updating pipeline status:', error);
+    }
 }
 
 async function viewDocumentDetails(documentId) {

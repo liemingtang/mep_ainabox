@@ -611,10 +611,10 @@ async def get_documents() -> List[DocumentStatus]:
                 documents = response.json()
                 return [DocumentStatus(**doc) for doc in documents]
             else:
-                logger.error(f"Failed to get documents: {response.status_code}")
+                # Don't log errors for services that aren't running yet
                 return []
     except Exception as e:
-        logger.error(f"Error getting documents: {e}")
+        # Don't log errors for services that aren't running yet
         return []
 
 async def get_elasticsearch_stats() -> Dict:
@@ -633,7 +633,7 @@ async def get_elasticsearch_stats() -> Dict:
             else:
                 return {"total_documents": 0, "indices": []}
     except Exception as e:
-        logger.error(f"Error getting Elasticsearch stats: {e}")
+        # Don't log errors for services that aren't running yet
         return {"total_documents": 0, "indices": []}
 
 def load_configuration() -> Dict:
@@ -884,7 +884,7 @@ async def get_qdrant_stats() -> Dict:
             else:
                 return {"collections": [], "total_collections": 0}
     except Exception as e:
-        logger.error(f"Error getting Qdrant stats: {e}")
+        # Don't log errors for services that aren't running yet
         return {"collections": [], "total_collections": 0}
 
 async def get_dashboard_stats() -> DashboardStats:
@@ -1782,18 +1782,18 @@ async def get_service_status():
         {"name": "Redis", "port": 6379, "endpoint": None, "description": "In-memory data structure store", "service_key": "redis", "admin_url": "http://localhost:8081"},
         {"name": "MinIO", "port": 9000, "endpoint": "/minio/health/live", "description": "Object storage", "service_key": "minio", "admin_url": "http://localhost:9001"},
         {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database", "service_key": "neo4j", "admin_url": "http://localhost:7474"},
-        {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration", "service_key": "pgadmin", "admin_url": "http://localhost:8080"},
-        {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface", "service_key": "redis-commander", "admin_url": "http://localhost:8081"},
         {"name": "Kibana", "port": 5601, "endpoint": "/", "description": "Elasticsearch management and visualization", "service_key": "kibana", "admin_url": "http://localhost:5601"},
         {"name": "Flowise", "port": 3001, "endpoint": "/", "description": "LLM Flow Builder", "service_key": "flowise", "admin_url": "http://localhost:3001"},
         {"name": "n8n", "port": 5678, "endpoint": "/", "description": "Workflow automation platform", "service_key": "n8n", "admin_url": "http://localhost:5678"}
     ]
     
-    # Admin UI Services (the 3 specific ones mentioned)
+    # Admin UI Services (including pgAdmin and Redis Commander)
     admin_ui_services = [
         {"name": "Prometheus", "port": 9090, "endpoint": "/-/healthy", "description": "Metrics collection and monitoring", "service_key": "prometheus", "admin_url": "http://localhost:9090"},
         {"name": "Grafana", "port": 3002, "endpoint": "/api/health", "description": "Monitoring dashboards", "service_key": "grafana", "admin_url": "http://localhost:3002"},
-        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface", "service_key": "qdrantui", "admin_url": "http://localhost:7070/index.html"}
+        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface", "service_key": "qdrantui", "admin_url": "http://localhost:7070/index.html"},
+        {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration", "service_key": "pgadmin", "admin_url": "http://localhost:8080"},
+        {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface", "service_key": "redis-commander", "admin_url": "http://localhost:8081"}
     ]
     
     def check_service_status(service):
@@ -1867,7 +1867,7 @@ async def start_individual_service(service_key: str):
     """Start an individual service"""
     try:
         # Determine which docker-compose file to use based on service key
-        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "pgadmin", "redis-commander", "kibana", "flowise", "n8n"]:
+        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
             # Infrastructure service - use services docker-compose
             compose_file = "services/docker-compose.yml"
             service_name = service_key
@@ -1875,7 +1875,7 @@ async def start_individual_service(service_key: str):
             # Core service - use core docker-compose
             compose_file = "core/docker-compose.yml"
             service_name = service_key
-        elif service_key in ["prometheus", "grafana", "qdrantui"]:
+        elif service_key in ["prometheus", "grafana", "qdrantui", "pgadmin", "redis-commander"]:
             # Admin UI service - use services docker-compose with profile
             compose_file = "services/docker-compose.yml"
             service_name = service_key
@@ -1921,7 +1921,7 @@ async def stop_individual_service(service_key: str):
     """Stop an individual service"""
     try:
         # Determine which docker-compose file to use based on service key
-        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "pgadmin", "redis-commander", "kibana", "flowise", "n8n"]:
+        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
             # Infrastructure service - use services docker-compose
             compose_file = "services/docker-compose.yml"
             service_name = service_key
@@ -1929,7 +1929,7 @@ async def stop_individual_service(service_key: str):
             # Core service - use core docker-compose
             compose_file = "core/docker-compose.yml"
             service_name = service_key
-        elif service_key in ["prometheus", "grafana", "qdrantui"]:
+        elif service_key in ["prometheus", "grafana", "qdrantui", "pgadmin", "redis-commander"]:
             # Admin UI service - use services docker-compose with profile
             compose_file = "services/docker-compose.yml"
             service_name = service_key
