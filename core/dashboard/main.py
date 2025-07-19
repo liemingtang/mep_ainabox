@@ -1233,6 +1233,315 @@ def startup_services():
         admin_state["startup_thread"] = threading.Thread(target=startup_worker, daemon=True)
         admin_state["startup_thread"].start()
 
+def startup_admin_ui_services():
+    """Start admin UI services in the background"""
+    def startup_ui_worker():
+        admin_state["startup_in_progress"] = True
+        admin_state["startup_logs"] = []
+        
+        # Store the original working directory
+        original_dir = os.getcwd()
+        admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🖥️ Starting Admin UI services...")
+        admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Original directory: {original_dir}")
+        
+        try:
+            # Navigate to the services directory
+            project_root = os.path.dirname(os.path.dirname(original_dir))
+            services_dir = os.path.join(project_root, 'services')
+            
+            if os.path.exists(services_dir):
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found services directory")
+                os.chdir(services_dir)
+                
+                # Step 1: Start Qdrant UI service using daemon script
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎨 Starting Qdrant UI...")
+                
+                # Use the new daemon script
+                qdrant_ui_daemon_script = os.path.join(services_dir, 'scripts', 'start-qdrant-ui-daemon.sh')
+                if os.path.exists(qdrant_ui_daemon_script):
+                    try:
+                        # Make script executable
+                        os.chmod(qdrant_ui_daemon_script, 0o755)
+                        
+                        # Run the daemon script
+                        result = subprocess.run(
+                            ["bash", qdrant_ui_daemon_script],
+                            capture_output=True, text=True, timeout=30
+                        )
+                        
+                        if result.returncode == 0:
+                            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Qdrant UI started successfully")
+                            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📝 Logs available at: {os.path.join(services_dir, 'qdrant-ui.log')}")
+                        else:
+                            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Qdrant UI startup had issues: {result.stderr}")
+                            if result.stdout:
+                                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📋 Output: {result.stdout}")
+                    except subprocess.TimeoutExpired:
+                        admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Qdrant UI startup timed out")
+                    except Exception as e:
+                        admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Qdrant UI startup failed: {str(e)}")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Qdrant UI daemon script not found: {qdrant_ui_daemon_script}")
+                
+                # Step 2: Start monitoring services with profile
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📊 Starting monitoring services (Prometheus & Grafana)...")
+                result = subprocess.run(
+                    ["docker", "compose", "--profile", "monitoring", "up", "-d", "prometheus", "grafana"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Monitoring services started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Monitoring services startup had issues: {result.stderr}")
+                
+                # Step 3: Start development profile services
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛠️ Starting development UI services...")
+                
+                # Start pgAdmin (development profile)
+                result = subprocess.run(
+                    ["docker", "compose", "--profile", "dev", "up", "-d", "pgadmin"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ pgAdmin started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ pgAdmin startup had issues: {result.stderr}")
+                
+                # Start Redis Commander (development profile)
+                result = subprocess.run(
+                    ["docker", "compose", "--profile", "dev", "up", "-d", "redis-commander"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Redis Commander started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Redis Commander startup had issues: {result.stderr}")
+                
+                # Step 4: Start regular services (no profile needed)
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎨 Starting regular admin UI services...")
+                
+                # Start MinIO (has built-in console on port 9001)
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d", "minio"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ MinIO Console started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ MinIO Console startup had issues: {result.stderr}")
+                
+                # Start Kibana
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d", "kibana"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Kibana started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Kibana startup had issues: {result.stderr}")
+                
+                # Start Flowise
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d", "flowise"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Flowise started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Flowise startup had issues: {result.stderr}")
+                
+                # Start n8n
+                result = subprocess.run(
+                    ["docker", "compose", "up", "-d", "n8n"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ n8n started successfully")
+                else:
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ n8n startup had issues: {result.stderr}")
+                
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎉 Admin UI services startup completed!")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📋 Available Admin UIs:")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • Qdrant UI: http://localhost:7070/index.html")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • Grafana: http://localhost:3002")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • Prometheus: http://localhost:9090")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • MinIO Console: http://localhost:9001")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • Kibana: http://localhost:5601")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • pgAdmin: http://localhost:8080")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • Redis Commander: http://localhost:8081")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • Flowise: http://localhost:3001")
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}]   • n8n: http://localhost:5678")
+                
+            else:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Services directory not found: {services_dir}")
+                admin_state["startup_in_progress"] = False
+                return
+            
+        except Exception as e:
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Admin UI startup failed with error: {str(e)}")
+        finally:
+            # Always restore the original working directory
+            try:
+                os.chdir(original_dir)
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Restored working directory to: {original_dir}")
+            except Exception as e:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Failed to restore working directory: {str(e)}")
+            admin_state["startup_in_progress"] = False
+    
+    # Start the worker thread
+    if not admin_state["startup_in_progress"]:
+        admin_state["startup_thread"] = threading.Thread(target=startup_ui_worker, daemon=True)
+        admin_state["startup_thread"].start()
+
+def stop_admin_ui_services():
+    """Stop admin UI services in the background"""
+    def stop_ui_worker():
+        admin_state["shutdown_in_progress"] = True
+        admin_state["shutdown_logs"] = []
+        
+        # Store the original working directory
+        original_dir = os.getcwd()
+        admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛑 Stopping Admin UI services...")
+        admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Original directory: {original_dir}")
+        
+        try:
+            # Navigate to the services directory
+            project_root = os.path.dirname(os.path.dirname(original_dir))
+            services_dir = os.path.join(project_root, 'services')
+            
+            if os.path.exists(services_dir):
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found services directory")
+                os.chdir(services_dir)
+                
+                # Step 1: Stop Qdrant UI service using daemon script
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎨 Stopping Qdrant UI...")
+                
+                # Use the stop daemon script
+                qdrant_ui_stop_script = os.path.join(services_dir, 'scripts', 'stop-qdrant-ui-daemon.sh')
+                if os.path.exists(qdrant_ui_stop_script):
+                    try:
+                        # Make script executable
+                        os.chmod(qdrant_ui_stop_script, 0o755)
+                        
+                        # Run the stop daemon script
+                        result = subprocess.run(
+                            ["bash", qdrant_ui_stop_script],
+                            capture_output=True, text=True, timeout=30
+                        )
+                        
+                        if result.returncode == 0:
+                            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Qdrant UI stopped successfully")
+                        else:
+                            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Qdrant UI stop had issues: {result.stderr}")
+                            if result.stdout:
+                                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📋 Output: {result.stdout}")
+                    except subprocess.TimeoutExpired:
+                        admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Qdrant UI stop timed out")
+                    except Exception as e:
+                        admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Qdrant UI stop failed: {str(e)}")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Qdrant UI stop script not found: {qdrant_ui_stop_script}")
+                
+                # Step 2: Stop monitoring services
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📊 Stopping monitoring services (Prometheus & Grafana)...")
+                result = subprocess.run(
+                    ["docker", "compose", "--profile", "monitoring", "stop", "prometheus", "grafana"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Monitoring services stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Monitoring services stop had issues: {result.stderr}")
+                
+                # Step 3: Stop development profile services
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛠️ Stopping development UI services...")
+                
+                # Stop pgAdmin (development profile)
+                result = subprocess.run(
+                    ["docker", "compose", "--profile", "dev", "stop", "pgadmin"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ pgAdmin stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ pgAdmin stop had issues: {result.stderr}")
+                
+                # Stop Redis Commander (development profile)
+                result = subprocess.run(
+                    ["docker", "compose", "--profile", "dev", "stop", "redis-commander"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Redis Commander stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Redis Commander stop had issues: {result.stderr}")
+                
+                # Step 4: Stop regular services (no profile needed)
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎨 Stopping regular admin UI services...")
+                
+                # Stop MinIO
+                result = subprocess.run(
+                    ["docker", "compose", "stop", "minio"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ MinIO Console stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ MinIO Console stop had issues: {result.stderr}")
+                
+                # Stop Kibana
+                result = subprocess.run(
+                    ["docker", "compose", "stop", "kibana"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Kibana stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Kibana stop had issues: {result.stderr}")
+                
+                # Stop Flowise
+                result = subprocess.run(
+                    ["docker", "compose", "stop", "flowise"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Flowise stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Flowise stop had issues: {result.stderr}")
+                
+                # Stop n8n
+                result = subprocess.run(
+                    ["docker", "compose", "stop", "n8n"],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ n8n stopped successfully")
+                else:
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ n8n stop had issues: {result.stderr}")
+                
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🎉 Admin UI services shutdown completed!")
+                
+            else:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Services directory not found: {services_dir}")
+                admin_state["shutdown_in_progress"] = False
+                return
+            
+        except Exception as e:
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Admin UI shutdown failed with error: {str(e)}")
+        finally:
+            # Always restore the original working directory
+            try:
+                os.chdir(original_dir)
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Restored working directory to: {original_dir}")
+            except Exception as e:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Failed to restore working directory: {str(e)}")
+            admin_state["shutdown_in_progress"] = False
+    
+    # Start the worker thread
+    if not admin_state["shutdown_in_progress"]:
+        admin_state["shutdown_thread"] = threading.Thread(target=stop_ui_worker, daemon=True)
+        admin_state["shutdown_thread"].start()
+
 def shutdown_services():
     """Stop all services in the background"""
     
@@ -1350,6 +1659,24 @@ async def start_all_services():
     
     startup_services()
     return {"message": "Service startup initiated", "status": "starting"}
+
+@app.post("/api/admin/start-admin-ui-services")
+async def start_admin_ui_services():
+    """Start admin UI services"""
+    if admin_state["startup_in_progress"]:
+        raise HTTPException(status_code=400, detail="Startup already in progress")
+    
+    startup_admin_ui_services()
+    return {"message": "Admin UI services startup initiated", "status": "starting"}
+
+@app.post("/api/admin/stop-admin-ui-services")
+async def stop_admin_ui_services():
+    """Stop admin UI services"""
+    if admin_state["shutdown_in_progress"]:
+        raise HTTPException(status_code=400, detail="Shutdown already in progress")
+    
+    stop_admin_ui_services()
+    return {"message": "Admin UI services shutdown initiated", "status": "stopping"}
 
 @app.post("/api/admin/stop-services")
 async def stop_all_services():

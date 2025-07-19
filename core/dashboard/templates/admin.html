@@ -206,6 +206,30 @@
                         </div>
                     </div>
                     <hr>
+                    <div class="row align-items-center mb-3">
+                        <div class="col-md-8">
+                            <h6>Start Admin UI Services</h6>
+                            <p class="text-muted mb-0">Launch admin interfaces (Qdrant UI, Grafana, etc.)</p>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <button id="startAdminUIBtn" class="btn btn-info">
+                                <i class="fas fa-desktop"></i> Start Admin UIs
+                            </button>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row align-items-center mb-3">
+                        <div class="col-md-8">
+                            <h6>Stop Admin UI Services</h6>
+                            <p class="text-muted mb-0">Shutdown admin interfaces (Qdrant UI, Grafana, etc.)</p>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <button id="stopAdminUIBtn" class="btn btn-warning">
+                                <i class="fas fa-desktop"></i> Stop Admin UIs
+                            </button>
+                        </div>
+                    </div>
+                    <hr>
                     <div class="row align-items-center">
                         <div class="col-md-8">
                             <h6>Stop All Services</h6>
@@ -547,6 +571,58 @@
             }
         }
 
+        async function startAdminUIServices() {
+            try {
+                const response = await fetch('/api/admin/start-admin-ui-services', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Admin UI startup initiated:', result);
+                    alert('Admin UI services startup initiated successfully!');
+                    loadAdminStatus(); // Refresh status immediately
+                } else {
+                    const error = await response.json();
+                    alert('Error starting admin UI services: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error starting admin UI services:', error);
+                alert('Error starting admin UI services: ' + error.message);
+            }
+        }
+
+        async function stopAdminUIServices() {
+            if (!confirm('Are you sure you want to stop all admin UI services? This will shutdown Qdrant UI, Grafana, Prometheus, and other admin interfaces.')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/admin/stop-admin-ui-services', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('Admin UI shutdown initiated:', result);
+                    alert('Admin UI services shutdown initiated successfully!');
+                    loadAdminStatus(); // Refresh status immediately
+                } else {
+                    const error = await response.json();
+                    alert('Error stopping admin UI services: ' + error.detail);
+                }
+            } catch (error) {
+                console.error('Error stopping admin UI services:', error);
+                alert('Error stopping admin UI services: ' + error.message);
+            }
+        }
+
         async function loadStartupLogs() {
             try {
                 const response = await fetch('/api/admin/startup-logs');
@@ -657,6 +733,8 @@
 
         // Event listeners
         document.getElementById('startServicesBtn').addEventListener('click', startAllServices);
+        document.getElementById('startAdminUIBtn').addEventListener('click', startAdminUIServices);
+        document.getElementById('stopAdminUIBtn').addEventListener('click', stopAdminUIServices);
         document.getElementById('stopServicesBtn').addEventListener('click', stopAllServices);
     </script>
 </body>
