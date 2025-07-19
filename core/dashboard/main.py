@@ -1722,6 +1722,108 @@ async def get_shutdown_logs():
         "in_progress": admin_state["shutdown_in_progress"]
     }
 
+@app.get("/api/admin/service-status")
+async def get_service_status():
+    """Get detailed status of all services"""
+    
+    # Core Services (from core docker-compose)
+    core_services = [
+        {"name": "API Gateway", "port": 8011, "endpoint": "/health", "description": "Unified entry point for all client interactions"},
+        {"name": "Core Processor", "port": 8001, "endpoint": "/docs", "description": "Main document processing orchestrator"},
+        {"name": "Document Router", "port": 8002, "endpoint": "/health", "description": "Intelligent document routing and processing"},
+        {"name": "Processing Pipeline", "port": 8003, "endpoint": "/health", "description": "Orchestrated document processing workflow"},
+        {"name": "Storage Manager", "port": 8004, "endpoint": "/health", "description": "Unified data storage and retrieval interface"},
+        {"name": "Text Processor", "port": 8005, "endpoint": "/health", "description": "Text extraction and processing"},
+        {"name": "Metadata Processor", "port": 8006, "endpoint": "/health", "description": "Metadata extraction and validation"},
+        {"name": "Embedding Processor", "port": 8007, "endpoint": "/health", "description": "Vector embedding generation using Ollama"},
+        {"name": "Entity Processor", "port": 8008, "endpoint": "/health", "description": "Entity extraction and relationship mapping"},
+        {"name": "File Watcher", "port": 8009, "endpoint": "/health", "description": "Monitor local folders for new documents"},
+        {"name": "Ollama", "port": 11434, "endpoint": "/api/tags", "description": "Self-hosted LLM and embedding service"}
+    ]
+    
+    # Infrastructure Services (from services docker-compose)
+    infrastructure_services = [
+        {"name": "PostgreSQL", "port": 5432, "endpoint": None, "description": "Primary database"},
+        {"name": "Elasticsearch", "port": 9200, "endpoint": "/_cluster/health", "description": "Search and analytics engine"},
+        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database"},
+        {"name": "Redis", "port": 6379, "endpoint": None, "description": "In-memory data structure store"},
+        {"name": "MinIO", "port": 9000, "endpoint": "/minio/health/live", "description": "Object storage"},
+        {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database"},
+        {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration"},
+        {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface"},
+        {"name": "Kibana", "port": 5601, "endpoint": "/", "description": "Elasticsearch management and visualization"},
+        {"name": "Flowise", "port": 3001, "endpoint": "/", "description": "LLM Flow Builder"},
+        {"name": "n8n", "port": 5678, "endpoint": "/", "description": "Workflow automation platform"}
+    ]
+    
+    # Admin UI Services (the 3 specific ones mentioned)
+    admin_ui_services = [
+        {"name": "Prometheus", "port": 9090, "endpoint": "/-/healthy", "description": "Metrics collection and monitoring"},
+        {"name": "Grafana", "port": 3002, "endpoint": "/api/health", "description": "Monitoring dashboards"},
+        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface"}
+    ]
+    
+    def check_service_status(service):
+        """Check if a service is running"""
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(("localhost", service["port"]))
+            sock.close()
+            
+            if result == 0:
+                # Port is open, try HTTP check if endpoint is specified
+                if service["endpoint"]:
+                    try:
+                        import httpx
+                        with httpx.Client(timeout=3.0) as client:
+                            response = client.get(f"http://localhost:{service['port']}{service['endpoint']}")
+                            return "running" if response.status_code in [200, 302, 404] else "unhealthy"
+                    except:
+                        return "running"  # Port open but HTTP failed, assume running
+                else:
+                    return "running"
+            else:
+                return "stopped"
+        except:
+            return "unknown"
+    
+    # Check status for all services
+    core_services_with_status = []
+    for service in core_services:
+        status = check_service_status(service)
+        core_services_with_status.append({
+            **service,
+            "status": status,
+            "category": "core"
+        })
+    
+    infrastructure_services_with_status = []
+    for service in infrastructure_services:
+        status = check_service_status(service)
+        infrastructure_services_with_status.append({
+            **service,
+            "status": status,
+            "category": "infrastructure"
+        })
+    
+    admin_ui_services_with_status = []
+    for service in admin_ui_services:
+        status = check_service_status(service)
+        admin_ui_services_with_status.append({
+            **service,
+            "status": status,
+            "category": "admin_ui"
+        })
+    
+    return {
+        "core_services": core_services_with_status,
+        "infrastructure_services": infrastructure_services_with_status,
+        "admin_ui_services": admin_ui_services_with_status,
+        "last_update": datetime.now()
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8010, log_level="info") 

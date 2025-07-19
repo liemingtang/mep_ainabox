@@ -14,7 +14,7 @@
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             backdrop-filter: blur(10px);
             margin: 20px auto;
-            max-width: 1200px;
+            max-width: 1400px;
         }
         .status-indicator {
             width: 12px;
@@ -25,7 +25,10 @@
         }
         .status-running { background-color: #28a745; }
         .status-stopped { background-color: #dc3545; }
+        .status-unhealthy { background-color: #fd7e14; }
+        .status-unknown { background-color: #6c757d; }
         .status-starting { background-color: #ffc107; }
+        
         .btn-start {
             background: linear-gradient(45deg, #667eea, #764ba2);
             border: none;
@@ -43,6 +46,7 @@
             transform: none;
             box-shadow: none;
         }
+        
         .log-container {
             background: #1e1e1e;
             color: #00ff00;
@@ -62,18 +66,14 @@
         .log-entry.success { color: #51cf66; }
         .log-entry.warning { color: #ffd43b; }
         .log-entry.info { color: #74c0fc; }
+        
         .progress-container {
             background: #f8f9fa;
             border-radius: 10px;
             padding: 20px;
             margin: 20px 0;
         }
-        .service-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
+        
         .header-section {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -81,32 +81,128 @@
             border-radius: 20px 20px 0 0;
             text-align: center;
         }
+        
         .content-section {
             padding: 30px;
         }
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
+        
+        .panel-card {
             background: white;
-            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            margin-bottom: 30px;
+            overflow: hidden;
+        }
+        
+        .panel-header {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 20px 25px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .panel-body {
+            padding: 25px;
+        }
+        
+        .service-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
             border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            border-left: 4px solid #dee2e6;
+            transition: all 0.3s ease;
         }
-        .stat-number {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #667eea;
+        
+        .service-item:hover {
+            background: #e9ecef;
+            transform: translateX(5px);
         }
-        .stat-label {
-            color: #6c757d;
+        
+        .service-item.running {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        
+        .service-item.stopped {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        
+        .service-item.unhealthy {
+            border-left-color: #fd7e14;
+            background: #fff3cd;
+        }
+        
+        .service-item.unknown {
+            border-left-color: #6c757d;
+            background: #f8f9fa;
+        }
+        
+        .service-info {
+            flex: 1;
+        }
+        
+        .service-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #495057;
+        }
+        
+        .service-description {
             font-size: 0.9rem;
-            margin-top: 5px;
+            color: #6c757d;
+            margin-bottom: 0;
         }
+        
+        .service-port {
+            font-size: 0.8rem;
+            color: #adb5bd;
+            font-family: monospace;
+        }
+        
+        .service-status {
+            text-align: right;
+            min-width: 120px;
+        }
+        
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .status-badge.running {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status-badge.stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-badge.unhealthy {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-badge.unknown {
+            background: #f8f9fa;
+            color: #6c757d;
+        }
+        
+        .control-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid #dee2e6;
+        }
+        
         .refresh-btn {
             position: fixed;
             bottom: 30px;
@@ -124,6 +220,33 @@
         .refresh-btn:hover {
             transform: rotate(180deg);
             background: #764ba2;
+        }
+        
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-top: 5px;
         }
     </style>
 </head>
@@ -168,19 +291,19 @@
         </div>
         
         <div class="content-section">
-            <!-- Status Overview -->
-            <div class="stats-row">
+            <!-- Status Summary -->
+            <div class="stats-summary">
                 <div class="stat-card">
-                    <div class="stat-number" id="infrastructure-status">-</div>
-                    <div class="stat-label">Infrastructure</div>
+                    <div class="stat-number" id="core-running-count">-</div>
+                    <div class="stat-label">Core Services Running</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number" id="core-status">-</div>
-                    <div class="stat-label">Core System</div>
+                    <div class="stat-number" id="infrastructure-running-count">-</div>
+                    <div class="stat-label">Infrastructure Running</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number" id="startup-status">-</div>
-                    <div class="stat-label">Startup Status</div>
+                    <div class="stat-number" id="admin-ui-running-count">-</div>
+                    <div class="stat-label">Admin UIs Running</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-number" id="last-update">-</div>
@@ -188,105 +311,151 @@
                 </div>
             </div>
 
-            <!-- Control Panel -->
-            <div class="card status-card">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="fas fa-play-circle"></i> Service Control</h5>
+
+
+
+
+            <!-- Panel 1: Core Services -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h4 class="mb-0">
+                        <i class="fas fa-server me-2"></i>
+                        Core Services
+                    </h4>
+                    <p class="mb-0 text-muted">Infrastructure and core system services</p>
                 </div>
-                <div class="card-body">
-                    <div class="row align-items-center mb-3">
-                        <div class="col-md-8">
-                            <h6>Start All Services</h6>
-                            <p class="text-muted mb-0">Launch infrastructure and core system services</p>
-                        </div>
-                        <div class="col-md-4 text-end">
-                            <button id="startServicesBtn" class="btn btn-start text-white">
-                                <i class="fas fa-rocket"></i> Start All Services
-                            </button>
-                        </div>
-                    </div>
-                    <hr>
-                    <div class="row align-items-center mb-3">
-                        <div class="col-md-8">
-                            <h6>Start Admin UI Services</h6>
-                            <p class="text-muted mb-0">Launch admin interfaces (Qdrant UI, Grafana, etc.)</p>
-                        </div>
-                        <div class="col-md-4 text-end">
-                            <button id="startAdminUIBtn" class="btn btn-info">
-                                <i class="fas fa-desktop"></i> Start Admin UIs
-                            </button>
-                        </div>
-                    </div>
-                    <hr>
-                    <div class="row align-items-center mb-3">
-                        <div class="col-md-8">
-                            <h6>Stop Admin UI Services</h6>
-                            <p class="text-muted mb-0">Shutdown admin interfaces (Qdrant UI, Grafana, etc.)</p>
-                        </div>
-                        <div class="col-md-4 text-end">
-                            <button id="stopAdminUIBtn" class="btn btn-warning">
-                                <i class="fas fa-desktop"></i> Stop Admin UIs
-                            </button>
+                <div class="panel-body">
+                    <!-- Core Services Control -->
+                    <div class="control-section mb-4">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6>Start All Services</h6>
+                                        <p class="text-muted mb-0">Launch infrastructure and core system services</p>
+                                    </div>
+                                    <button id="startServicesBtn" class="btn btn-start text-white">
+                                        <i class="fas fa-rocket"></i> Start All Services
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6>Stop All Services</h6>
+                                        <p class="text-muted mb-0">Shutdown infrastructure and core system services</p>
+                                    </div>
+                                    <button id="stopServicesBtn" class="btn btn-danger">
+                                        <i class="fas fa-stop-circle"></i> Stop All Services
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <hr>
-                    <div class="row align-items-center">
-                        <div class="col-md-8">
-                            <h6>Stop All Services</h6>
-                            <p class="text-muted mb-0">Shutdown infrastructure and core system services</p>
+                    
+                    <!-- Core Services Startup Progress Section -->
+                    <div id="coreStartupProgressSection" class="progress-container" style="display: none;">
+                        <h5><i class="fas fa-spinner fa-spin"></i> Core Services Startup Progress</h5>
+                        <div class="progress mb-3">
+                            <div id="coreStartupProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%"></div>
                         </div>
-                        <div class="col-md-4 text-end">
-                            <button id="stopServicesBtn" class="btn btn-danger">
-                                <i class="fas fa-stop-circle"></i> Stop All Services
-                            </button>
+                        <div class="log-container" id="coreStartupLogs">
+                            <div class="log-entry info">Waiting for startup to begin...</div>
                         </div>
                     </div>
+
+
+                    <!-- Core Services Shutdown Progress Section -->
+                    <div id="coreShutdownProgressSection" class="progress-container" style="display: none;">
+                        <h5><i class="fas fa-spinner fa-spin"></i> Core Services Shutdown Progress</h5>
+                        <div class="progress mb-3">
+                            <div id="coreShutdownProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" 
+                                 role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="log-container" id="coreShutdownLogs">
+                            <div class="log-entry info">Waiting for shutdown to begin...</div>
+                        </div>
+                    </div>
+
+                    <div id="core-services-list">
+                        <!-- Core services will be populated here -->
+                    </div>
+                    
                 </div>
             </div>
 
-            <!-- Startup Progress Section -->
-            <div id="startupProgressSection" class="progress-container" style="display: none;">
-                <h5><i class="fas fa-spinner fa-spin"></i> Startup Progress</h5>
-                <div class="progress mb-3">
-                    <div id="startupProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
-                         role="progressbar" style="width: 0%"></div>
+            <!-- Panel 2: Additional Admin UIs -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <h4 class="mb-0">
+                        <i class="fas fa-desktop me-2"></i>
+                        Additional Admin UIs
+                    </h4>
+                    <p class="mb-0 text-muted">Monitoring and management interfaces</p>
                 </div>
-                <div class="log-container" id="startupLogs">
-                    <div class="log-entry info">Waiting for startup to begin...</div>
-                </div>
-            </div>
-
-            <!-- Shutdown Progress Section -->
-            <div id="shutdownProgressSection" class="progress-container" style="display: none;">
-                <h5><i class="fas fa-spinner fa-spin"></i> Shutdown Progress</h5>
-                <div class="progress mb-3">
-                    <div id="shutdownProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" 
-                         role="progressbar" style="width: 0%"></div>
-                </div>
-                <div class="log-container" id="shutdownLogs">
-                    <div class="log-entry info">Waiting for shutdown to begin...</div>
-                </div>
-            </div>
-
-            <!-- Service Status Grid -->
-            <div class="service-grid" id="serviceGrid">
-                <!-- Service cards will be populated here -->
-            </div>
-
-            <!-- Service Admin UIs Section -->
-            <div class="card mt-4">
-                <div class="card-header">
-                    <h5 class="card-title mb-0">
-                        <i class="fas fa-external-link-alt me-2"></i>
-                        Service Admin Interfaces
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <div class="row" id="service-uis">
-                        <!-- Service UI links will be populated here -->
+                <div class="panel-body">
+                    <!-- Admin UI Services Control -->
+                    <div class="control-section mb-4">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6>Start Admin UI Services</h6>
+                                        <p class="text-muted mb-0">Launch admin interfaces (Prometheus, Grafana, Qdrant UI)</p>
+                                    </div>
+                                    <button id="startAdminUIBtn" class="btn btn-info">
+                                        <i class="fas fa-desktop"></i> Start Admin UIs
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6>Stop Admin UI Services</h6>
+                                        <p class="text-muted mb-0">Shutdown admin interfaces</p>
+                                    </div>
+                                    <button id="stopAdminUIBtn" class="btn btn-warning">
+                                        <i class="fas fa-desktop"></i> Stop Admin UIs
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                    
+                    <!-- Admin UI Startup Progress Section -->
+                    <div id="adminUIStartupProgressSection" class="progress-container" style="display: none;">
+                        <h5><i class="fas fa-spinner fa-spin"></i> Admin UI Startup Progress</h5>
+                        <div class="progress mb-3">
+                            <div id="adminUIStartupProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                 role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="log-container" id="adminUIStartupLogs">
+                            <div class="log-entry info">Waiting for startup to begin...</div>
+                        </div>
+                    </div>
+
+                    <!-- Admin UI Shutdown Progress Section -->
+                    <div id="adminUIShutdownProgressSection" class="progress-container" style="display: none;">
+                        <h5><i class="fas fa-spinner fa-spin"></i> Admin UI Shutdown Progress</h5>
+                        <div class="progress mb-3">
+                            <div id="adminUIShutdownProgress" class="progress-bar progress-bar-striped progress-bar-animated bg-danger" 
+                                 role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="log-container" id="adminUIShutdownLogs">
+                            <div class="log-entry info">Waiting for shutdown to begin...</div>
+                        </div>
+                    </div>
+
+
+                    <div id="admin-ui-services-list">
+                        <!-- Admin UI services will be populated here -->
+                    </div>
+                    
                 </div>
             </div>
+
+
         </div>
     </div>
 
@@ -302,8 +471,8 @@
 
         // Initialize the admin panel
         document.addEventListener('DOMContentLoaded', function() {
-            loadAdminStatus();
-            statusInterval = setInterval(loadAdminStatus, 5000); // Refresh every 5 seconds
+            loadServiceStatus();
+            statusInterval = setInterval(loadServiceStatus, 5000); // Refresh every 5 seconds
             updateCurrentTime();
             setInterval(updateCurrentTime, 1000); // Update time every second
         });
@@ -314,41 +483,24 @@
             document.getElementById('current-time').textContent = timeString;
         }
 
-        async function loadAdminStatus() {
+        async function loadServiceStatus() {
             try {
-                const response = await fetch('/api/admin/status');
-                const status = await response.json();
+                const response = await fetch('/api/admin/service-status');
+                const data = await response.json();
                 
-                updateStatusDisplay(status);
-                updateServiceGrid(status);
-                updateServiceUIs();
+                updateServicePanels(data);
+                updateStatsSummary(data);
+                
+                // Also check admin status for startup/shutdown progress
+                const adminResponse = await fetch('/api/admin/status');
+                const adminStatus = await adminResponse.json();
+                updateStartupShutdownStatus(adminStatus);
             } catch (error) {
-                console.error('Error loading admin status:', error);
+                console.error('Error loading service status:', error);
             }
         }
 
-        function updateStatusDisplay(status) {
-            // Update status indicators
-            document.getElementById('infrastructure-status').innerHTML = 
-                status.infrastructure_running ? 
-                '<span class="status-indicator status-running"></span>Running' : 
-                '<span class="status-indicator status-stopped"></span>Stopped';
-            
-            document.getElementById('core-status').innerHTML = 
-                status.core_system_running ? 
-                '<span class="status-indicator status-running"></span>Running' : 
-                '<span class="status-indicator status-stopped"></span>Stopped';
-            
-            document.getElementById('startup-status').innerHTML = 
-                status.startup_in_progress ? 
-                '<span class="status-indicator status-starting"></span>Starting' : 
-                status.shutdown_in_progress ?
-                '<span class="status-indicator status-starting"></span>Stopping' :
-                '<span class="status-indicator status-stopped"></span>Idle';
-            
-            document.getElementById('last-update').textContent = 
-                new Date(status.last_update).toLocaleTimeString();
-
+        function updateStartupShutdownStatus(status) {
             // Update button state
             const startBtn = document.getElementById('startServicesBtn');
             const stopBtn = document.getElementById('stopServicesBtn');
@@ -357,27 +509,33 @@
                 startBtn.disabled = true;
                 stopBtn.disabled = true;
                 startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
-                document.getElementById('startupProgressSection').style.display = 'block';
-                document.getElementById('shutdownProgressSection').style.display = 'none';
+                document.getElementById('coreStartupProgressSection').style.display = 'block';
+                document.getElementById('coreShutdownProgressSection').style.display = 'none';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
                 if (!startupInterval) {
-                    startupInterval = setInterval(loadStartupLogs, 1000);
+                    startupInterval = setInterval(loadCoreStartupLogs, 1000);
                 }
             } else if (status.shutdown_in_progress) {
                 startBtn.disabled = true;
                 stopBtn.disabled = true;
                 stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
-                document.getElementById('startupProgressSection').style.display = 'none';
-                document.getElementById('shutdownProgressSection').style.display = 'block';
+                document.getElementById('coreStartupProgressSection').style.display = 'none';
+                document.getElementById('coreShutdownProgressSection').style.display = 'block';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
                 if (!shutdownInterval) {
-                    shutdownInterval = setInterval(loadShutdownLogs, 1000);
+                    shutdownInterval = setInterval(loadCoreShutdownLogs, 1000);
                 }
             } else {
                 startBtn.disabled = false;
                 stopBtn.disabled = false;
                 startBtn.innerHTML = '<i class="fas fa-rocket"></i> Start All Services';
                 stopBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop All Services';
-                document.getElementById('startupProgressSection').style.display = 'none';
-                document.getElementById('shutdownProgressSection').style.display = 'none';
+                document.getElementById('coreStartupProgressSection').style.display = 'none';
+                document.getElementById('coreShutdownProgressSection').style.display = 'none';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
                 if (startupInterval) {
                     clearInterval(startupInterval);
                     startupInterval = null;
@@ -389,140 +547,79 @@
             }
         }
 
-        function updateServiceGrid(status) {
-            const grid = document.getElementById('serviceGrid');
-            grid.innerHTML = '';
-
-            const services = [
-                { name: 'Infrastructure Services', status: status.infrastructure_running, description: 'PostgreSQL, Elasticsearch, Qdrant, Redis, MinIO' },
-                { name: 'Core System Services', status: status.core_system_running, description: 'API Gateway, Core Processor, File Watcher, Processing Pipeline' }
-            ];
-
-            services.forEach(service => {
-                const card = document.createElement('div');
-                card.className = 'card status-card';
-                card.innerHTML = `
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <h6 class="card-title">${service.name}</h6>
-                                <p class="card-text text-muted">${service.description}</p>
-                            </div>
-                            <div class="text-end">
-                                <span class="status-indicator ${service.status ? 'status-running' : 'status-stopped'}"></span>
-                                <span class="badge ${service.status ? 'bg-success' : 'bg-danger'}">
-                                    ${service.status ? 'Running' : 'Stopped'}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                grid.appendChild(card);
+        function updateServicePanels(data) {
+            // Update Core Services Panel
+            const coreServicesList = document.getElementById('core-services-list');
+            coreServicesList.innerHTML = '';
+            
+            // Combine infrastructure and core services
+            const allCoreServices = [...data.infrastructure_services, ...data.core_services];
+            
+            allCoreServices.forEach(service => {
+                const serviceItem = createServiceItem(service);
+                coreServicesList.appendChild(serviceItem);
+            });
+            
+            // Update Admin UI Services Panel
+            const adminUIServicesList = document.getElementById('admin-ui-services-list');
+            adminUIServicesList.innerHTML = '';
+            
+            data.admin_ui_services.forEach(service => {
+                const serviceItem = createServiceItem(service);
+                adminUIServicesList.appendChild(serviceItem);
             });
         }
 
-        function updateServiceUIs() {
-            const container = document.getElementById('service-uis');
-            container.innerHTML = '';
+        function createServiceItem(service) {
+            const serviceItem = document.createElement('div');
+            serviceItem.className = `service-item ${service.status}`;
+            
+            serviceItem.innerHTML = `
+                <div class="service-info">
+                    <div class="service-name">${service.name}</div>
+                    <div class="service-description">${service.description}</div>
+                    <div class="service-port">Port: ${service.port}</div>
+                </div>
+                <div class="service-status">
+                    <span class="status-indicator status-${service.status}"></span>
+                    <span class="status-badge ${service.status}">${service.status}</span>
+                </div>
+            `;
+            
+            return serviceItem;
+        }
 
-            const serviceUIs = [
-                {
-                    name: 'MinIO Console',
-                    description: 'Object storage management interface',
-                    url: 'http://localhost:9001',
-                    icon: 'fas fa-database',
-                    color: 'primary'
-                },
-                {
-                    name: 'Kibana',
-                    description: 'Elasticsearch management and visualization',
-                    url: 'http://localhost:5601',
-                    icon: 'fas fa-search',
-                    color: 'success'
-                },
-                {
-                    name: 'Neo4j Browser',
-                    description: 'Graph database interface',
-                    url: 'http://localhost:7474',
-                    icon: 'fas fa-project-diagram',
-                    color: 'info'
-                },
-                {
-                    name: 'n8n Workflows',
-                    description: 'Workflow automation platform',
-                    url: 'http://localhost:5678',
-                    icon: 'fas fa-sitemap',
-                    color: 'warning'
-                },
-                {
-                    name: 'Flowise',
-                    description: 'LLM Flow Builder',
-                    url: 'http://localhost:3001',
-                    icon: 'fas fa-brain',
-                    color: 'dark'
-                },
-                {
-                    name: 'Qdrant UI',
-                    description: 'Vector database management interface',
-                    url: 'http://localhost:7070/index.html',
-                    icon: 'fas fa-cube',
-                    color: 'info'
-                },
-                {
-                    name: 'pgAdmin',
-                    description: 'PostgreSQL administration',
-                    url: 'http://localhost:8080',
-                    icon: 'fas fa-server',
-                    color: 'secondary'
-                },
-                {
-                    name: 'Redis Commander',
-                    description: 'Redis management interface',
-                    url: 'http://localhost:8081',
-                    icon: 'fas fa-memory',
-                    color: 'danger'
-                },
-
-                {
-                    name: 'Prometheus',
-                    description: 'Metrics collection and monitoring',
-                    url: 'http://localhost:9090',
-                    icon: 'fas fa-chart-line',
-                    color: 'warning'
-                },
-                {
-                    name: 'Grafana',
-                    description: 'Monitoring dashboards',
-                    url: 'http://localhost:3002',
-                    icon: 'fas fa-chart-bar',
-                    color: 'info'
-                }
-            ];
-
-            serviceUIs.forEach(service => {
-                const col = document.createElement('div');
-                col.className = 'col-md-6 col-lg-4 mb-3';
-                col.innerHTML = `
-                    <div class="card h-100">
-                        <div class="card-body text-center">
-                            <div class="mb-3">
-                                <i class="${service.icon} fa-2x text-${service.color}"></i>
-                            </div>
-                            <h6 class="card-title">${service.name}</h6>
-                            <p class="card-text text-muted small">${service.description}</p>
-                            <a href="${service.url}" target="_blank" class="btn btn-outline-${service.color} btn-sm">
-                                <i class="fas fa-external-link-alt me-1"></i>
-                                Open Interface
-                            </a>
-                        </div>
-                    </div>
-                `;
-                container.appendChild(col);
-            });
+        function updateStatsSummary(data) {
+            // Count running services
+            const coreRunning = data.infrastructure_services.filter(s => s.status === 'running').length + 
+                               data.core_services.filter(s => s.status === 'running').length;
+            const adminUIRunning = data.admin_ui_services.filter(s => s.status === 'running').length;
+            
+            document.getElementById('core-running-count').textContent = coreRunning;
+            document.getElementById('admin-ui-running-count').textContent = adminUIRunning;
+            document.getElementById('last-update').textContent = new Date(data.last_update).toLocaleTimeString();
         }
 
         async function startAllServices() {
             try {
+                // Immediately show core services startup progress section
+                document.getElementById('coreStartupProgressSection').style.display = 'block';
+                document.getElementById('coreShutdownProgressSection').style.display = 'none';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
+                
+                // Disable buttons immediately
+                const startBtn = document.getElementById('startServicesBtn');
+                const stopBtn = document.getElementById('stopServicesBtn');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+                
+                // Start polling for logs immediately
+                if (!startupInterval) {
+                    startupInterval = setInterval(() => loadCoreStartupLogs(), 1000);
+                }
+                
                 const response = await fetch('/api/admin/start-services', {
                     method: 'POST',
                     headers: {
@@ -533,14 +630,27 @@
                 if (response.ok) {
                     const result = await response.json();
                     console.log('Startup initiated:', result);
-                    loadAdminStatus(); // Refresh status immediately
+                    // Load initial logs immediately
+                    await loadCoreStartupLogs();
                 } else {
                     const error = await response.json();
                     alert('Error starting services: ' + error.detail);
+                    // Re-enable buttons on error
+                    startBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    startBtn.innerHTML = '<i class="fas fa-rocket"></i> Start All Services';
+                    document.getElementById('coreStartupProgressSection').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error starting services:', error);
                 alert('Error starting services: ' + error.message);
+                // Re-enable buttons on error
+                const startBtn = document.getElementById('startServicesBtn');
+                const stopBtn = document.getElementById('stopServicesBtn');
+                startBtn.disabled = false;
+                stopBtn.disabled = false;
+                startBtn.innerHTML = '<i class="fas fa-rocket"></i> Start All Services';
+                document.getElementById('coreStartupProgressSection').style.display = 'none';
             }
         }
 
@@ -550,6 +660,24 @@
             }
             
             try {
+                // Immediately show core services shutdown progress section
+                document.getElementById('coreShutdownProgressSection').style.display = 'block';
+                document.getElementById('coreStartupProgressSection').style.display = 'none';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
+                
+                // Disable buttons immediately
+                const startBtn = document.getElementById('startServicesBtn');
+                const stopBtn = document.getElementById('stopServicesBtn');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+                
+                // Start polling for logs immediately
+                if (!shutdownInterval) {
+                    shutdownInterval = setInterval(() => loadCoreShutdownLogs(), 1000);
+                }
+                
                 const response = await fetch('/api/admin/stop-services', {
                     method: 'POST',
                     headers: {
@@ -560,19 +688,50 @@
                 if (response.ok) {
                     const result = await response.json();
                     console.log('Shutdown initiated:', result);
-                    loadAdminStatus(); // Refresh status immediately
+                    // Load initial logs immediately
+                    await loadCoreShutdownLogs();
                 } else {
                     const error = await response.json();
                     alert('Error stopping services: ' + error.detail);
+                    // Re-enable buttons on error
+                    startBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop All Services';
+                    document.getElementById('coreShutdownProgressSection').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error stopping services:', error);
                 alert('Error stopping services: ' + error.message);
+                // Re-enable buttons on error
+                const startBtn = document.getElementById('startServicesBtn');
+                const stopBtn = document.getElementById('stopServicesBtn');
+                startBtn.disabled = false;
+                stopBtn.disabled = false;
+                stopBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop All Services';
+                document.getElementById('coreShutdownProgressSection').style.display = 'none';
             }
         }
 
         async function startAdminUIServices() {
             try {
+                // Immediately show admin UI startup progress section
+                document.getElementById('adminUIStartupProgressSection').style.display = 'block';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
+                document.getElementById('coreStartupProgressSection').style.display = 'none';
+                document.getElementById('coreShutdownProgressSection').style.display = 'none';
+                
+                // Disable buttons immediately
+                const startBtn = document.getElementById('startAdminUIBtn');
+                const stopBtn = document.getElementById('stopAdminUIBtn');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+                
+                // Start polling for logs immediately
+                if (!startupInterval) {
+                    startupInterval = setInterval(() => loadAdminUIStartupLogs(), 1000);
+                }
+                
                 const response = await fetch('/api/admin/start-admin-ui-services', {
                     method: 'POST',
                     headers: {
@@ -583,15 +742,27 @@
                 if (response.ok) {
                     const result = await response.json();
                     console.log('Admin UI startup initiated:', result);
-                    alert('Admin UI services startup initiated successfully!');
-                    loadAdminStatus(); // Refresh status immediately
+                    // Load initial logs immediately
+                    await loadAdminUIStartupLogs();
                 } else {
                     const error = await response.json();
                     alert('Error starting admin UI services: ' + error.detail);
+                    // Re-enable buttons on error
+                    startBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    startBtn.innerHTML = '<i class="fas fa-desktop"></i> Start Admin UIs';
+                    document.getElementById('adminUIStartupProgressSection').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error starting admin UI services:', error);
                 alert('Error starting admin UI services: ' + error.message);
+                // Re-enable buttons on error
+                const startBtn = document.getElementById('startAdminUIBtn');
+                const stopBtn = document.getElementById('stopAdminUIBtn');
+                startBtn.disabled = false;
+                stopBtn.disabled = false;
+                startBtn.innerHTML = '<i class="fas fa-desktop"></i> Start Admin UIs';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
             }
         }
 
@@ -601,6 +772,24 @@
             }
             
             try {
+                // Immediately show admin UI shutdown progress section
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'block';
+                document.getElementById('adminUIStartupProgressSection').style.display = 'none';
+                document.getElementById('coreStartupProgressSection').style.display = 'none';
+                document.getElementById('coreShutdownProgressSection').style.display = 'none';
+                
+                // Disable buttons immediately
+                const startBtn = document.getElementById('startAdminUIBtn');
+                const stopBtn = document.getElementById('stopAdminUIBtn');
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+                
+                // Start polling for logs immediately
+                if (!shutdownInterval) {
+                    shutdownInterval = setInterval(() => loadAdminUIShutdownLogs(), 1000);
+                }
+                
                 const response = await fetch('/api/admin/stop-admin-ui-services', {
                     method: 'POST',
                     headers: {
@@ -611,24 +800,36 @@
                 if (response.ok) {
                     const result = await response.json();
                     console.log('Admin UI shutdown initiated:', result);
-                    alert('Admin UI services shutdown initiated successfully!');
-                    loadAdminStatus(); // Refresh status immediately
+                    // Load initial logs immediately
+                    await loadAdminUIShutdownLogs();
                 } else {
                     const error = await response.json();
                     alert('Error stopping admin UI services: ' + error.detail);
+                    // Re-enable buttons on error
+                    startBtn.disabled = false;
+                    stopBtn.disabled = false;
+                    stopBtn.innerHTML = '<i class="fas fa-desktop"></i> Stop Admin UIs';
+                    document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error stopping admin UI services:', error);
                 alert('Error stopping admin UI services: ' + error.message);
+                // Re-enable buttons on error
+                const startBtn = document.getElementById('startAdminUIBtn');
+                const stopBtn = document.getElementById('stopAdminUIBtn');
+                startBtn.disabled = false;
+                stopBtn.disabled = false;
+                stopBtn.innerHTML = '<i class="fas fa-desktop"></i> Stop Admin UIs';
+                document.getElementById('adminUIShutdownProgressSection').style.display = 'none';
             }
         }
 
-        async function loadStartupLogs() {
+        async function loadCoreStartupLogs() {
             try {
                 const response = await fetch('/api/admin/startup-logs');
                 const data = await response.json();
                 
-                const logContainer = document.getElementById('startupLogs');
+                const logContainer = document.getElementById('coreStartupLogs');
                 logContainer.innerHTML = '';
                 
                 data.logs.forEach(log => {
@@ -654,7 +855,7 @@
                 logContainer.scrollTop = logContainer.scrollHeight;
                 
                 // Update progress bar
-                const progressBar = document.getElementById('startupProgress');
+                const progressBar = document.getElementById('coreStartupProgress');
                 if (data.logs.length > 0) {
                     const progress = Math.min((data.logs.length / 20) * 100, 100); // Estimate progress
                     progressBar.style.width = progress + '%';
@@ -665,19 +866,19 @@
                 if (!data.in_progress && startupInterval) {
                     clearInterval(startupInterval);
                     startupInterval = null;
-                    loadAdminStatus(); // Final status update
+                    loadServiceStatus(); // Final status update
                 }
             } catch (error) {
-                console.error('Error loading startup logs:', error);
+                console.error('Error loading core startup logs:', error);
             }
         }
 
-        async function loadShutdownLogs() {
+        async function loadCoreShutdownLogs() {
             try {
                 const response = await fetch('/api/admin/shutdown-logs');
                 const data = await response.json();
                 
-                const logContainer = document.getElementById('shutdownLogs');
+                const logContainer = document.getElementById('coreShutdownLogs');
                 logContainer.innerHTML = '';
                 
                 data.logs.forEach(log => {
@@ -703,7 +904,7 @@
                 logContainer.scrollTop = logContainer.scrollHeight;
                 
                 // Update progress bar
-                const progressBar = document.getElementById('shutdownProgress');
+                const progressBar = document.getElementById('coreShutdownProgress');
                 if (data.logs.length > 0) {
                     const progress = Math.min((data.logs.length / 15) * 100, 100); // Estimate progress
                     progressBar.style.width = progress + '%';
@@ -714,20 +915,130 @@
                 if (!data.in_progress && shutdownInterval) {
                     clearInterval(shutdownInterval);
                     shutdownInterval = null;
-                    loadAdminStatus(); // Final status update
+                    loadServiceStatus(); // Final status update
                 }
             } catch (error) {
-                console.error('Error loading shutdown logs:', error);
+                console.error('Error loading core shutdown logs:', error);
             }
         }
 
+        async function loadAdminUIStartupLogs() {
+            try {
+                const response = await fetch('/api/admin/startup-logs');
+                const data = await response.json();
+                
+                const logContainer = document.getElementById('adminUIStartupLogs');
+                logContainer.innerHTML = '';
+                
+                data.logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    
+                    // Determine log type based on content
+                    if (log.includes('❌') || log.includes('Failed')) {
+                        logEntry.classList.add('error');
+                    } else if (log.includes('✅') || log.includes('successfully')) {
+                        logEntry.classList.add('success');
+                    } else if (log.includes('⚠️') || log.includes('Warning')) {
+                        logEntry.classList.add('warning');
+                    } else {
+                        logEntry.classList.add('info');
+                    }
+                    
+                    logEntry.textContent = log;
+                    logContainer.appendChild(logEntry);
+                });
+                
+                // Auto-scroll to bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+                
+                // Update progress bar
+                const progressBar = document.getElementById('adminUIStartupProgress');
+                if (data.logs.length > 0) {
+                    const progress = Math.min((data.logs.length / 20) * 100, 100); // Estimate progress
+                    progressBar.style.width = progress + '%';
+                    progressBar.textContent = Math.round(progress) + '%';
+                }
+                
+                // Stop polling if startup is complete
+                if (!data.in_progress && startupInterval) {
+                    clearInterval(startupInterval);
+                    startupInterval = null;
+                    loadServiceStatus(); // Final status update
+                }
+            } catch (error) {
+                console.error('Error loading admin UI startup logs:', error);
+            }
+        }
+
+        async function loadAdminUIShutdownLogs() {
+            try {
+                const response = await fetch('/api/admin/shutdown-logs');
+                const data = await response.json();
+                
+                const logContainer = document.getElementById('adminUIShutdownLogs');
+                logContainer.innerHTML = '';
+                
+                data.logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = 'log-entry';
+                    
+                    // Determine log type based on content
+                    if (log.includes('❌') || log.includes('Failed')) {
+                        logEntry.classList.add('error');
+                    } else if (log.includes('✅') || log.includes('successfully')) {
+                        logEntry.classList.add('success');
+                    } else if (log.includes('⚠️') || log.includes('Warning')) {
+                        logEntry.classList.add('warning');
+                    } else {
+                        logEntry.classList.add('info');
+                    }
+                    
+                    logEntry.textContent = log;
+                    logContainer.appendChild(logEntry);
+                });
+                
+                // Auto-scroll to bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+                
+                // Update progress bar
+                const progressBar = document.getElementById('adminUIShutdownProgress');
+                if (data.logs.length > 0) {
+                    const progress = Math.min((data.logs.length / 15) * 100, 100); // Estimate progress
+                    progressBar.style.width = progress + '%';
+                    progressBar.textContent = Math.round(progress) + '%';
+                }
+                
+                // Stop polling if shutdown is complete
+                if (!data.in_progress && shutdownInterval) {
+                    clearInterval(shutdownInterval);
+                    shutdownInterval = null;
+                    loadServiceStatus(); // Final status update
+                }
+            } catch (error) {
+                console.error('Error loading admin UI shutdown logs:', error);
+            }
+        }
+
+
+
         function refreshStatus() {
-            loadAdminStatus();
+            loadServiceStatus();
             if (startupInterval) {
-                loadStartupLogs();
+                // Check which startup logs to load based on visible section
+                if (document.getElementById('coreStartupProgressSection').style.display !== 'none') {
+                    loadCoreStartupLogs();
+                } else if (document.getElementById('adminUIStartupProgressSection').style.display !== 'none') {
+                    loadAdminUIStartupLogs();
+                }
             }
             if (shutdownInterval) {
-                loadShutdownLogs();
+                // Check which shutdown logs to load based on visible section
+                if (document.getElementById('coreShutdownProgressSection').style.display !== 'none') {
+                    loadCoreShutdownLogs();
+                } else if (document.getElementById('adminUIShutdownProgressSection').style.display !== 'none') {
+                    loadAdminUIShutdownLogs();
+                }
             }
         }
 
