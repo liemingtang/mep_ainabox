@@ -131,6 +131,14 @@
                     </div>
                 </div>
                 <div class="col-md-4 text-end">
+                    <button id="startServiceBtn" class="btn btn-success me-2" onclick="startService()" style="display: none;">
+                        <i class="fas fa-play me-1"></i>
+                        Start
+                    </button>
+                    <button id="stopServiceBtn" class="btn btn-danger me-2" onclick="stopService()" style="display: none;">
+                        <i class="fas fa-stop me-1"></i>
+                        Stop
+                    </button>
                     <button class="btn btn-light me-2" onclick="refreshServiceData()">
                         <i class="fas fa-sync-alt me-1"></i>
                         Refresh
@@ -289,6 +297,22 @@
             const statusBadge = document.getElementById('service-status');
             statusBadge.textContent = data.status;
             statusBadge.className = `badge status-badge me-3 ${getStatusClass(data.status)}`;
+
+            // Handle start/stop buttons based on service status
+            const startBtn = document.getElementById('startServiceBtn');
+            const stopBtn = document.getElementById('stopServiceBtn');
+            
+            if (data.status === 'stopped' || data.status === 'unknown') {
+                startBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'none';
+            } else if (data.status === 'running' || data.status === 'healthy') {
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
+            } else {
+                // For unhealthy or other states, show both buttons
+                startBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'inline-block';
+            }
 
             // Handle admin UI button
             const adminUiButton = document.getElementById('admin-ui-button');
@@ -550,6 +574,94 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        async function startService() {
+            try {
+                const button = document.getElementById('startServiceBtn');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Starting...';
+                
+                const response = await fetch(`/api/admin/service/${serviceName}/start`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showNotification(`Service ${serviceName} started successfully`, 'success');
+                    // Refresh data after a short delay
+                    setTimeout(() => {
+                        loadServiceData();
+                    }, 2000);
+                } else {
+                    showNotification(`Failed to start ${serviceName}: ${result.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error starting service: ${error.message}`, 'error');
+            } finally {
+                // Restore button state
+                const button = document.getElementById('startServiceBtn');
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-play me-1"></i>Start';
+            }
+        }
+
+        async function stopService() {
+            if (!confirm(`Are you sure you want to stop the ${serviceName} service?`)) {
+                return;
+            }
+            
+            try {
+                const button = document.getElementById('stopServiceBtn');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Stopping...';
+                
+                const response = await fetch(`/api/admin/service/${serviceName}/stop`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showNotification(`Service ${serviceName} stopped successfully`, 'success');
+                    // Refresh data after a short delay
+                    setTimeout(() => {
+                        loadServiceData();
+                    }, 2000);
+                } else {
+                    showNotification(`Failed to stop ${serviceName}: ${result.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error stopping service: ${error.message}`, 'error');
+            } finally {
+                // Restore button state
+                const button = document.getElementById('stopServiceBtn');
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-stop me-1"></i>Stop';
+            }
+        }
+
+        function showNotification(message, type) {
+            // Create notification element
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show position-fixed`;
+            notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
         }
 
         function refreshServiceData() {

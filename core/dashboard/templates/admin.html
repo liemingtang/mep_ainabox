@@ -605,8 +605,14 @@
             
             // Create admin link if available
             const adminLink = service.admin_url ? 
-                `<a href="${service.admin_url}" target="_blank" class="btn btn-sm btn-info">
+                `<a href="${service.admin_url}" target="_blank" class="btn btn-sm btn-info me-2">
                     <i class="fas fa-external-link-alt"></i> Open
+                </a>` : '';
+            
+            // Create details link
+            const detailsLink = service.service_key ? 
+                `<a href="/service/${service.service_key}" class="btn btn-sm btn-secondary me-2">
+                    <i class="fas fa-chart-line"></i> Details
                 </a>` : '';
             
             serviceItem.innerHTML = `
@@ -619,6 +625,7 @@
                     ${startBtn}
                     ${stopBtn}
                     ${adminLink}
+                    ${detailsLink}
                 </div>
                 <div class="service-status">
                     <span class="status-indicator status-${service.status}"></span>

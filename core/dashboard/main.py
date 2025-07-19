@@ -463,6 +463,7 @@ class ServiceDetail(BaseModel):
     url: str
     port: int
     description: str
+    service_key: Optional[str] = None
     configuration: List[ConfigurationItem]
     logs: List[str]
     metrics: Dict[str, Any]
@@ -1028,12 +1029,44 @@ async def get_service_detail(service_name: str):
         service_config = await get_service_configuration(service_name)
         logger.info(f"Retrieved {len(service_config)} configuration items for {service_name}")
         
+        # Map service name to service key
+        service_key_mapping = {
+            "api-gateway": "api-gateway",
+            "core-processor": "core-processor", 
+            "document-router": "document-router",
+            "processing-pipeline": "processing-pipeline",
+            "storage-manager": "storage-manager",
+            "text-processor": "text-processor",
+            "metadata-processor": "metadata-processor",
+            "embedding-processor": "embedding-processor",
+            "entity-processor": "entity-processor",
+            "file-watcher": "file-watcher",
+            "ollama": "ollama",
+            "postgres": "postgres",
+            "elasticsearch": "elasticsearch",
+            "qdrant": "qdrant",
+            "redis": "redis",
+            "minio": "minio",
+            "neo4j": "neo4j",
+            "pgadmin": "pgadmin",
+            "redis-commander": "redis-commander",
+            "kibana": "kibana",
+            "flowise": "flowise",
+            "n8n": "n8n",
+            "prometheus": "prometheus",
+            "grafana": "grafana",
+            "qdrantui": "qdrantui"
+        }
+        
+        service_key = service_key_mapping.get(service_name)
+        
         service_detail = ServiceDetail(
             name=service_info.get("name", service_name),
             status=health.status,
             url=service_info.get("url", ""),
             port=service_info.get("port", 0),
             description=service_info.get("description", ""),
+            service_key=service_key,
             configuration=service_config,
             logs=logs,
             metrics=metrics,
@@ -1861,7 +1894,7 @@ async def start_individual_service(service_key: str):
             if compose_file.startswith("services/"):
                 os.chdir("/home/lie/repo_mep/mep_ainabox")
             else:
-                os.chdir("/home/lie/repo_mep/mep_ainabox/core")
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
             
             # Build the docker compose command
             if service_key in ["prometheus", "grafana"]:
@@ -1915,7 +1948,7 @@ async def stop_individual_service(service_key: str):
             if compose_file.startswith("services/"):
                 os.chdir("/home/lie/repo_mep/mep_ainabox")
             else:
-                os.chdir("/home/lie/repo_mep/mep_ainabox/core")
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
             
             # Build the docker compose command
             if service_key in ["prometheus", "grafana"]:
