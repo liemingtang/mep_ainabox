@@ -181,6 +181,48 @@ async def get_processing_status(job_id: str):
         logger.error(f"Error getting job status for {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error getting job status: {str(e)}")
 
+@app.post("/jobs/{document_id}/status")
+async def update_job_status_from_processor(document_id: str, status_update: dict):
+    """Update job status from individual processors and handle document completion"""
+    try:
+        status = status_update.get("status")
+        result_data = status_update.get("result_data", {})
+        
+        logger.info(f"Received job status update for document {document_id}: {status}")
+        
+        # Find the job for this document
+        job_id = None
+        for jid, job in processing_jobs.items():
+            if job.get("document_id") == document_id:
+                job_id = jid
+                break
+        
+        if job_id:
+            # Update the job status
+            processing_jobs[job_id]["status"] = status
+            if status == "completed":
+                processing_jobs[job_id]["progress"] = 100
+                processing_jobs[job_id]["results"] = result_data
+            elif status == "failed":
+                processing_jobs[job_id]["error_message"] = result_data.get("error", "Unknown error")
+            
+            # Update job status in core processor
+            await update_job_status(job_id, status, result_data)
+            
+            # If job is completed, update document status
+            if status == "completed":
+                await update_document_status(document_id, "completed")
+                logger.info(f"Document {document_id} processing completed")
+            elif status == "failed":
+                await update_document_status(document_id, "failed")
+                logger.info(f"Document {document_id} processing failed")
+        
+        return {"message": "Job status updated successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error updating job status for document {document_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating job status: {str(e)}")
+
 async def update_job_status(job_id: str, status: str, result_data: Dict[str, Any] = None):
     """Update job status in the core processor"""
     try:

@@ -166,7 +166,13 @@ class ProcessingService(LoggerMixin):
                     str(job_id)
                 )
                 
-                return result.split()[-1] == "1"
+                success = result.split()[-1] == "1"
+                
+                # If job completed successfully, check if we should update document status
+                if success and status == JobStatus.COMPLETED:
+                    await self._handle_job_completion(job_id, result_data)
+                
+                return success
                 
         except Exception as e:
             self.logger.error(f"Failed to update job status: {e}")
@@ -314,6 +320,43 @@ class ProcessingService(LoggerMixin):
         except Exception as e:
             self.logger.error(f"Failed to cancel existing jobs: {e}")
             raise
+    
+    async def _handle_job_completion(self, job_id: UUID, result_data: Optional[Dict[str, Any]] = None):
+        """Handle job completion and update document status if all processing is done"""
+        try:
+            # Get the job details
+            job = await self.get_processing_job(job_id)
+            if not job:
+                return
+            
+            # Check if all processing steps are completed
+            if result_data and self._is_all_processing_completed(result_data):
+                self.logger.info(f"All processing steps completed for document {job.document_id}")
+                await self._update_document_status(job.document_id, ProcessingStatus.COMPLETED)
+            else:
+                # Create next job in the pipeline
+                next_job = await self.create_next_job(job.document_id, job.job_type)
+                if next_job:
+                    self.logger.info(f"Created next job {next_job.id} for document {job.document_id}")
+                else:
+                    # No more jobs, mark as completed
+                    self.logger.info(f"No more jobs for document {job.document_id}, marking as completed")
+                    await self._update_document_status(job.document_id, ProcessingStatus.COMPLETED)
+                    
+        except Exception as e:
+            self.logger.error(f"Error handling job completion: {e}")
+    
+    def _is_all_processing_completed(self, result_data: Dict[str, Any]) -> bool:
+        """Check if all processing steps are completed based on result data"""
+        required_steps = [
+            "text_extracted",
+            "entities_extracted", 
+            "metadata_extracted",
+            "embeddings_generated",
+            "relationships_mapped"
+        ]
+        
+        return all(result_data.get(step, False) for step in required_steps)
     
     def _get_next_step(self, current_step: ProcessingStep) -> Optional[ProcessingStep]:
         """Get the next processing step in the pipeline"""
