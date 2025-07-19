@@ -1728,39 +1728,39 @@ async def get_service_status():
     
     # Core Services (from core docker-compose)
     core_services = [
-        {"name": "API Gateway", "port": 8011, "endpoint": "/health", "description": "Unified entry point for all client interactions"},
-        {"name": "Core Processor", "port": 8001, "endpoint": "/docs", "description": "Main document processing orchestrator"},
-        {"name": "Document Router", "port": 8002, "endpoint": "/health", "description": "Intelligent document routing and processing"},
-        {"name": "Processing Pipeline", "port": 8003, "endpoint": "/health", "description": "Orchestrated document processing workflow"},
-        {"name": "Storage Manager", "port": 8004, "endpoint": "/health", "description": "Unified data storage and retrieval interface"},
-        {"name": "Text Processor", "port": 8005, "endpoint": "/health", "description": "Text extraction and processing"},
-        {"name": "Metadata Processor", "port": 8006, "endpoint": "/health", "description": "Metadata extraction and validation"},
-        {"name": "Embedding Processor", "port": 8007, "endpoint": "/health", "description": "Vector embedding generation using Ollama"},
-        {"name": "Entity Processor", "port": 8008, "endpoint": "/health", "description": "Entity extraction and relationship mapping"},
-        {"name": "File Watcher", "port": 8009, "endpoint": "/health", "description": "Monitor local folders for new documents"},
-        {"name": "Ollama", "port": 11434, "endpoint": "/api/tags", "description": "Self-hosted LLM and embedding service"}
+        {"name": "API Gateway", "port": 8011, "endpoint": "/health", "description": "Unified entry point for all client interactions", "service_key": "api-gateway", "admin_url": "http://localhost:8011/docs"},
+        {"name": "Core Processor", "port": 8001, "endpoint": "/docs", "description": "Main document processing orchestrator", "service_key": "core-processor", "admin_url": "http://localhost:8001/docs"},
+        {"name": "Document Router", "port": 8002, "endpoint": "/health", "description": "Intelligent document routing and processing", "service_key": "document-router", "admin_url": "http://localhost:8002/docs"},
+        {"name": "Processing Pipeline", "port": 8003, "endpoint": "/health", "description": "Orchestrated document processing workflow", "service_key": "processing-pipeline", "admin_url": "http://localhost:8003/docs"},
+        {"name": "Storage Manager", "port": 8004, "endpoint": "/health", "description": "Unified data storage and retrieval interface", "service_key": "storage-manager", "admin_url": "http://localhost:8004/docs"},
+        {"name": "Text Processor", "port": 8005, "endpoint": "/health", "description": "Text extraction and processing", "service_key": "text-processor", "admin_url": "http://localhost:8005/docs"},
+        {"name": "Metadata Processor", "port": 8006, "endpoint": "/health", "description": "Metadata extraction and validation", "service_key": "metadata-processor", "admin_url": "http://localhost:8006/docs"},
+        {"name": "Embedding Processor", "port": 8007, "endpoint": "/health", "description": "Vector embedding generation using Ollama", "service_key": "embedding-processor", "admin_url": "http://localhost:8007/docs"},
+        {"name": "Entity Processor", "port": 8008, "endpoint": "/health", "description": "Entity extraction and relationship mapping", "service_key": "entity-processor", "admin_url": "http://localhost:8008/docs"},
+        {"name": "File Watcher", "port": 8009, "endpoint": "/health", "description": "Monitor local folders for new documents", "service_key": "file-watcher", "admin_url": "http://localhost:8009/docs"},
+        {"name": "Ollama", "port": 11434, "endpoint": "/api/tags", "description": "Self-hosted LLM and embedding service", "service_key": "ollama", "admin_url": "http://localhost:11434/api/tags"}
     ]
     
     # Infrastructure Services (from services docker-compose)
     infrastructure_services = [
-        {"name": "PostgreSQL", "port": 5432, "endpoint": None, "description": "Primary database"},
-        {"name": "Elasticsearch", "port": 9200, "endpoint": "/_cluster/health", "description": "Search and analytics engine"},
-        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database", "api_key": "qdrant_api_key"},
-        {"name": "Redis", "port": 6379, "endpoint": None, "description": "In-memory data structure store"},
-        {"name": "MinIO", "port": 9000, "endpoint": "/minio/health/live", "description": "Object storage"},
-        {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database"},
-        {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration"},
-        {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface"},
-        {"name": "Kibana", "port": 5601, "endpoint": "/", "description": "Elasticsearch management and visualization"},
-        {"name": "Flowise", "port": 3001, "endpoint": "/", "description": "LLM Flow Builder"},
-        {"name": "n8n", "port": 5678, "endpoint": "/", "description": "Workflow automation platform"}
+        {"name": "PostgreSQL", "port": 5432, "endpoint": None, "description": "Primary database", "service_key": "postgres", "admin_url": "http://localhost:8080"},
+        {"name": "Elasticsearch", "port": 9200, "endpoint": "/_cluster/health", "description": "Search and analytics engine", "service_key": "elasticsearch", "admin_url": "http://localhost:5601"},
+        {"name": "Qdrant", "port": 6333, "endpoint": "/collections", "description": "Vector database", "api_key": "qdrant_api_key", "service_key": "qdrant", "admin_url": "http://localhost:7070/index.html"},
+        {"name": "Redis", "port": 6379, "endpoint": None, "description": "In-memory data structure store", "service_key": "redis", "admin_url": "http://localhost:8081"},
+        {"name": "MinIO", "port": 9000, "endpoint": "/minio/health/live", "description": "Object storage", "service_key": "minio", "admin_url": "http://localhost:9001"},
+        {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database", "service_key": "neo4j", "admin_url": "http://localhost:7474"},
+        {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration", "service_key": "pgadmin", "admin_url": "http://localhost:8080"},
+        {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface", "service_key": "redis-commander", "admin_url": "http://localhost:8081"},
+        {"name": "Kibana", "port": 5601, "endpoint": "/", "description": "Elasticsearch management and visualization", "service_key": "kibana", "admin_url": "http://localhost:5601"},
+        {"name": "Flowise", "port": 3001, "endpoint": "/", "description": "LLM Flow Builder", "service_key": "flowise", "admin_url": "http://localhost:3001"},
+        {"name": "n8n", "port": 5678, "endpoint": "/", "description": "Workflow automation platform", "service_key": "n8n", "admin_url": "http://localhost:5678"}
     ]
     
     # Admin UI Services (the 3 specific ones mentioned)
     admin_ui_services = [
-        {"name": "Prometheus", "port": 9090, "endpoint": "/-/healthy", "description": "Metrics collection and monitoring"},
-        {"name": "Grafana", "port": 3002, "endpoint": "/api/health", "description": "Monitoring dashboards"},
-        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface"}
+        {"name": "Prometheus", "port": 9090, "endpoint": "/-/healthy", "description": "Metrics collection and monitoring", "service_key": "prometheus", "admin_url": "http://localhost:9090"},
+        {"name": "Grafana", "port": 3002, "endpoint": "/api/health", "description": "Monitoring dashboards", "service_key": "grafana", "admin_url": "http://localhost:3002"},
+        {"name": "Qdrant UI", "port": 7070, "endpoint": "/index.html", "description": "Vector database management interface", "service_key": "qdrantui", "admin_url": "http://localhost:7070/index.html"}
     ]
     
     def check_service_status(service):
@@ -1828,6 +1828,114 @@ async def get_service_status():
         "admin_ui_services": admin_ui_services_with_status,
         "last_update": datetime.now()
     }
+
+@app.post("/api/admin/service/{service_key}/start")
+async def start_individual_service(service_key: str):
+    """Start an individual service"""
+    try:
+        # Determine which docker-compose file to use based on service key
+        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "pgadmin", "redis-commander", "kibana", "flowise", "n8n"]:
+            # Infrastructure service - use services docker-compose
+            compose_file = "services/docker-compose.yml"
+            service_name = service_key
+        elif service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher"]:
+            # Core service - use core docker-compose
+            compose_file = "core/docker-compose.yml"
+            service_name = service_key
+        elif service_key in ["prometheus", "grafana", "qdrantui"]:
+            # Admin UI service - use services docker-compose with profile
+            compose_file = "services/docker-compose.yml"
+            service_name = service_key
+        else:
+            raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
+        
+        # Start the service
+        import subprocess
+        import os
+        
+        # Store original directory
+        original_dir = os.getcwd()
+        
+        try:
+            # Change to the appropriate directory
+            if compose_file.startswith("services/"):
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
+            else:
+                os.chdir("/home/lie/repo_mep/mep_ainabox/core")
+            
+            # Build the docker compose command
+            if service_key in ["prometheus", "grafana"]:
+                cmd = ["docker", "compose", "-f", compose_file, "--profile", service_key, "up", "-d", service_name]
+            else:
+                cmd = ["docker", "compose", "-f", compose_file, "up", "-d", service_name]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                return {"message": f"Service {service_key} started successfully", "status": "started"}
+            else:
+                return {"message": f"Failed to start {service_key}: {result.stderr}", "status": "failed"}
+                
+        finally:
+            # Restore original directory
+            os.chdir(original_dir)
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting service {service_key}: {str(e)}")
+
+@app.post("/api/admin/service/{service_key}/stop")
+async def stop_individual_service(service_key: str):
+    """Stop an individual service"""
+    try:
+        # Determine which docker-compose file to use based on service key
+        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "pgadmin", "redis-commander", "kibana", "flowise", "n8n"]:
+            # Infrastructure service - use services docker-compose
+            compose_file = "services/docker-compose.yml"
+            service_name = service_key
+        elif service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher"]:
+            # Core service - use core docker-compose
+            compose_file = "core/docker-compose.yml"
+            service_name = service_key
+        elif service_key in ["prometheus", "grafana", "qdrantui"]:
+            # Admin UI service - use services docker-compose with profile
+            compose_file = "services/docker-compose.yml"
+            service_name = service_key
+        else:
+            raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
+        
+        # Stop the service
+        import subprocess
+        import os
+        
+        # Store original directory
+        original_dir = os.getcwd()
+        
+        try:
+            # Change to the appropriate directory
+            if compose_file.startswith("services/"):
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
+            else:
+                os.chdir("/home/lie/repo_mep/mep_ainabox/core")
+            
+            # Build the docker compose command
+            if service_key in ["prometheus", "grafana"]:
+                cmd = ["docker", "compose", "-f", compose_file, "--profile", service_key, "stop", service_name]
+            else:
+                cmd = ["docker", "compose", "-f", compose_file, "stop", service_name]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode == 0:
+                return {"message": f"Service {service_key} stopped successfully", "status": "stopped"}
+            else:
+                return {"message": f"Failed to stop {service_key}: {result.stderr}", "status": "failed"}
+                
+        finally:
+            # Restore original directory
+            os.chdir(original_dir)
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error stopping service {service_key}: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

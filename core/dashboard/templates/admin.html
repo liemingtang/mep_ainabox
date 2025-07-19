@@ -168,6 +168,24 @@
             min-width: 120px;
         }
         
+        .service-controls {
+            min-width: 200px;
+            justify-content: center;
+        }
+        
+        .service-controls .btn {
+            font-size: 0.8rem;
+            padding: 4px 8px;
+            margin: 0 2px;
+        }
+        
+        .service-item {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 15px;
+            align-items: center;
+        }
+        
         .status-badge {
             padding: 5px 12px;
             border-radius: 20px;
@@ -574,11 +592,33 @@
             const serviceItem = document.createElement('div');
             serviceItem.className = `service-item ${service.status}`;
             
+            // Create control buttons
+            const startBtn = service.status === 'stopped' ? 
+                `<button class="btn btn-sm btn-success me-2" onclick="startService('${service.service_key}')">
+                    <i class="fas fa-play"></i> Start
+                </button>` : '';
+            
+            const stopBtn = service.status === 'running' ? 
+                `<button class="btn btn-sm btn-danger me-2" onclick="stopService('${service.service_key}')">
+                    <i class="fas fa-stop"></i> Stop
+                </button>` : '';
+            
+            // Create admin link if available
+            const adminLink = service.admin_url ? 
+                `<a href="${service.admin_url}" target="_blank" class="btn btn-sm btn-info">
+                    <i class="fas fa-external-link-alt"></i> Open
+                </a>` : '';
+            
             serviceItem.innerHTML = `
                 <div class="service-info">
                     <div class="service-name">${service.name}</div>
                     <div class="service-description">${service.description}</div>
                     <div class="service-port">Port: ${service.port}</div>
+                </div>
+                <div class="service-controls d-flex align-items-center">
+                    ${startBtn}
+                    ${stopBtn}
+                    ${adminLink}
                 </div>
                 <div class="service-status">
                     <span class="status-indicator status-${service.status}"></span>
@@ -1040,6 +1080,93 @@
                     loadAdminUIShutdownLogs();
                 }
             }
+        }
+
+        // Individual service control functions
+        async function startService(serviceKey) {
+            try {
+                const button = event.target.closest('button');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting...';
+                
+                const response = await fetch(`/api/admin/service/${serviceKey}/start`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // Show success message
+                    showNotification(`Service ${serviceKey} started successfully`, 'success');
+                    // Refresh status after a short delay
+                    setTimeout(() => {
+                        loadServiceStatus();
+                    }, 2000);
+                } else {
+                    showNotification(`Failed to start ${serviceKey}: ${result.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error starting service: ${error.message}`, 'error');
+            } finally {
+                // Restore button state
+                const button = event.target.closest('button');
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
+        async function stopService(serviceKey) {
+            try {
+                const button = event.target.closest('button');
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping...';
+                
+                const response = await fetch(`/api/admin/service/${serviceKey}/stop`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // Show success message
+                    showNotification(`Service ${serviceKey} stopped successfully`, 'success');
+                    // Refresh status after a short delay
+                    setTimeout(() => {
+                        loadServiceStatus();
+                    }, 2000);
+                } else {
+                    showNotification(`Failed to stop ${serviceKey}: ${result.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification(`Error stopping service: ${error.message}`, 'error');
+            } finally {
+                // Restore button state
+                const button = event.target.closest('button');
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
+        function showNotification(message, type) {
+            // Create notification element
+            const notification = document.createElement('div');
+            notification.className = `alert alert-${type === 'success' ? 'success' : 'danger'} alert-dismissible fade show position-fixed`;
+            notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            notification.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 5000);
         }
 
         // Event listeners
