@@ -147,19 +147,33 @@ fi
 
 # Step 7: Stop Qdrant UI if running
 print_status "Step 7: Stopping Qdrant UI..."
-if pgrep -f "python.*qdrant.*server.py" > /dev/null; then
-    print_status "Found Qdrant UI process, stopping..."
-    pkill -f "python.*qdrant.*server.py" || true
-    sleep 2
-    
-    # Force kill if still running
-    if pgrep -f "python.*qdrant.*server.py" > /dev/null; then
-        print_warning "Qdrant UI still running, force killing..."
-        pkill -9 -f "python.*qdrant.*server.py" || true
-    fi
-    print_success "Qdrant UI stopped"
+if [ -f "services/scripts/stop-qdrant-ui-daemon.sh" ]; then
+    print_status "Using Qdrant UI stop script..."
+    chmod +x "services/scripts/stop-qdrant-ui-daemon.sh"
+    ./services/scripts/stop-qdrant-ui-daemon.sh
+    print_success "Qdrant UI stopped using stop script"
 else
-    print_warning "No Qdrant UI process found"
+    print_warning "Qdrant UI stop script not found, using fallback method..."
+    if pgrep -f "python.*server.py" > /dev/null; then
+        print_status "Found Qdrant UI process, stopping..."
+        pkill -f "python.*server.py" || true
+        sleep 2
+        
+        # Force kill if still running
+        if pgrep -f "python.*server.py" > /dev/null; then
+            print_warning "Qdrant UI still running, force killing..."
+            pkill -9 -f "python.*server.py" || true
+        fi
+        print_success "Qdrant UI stopped"
+    else
+        print_warning "No Qdrant UI process found"
+    fi
+    
+    # Clean up Qdrant UI PID file
+    if [ -f "services/qdrant-ui.pid" ]; then
+        rm -f "services/qdrant-ui.pid"
+        print_success "Qdrant UI PID file cleaned up"
+    fi
 fi
 
 # Step 8: Final cleanup - kill any remaining related processes

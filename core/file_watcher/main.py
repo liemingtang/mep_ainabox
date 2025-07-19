@@ -317,7 +317,7 @@ async def start_watching():
         os.makedirs(WATCH_PATHS, exist_ok=True)
         
         # Start the file watcher
-        observer.schedule(event_handler, WATCH_PATHS, recursive=False)
+        observer.schedule(event_handler, WATCH_PATHS, recursive=True)
         observer.start()
         
         watcher_state["is_running"] = True
@@ -466,7 +466,7 @@ if __name__ == "__main__":
             # Ensure watch folder exists
             os.makedirs(WATCH_PATHS, exist_ok=True)
             
-            observer.schedule(event_handler, WATCH_PATHS, recursive=False)
+            observer.schedule(event_handler, WATCH_PATHS, recursive=True)
             observer.start()
             watcher_state["is_running"] = True
             watcher_state["last_activity"] = datetime.utcnow().isoformat()
