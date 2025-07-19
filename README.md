@@ -83,7 +83,20 @@ This will:
 - Start the dashboard on http://localhost:8010
 - Provide an admin panel at http://localhost:8010/admin
 - Allow you to start all services with one click
-- Show real-time startup progress and monitoring
+
+**To stop all services:**
+```bash
+cd mep_ainabox
+./stop_admin.sh
+```
+
+This will:
+- Stop the dashboard service
+- Stop all core system services
+- Stop all infrastructure services
+- Clean up all Python processes
+- Remove all Docker containers
+- Provide a complete system shutdown
 
 ### Option 2: Traditional Startup
 

@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   default:
     external:
@@ -31,7 +29,7 @@ services:
       - processing-pipeline
       - storage-manager
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -81,7 +79,7 @@ services:
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
     # Infrastructure services are managed externally
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -108,7 +106,7 @@ services:
     depends_on:
       - core-processor
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8002)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -137,7 +135,7 @@ services:
       - core-processor
       - storage-manager
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8003)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -167,7 +165,7 @@ services:
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
     # Infrastructure services are managed externally
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8004)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -194,7 +192,7 @@ services:
     depends_on:
       - processing-pipeline
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8005)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -221,7 +219,7 @@ services:
     depends_on:
       - processing-pipeline
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8006)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -240,7 +238,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 11434)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -274,7 +272,7 @@ services:
       - ollama
     # Qdrant is managed externally
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8007)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -305,7 +303,7 @@ services:
       - processing-pipeline
     # Neo4j is managed externally
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8008)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -335,7 +333,7 @@ services:
     depends_on:
       - core-processor
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8009)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3

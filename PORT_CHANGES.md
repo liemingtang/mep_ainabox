@@ -40,7 +40,6 @@ To avoid port conflicts with other services, the following port changes have bee
 
 ### Development Services
 - **pgAdmin**: 8080
-- **Elasticsearch Head**: 9100
 - **Redis Commander**: 8081
 - **Qdrant UI**: 7070
 

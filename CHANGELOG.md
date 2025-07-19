@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Real-time Monitoring**: Live service status, logs, and metrics
 - **Service Management**: Start, stop, and monitor all services through web interface
   - **Admin Startup Mode**: `start_admin.sh` script for easy system startup
+  - **Admin Shutdown Mode**: `stop_admin.sh` script for complete system shutdown
 - **Host Dashboard Scripts**: `start_dashboard_host.sh` and `stop_dashboard_host.sh`
 - **Stop Services Feature**: Complete shutdown functionality with confirmation and progress tracking
   - **Modern UI**: Responsive design with real-time updates and progress tracking
@@ -131,40 +132,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced database connection handling across all services
 
 ### Fixed
-- **Critical**: Dashboard template not found errors
-- **Critical**: Dashboard running from wrong directory issues
-- **Critical**: Docker container path resolution problems
-- **Critical**: Dashboard connectivity to localhost services
-- **Critical**: Admin panel startup log path resolution
-- **Critical**: Dashboard permission and environment variable loading
-- **Critical**: File watcher service startup and threading issues
-- **Critical**: UUID serialization in processing service
-- **Critical**: Datetime serialization in JSON operations
-- **Critical**: Missing processing pipeline endpoints
-- **Critical**: Missing document router endpoints
-- **Critical**: Job status update endpoint in core processor
-- **Critical**: Import errors in core processor middleware
-- **Critical**: Duplicate key errors during file upload
-- **Critical**: UUID type mismatch errors in all SQL queries
-- **Critical**: JSON serialization issues for metadata fields
-- **Critical**: Database schema initialization failures
-- **Critical**: Service startup sequence issues
-- **Critical**: Environment variable loading in startup scripts
-- **Critical**: Prometheus metrics registration conflicts
-- **Critical**: PostgreSQL connection pool initialization
-- **Critical**: Elasticsearch client configuration errors
-- **Critical**: Qdrant API key authentication issues
-- **Critical**: Neo4j driver initialization problems
-- **Critical**: Redis connection handling
-- **Critical**: MinIO client setup issues
-- **Critical**: File permission issues in mounted volumes
-- **Critical**: Service health check endpoint failures
-- **Critical**: API endpoint parameter handling for UUIDs
-- **Critical**: Database connection timeout issues
-- **Critical**: Service dependency resolution problems
-- **Critical**: Container startup script execution issues
-- **Critical**: Logging configuration in containers
-- **Critical**: Network connectivity between services
+- **Admin Panel Startup Issue**: Fixed critical issue where clicking "Start All Services" in the admin panel caused internal server errors. The problem was caused by:
+  1. **Incorrect Path Resolution**: Dashboard was running from wrong directory (`/services` instead of `/core/dashboard`)
+  2. **Docker Network Issues**: Network `mep-services-network` had incorrect labels and configuration
+  3. **Obsolete Docker Compose Version**: Removed obsolete `version: '3.8'` from docker-compose.yml
+  4. **Network Configuration**: Updated network configuration to use `external: true` for proper Docker Compose integration
+- **Health Check Failures**: Fixed all service health check failures by replacing `curl` commands with Python-based port connectivity checks. The issue was that `curl` was not installed in the containers, causing all services to show as "unhealthy" even when they were running correctly. All core services now show as "healthy" in Docker.
+- **Redis Commander UI**: Fixed Redis Commander UI by starting it with the dev profile. The service was not running because it's part of the development services profile and needs to be explicitly started with `docker compose --profile dev up -d redis-commander`. The UI is now accessible at http://localhost:8081 and properly connected to the Redis instance.
+
+### Removed
+- **Elasticsearch Head**: Removed Elasticsearch Head service as it's redundant with Kibana. Kibana provides all the functionality of Elasticsearch Head plus much more advanced features including data visualization, dashboards, alerting, and comprehensive monitoring. This reduces resource usage and maintenance overhead.
+- **Elasticsearch Head from Admin Panel**: Removed Elasticsearch Head from the dashboard admin panel service UI list since the service has been removed from the system.
 
 ### Security
 - Added proper API key authentication for Qdrant

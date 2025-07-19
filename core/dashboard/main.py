@@ -395,8 +395,31 @@ SERVICES = {
 app = FastAPI(title="MDIS Dashboard", version="1.0.0")
 
 # Mount static files and templates
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+# Determine the correct paths based on current working directory
+import os
+current_dir = os.getcwd()
+if current_dir.endswith('/dashboard'):
+    # Running from dashboard directory
+    static_dir = "static"
+    templates_dir = "templates"
+else:
+    # Running from core directory
+    static_dir = "dashboard/static"
+    templates_dir = "dashboard/templates"
+
+print(f"Static directory: {static_dir}")
+print(f"Templates directory: {templates_dir}")
+
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
+templates = Jinja2Templates(directory=templates_dir)
+
+# List all HTML templates in the templates directory
+try:
+    template_files = [f for f in os.listdir(templates_dir) if f.endswith('.html')]
+    print(f"Available HTML templates in '{templates_dir}': {template_files}")
+except Exception as e:
+    print(f"Error listing templates in '{templates_dir}': {e}")
+
 
 class ServiceHealth(BaseModel):
     service: str
@@ -894,6 +917,9 @@ async def get_dashboard_stats() -> DashboardStats:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Main dashboard page"""
+    print("Dashboard page requested")
+    print(f"Templates directory: {templates_dir}")
+    print(f"Templates loaded in Jinja2Templates: {templates.env.list_templates()}")
     return templates.TemplateResponse("dashboard.html", {"request": request})
 
 @app.get("/api/health")
@@ -1104,22 +1130,21 @@ def startup_services():
         admin_state["startup_in_progress"] = True
         admin_state["startup_logs"] = []
         
+        # Store the original working directory
+        original_dir = os.getcwd()
+        admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 Starting MEP AI NABOX services...")
+        admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Original directory: {original_dir}")
+        
         try:
-            # Add initial log
-            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🚀 Starting MEP AI NABOX services...")
-            
             # Step 1: Start infrastructure services
             admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📦 Starting infrastructure services...")
-            
-            # Get the current working directory and navigate to services
-            # Since we're in host network mode, we need to find the project root
-            current_dir = os.getcwd()
-            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Current directory: {current_dir}")
             
             # Try to find the services directory
             # Since the dashboard is now running on the host, we need to navigate to the project root
             # The dashboard is in core/dashboard, so we need to go up two levels to reach the project root
-            project_root = os.path.dirname(os.path.dirname(current_dir))
+            # Current: /home/lie/repo_mep/mep_ainabox/core/dashboard
+            # Need: /home/lie/repo_mep/mep_ainabox/services
+            project_root = os.path.dirname(os.path.dirname(original_dir))
             services_dir = os.path.join(project_root, 'services')
             
             admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for services directory: {services_dir}")
@@ -1151,7 +1176,7 @@ def startup_services():
             
             # Navigate to the core directory (where the current docker-compose.yml is)
             # Since the dashboard is now running on the host, we need to go up one level from core/dashboard
-            core_dir = os.path.dirname(current_dir)
+            core_dir = os.path.dirname(original_dir)
             
             admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for core directory: {core_dir}")
             
@@ -1195,6 +1220,12 @@ def startup_services():
         except Exception as e:
             admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Startup failed with error: {str(e)}")
         finally:
+            # Always restore the original working directory
+            try:
+                os.chdir(original_dir)
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Restored working directory to: {original_dir}")
+            except Exception as e:
+                admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Failed to restore working directory: {str(e)}")
             admin_state["startup_in_progress"] = False
     
     # Start the worker thread
@@ -1209,19 +1240,17 @@ def shutdown_services():
         admin_state["shutdown_in_progress"] = True
         admin_state["shutdown_logs"] = []
         
+        # Store the original working directory
+        original_dir = os.getcwd()
+        admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛑 Stopping MEP AI NABOX services...")
+        admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Original directory: {original_dir}")
+        
         try:
-            # Add initial log
-            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🛑 Stopping MEP AI NABOX services...")
-            
-            # Get the current working directory
-            current_dir = os.getcwd()
-            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Current directory: {current_dir}")
-            
             # Step 1: Stop core services first
             admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Stopping core system services...")
             
             # Navigate to the core directory
-            core_dir = os.path.dirname(current_dir)
+            core_dir = os.path.dirname(original_dir)
             
             admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for core directory: {core_dir}")
             
@@ -1244,7 +1273,7 @@ def shutdown_services():
             
             # Navigate to the services directory
             # Since we're in core/dashboard, we need to go up one level to reach the project root
-            project_root = os.path.dirname(current_dir)
+            project_root = os.path.dirname(original_dir)
             services_dir = os.path.join(project_root, 'services')
             
             admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔍 Looking for services directory: {services_dir}")
@@ -1281,6 +1310,12 @@ def shutdown_services():
         except Exception as e:
             admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Shutdown failed with error: {str(e)}")
         finally:
+            # Always restore the original working directory
+            try:
+                os.chdir(original_dir)
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Restored working directory to: {original_dir}")
+            except Exception as e:
+                admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Failed to restore working directory: {str(e)}")
             admin_state["shutdown_in_progress"] = False
     
     # Start the worker thread

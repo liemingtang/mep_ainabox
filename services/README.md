@@ -14,7 +14,6 @@ This directory contains all the external services required by MEP AI NABOX, mana
 
 ### Development Services
 - **pgAdmin**: PostgreSQL administration interface
-- **Elasticsearch Head**: Elasticsearch management UI
 - **Neo4j Browser**: Graph database interface
 - **Redis Commander**: Redis management interface
 - **MinIO Console**: Object storage management
@@ -45,7 +44,6 @@ docker-compose logs -f [service-name]
 | Redis | 6379 | 6379 | `localhost:6379` |
 | MinIO | 9000 | 9000 | `http://localhost:9000` |
 | pgAdmin | 8080 | 80 | `http://localhost:8080` |
-| Elasticsearch Head | 9100 | 9100 | `http://localhost:9100` |
 | Neo4j Browser | 7473 | 7473 | `http://localhost:7473` |
 | Redis Commander | 8081 | 8081 | `http://localhost:8081` |
 | MinIO Console | 9001 | 9001 | `http://localhost:9001` |

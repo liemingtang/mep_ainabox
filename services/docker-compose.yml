@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL - Primary metadata database
   postgres:
@@ -308,19 +306,19 @@ services:
     profiles:
       - dev
 
-  # Elasticsearch Head - Elasticsearch management UI
-  elasticsearch-head:
-    image: mobz/elasticsearch-head:5
-    container_name: mep-elasticsearch-head
-    restart: unless-stopped
-    ports:
-      - "9100:9100"
-    environment:
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
-    depends_on:
-      - elasticsearch
-    profiles:
-      - dev
+  # Elasticsearch Head - Elasticsearch management UI (REMOVED - Use Kibana instead)
+  # elasticsearch-head:
+  #   image: mobz/elasticsearch-head:5
+  #   container_name: mep-elasticsearch-head
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9100:9100"
+  #   environment:
+  #     - ELASTICSEARCH_URL=http://elasticsearch:9200
+  #   depends_on:
+  #     - elasticsearch
+  #   profiles:
+  #     - dev
 
   # Neo4j Browser - Graph database interface (using built-in browser on port 7474)
   # neo4j-browser:
@@ -424,8 +422,8 @@ services:
 
 networks:
   default:
+    external: true
     name: mep-services-network
-    driver: bridge
 
 volumes:
   postgres_data:

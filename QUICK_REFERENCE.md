@@ -422,4 +422,100 @@ docker stats --no-stream
 
 # Check disk usage
 du -sh core/documents core/processed core/temp
-``` 
+```
+
+## Service Access URLs
+
+### Core Services
+- **Dashboard**: http://localhost:8010
+- **API Gateway**: http://localhost:8011
+- **Core Processor**: http://localhost:8001
+- **Document Router**: http://localhost:8002
+- **Processing Pipeline**: http://localhost:8003
+- **Storage Manager**: http://localhost:8004
+- **Text Processor**: http://localhost:8005
+
+### Infrastructure Services
+- **PostgreSQL**: localhost:5432
+- **Redis**: localhost:6379
+- **Elasticsearch**: http://localhost:9200
+- **Qdrant**: http://localhost:6333
+- **Neo4j**: http://localhost:7474
+- **MinIO**: http://localhost:9000
+- **n8n**: http://localhost:5678
+- **Flowise**: http://localhost:3001
+
+### Development UIs (Dev Profile)
+- **pgAdmin**: http://localhost:8080
+- **Redis Commander**: http://localhost:8081
+- **Qdrant UI**: http://localhost:7070
+- **MinIO Console**: http://localhost:9001
+
+### Monitoring (Monitoring Profile)
+- **Prometheus**: http://localhost:9090
+- **Grafana**: http://localhost:3002
+
+## Quick Commands
+
+### Start All Services
+```bash
+cd mep_ainabox/services
+./scripts/start-services.sh
+```
+
+### Start Development UIs
+```bash
+cd mep_ainabox/services
+docker compose --profile dev up -d
+```
+
+### Start Monitoring
+```bash
+cd mep_ainabox/services
+docker compose --profile monitoring up -d
+```
+
+### Start Dashboard (Host-based)
+```bash
+cd mep_ainabox/core
+./start_dashboard.sh
+```
+
+### Start Admin Panel
+```bash
+cd mep_ainabox/core
+./start_admin.sh
+```
+
+### Stop All Services
+```bash
+cd mep_ainabox
+./stop_admin.sh
+```
+
+## Redis Commander UI
+
+The Redis Commander UI is a web-based interface for managing Redis data. It's part of the development services profile.
+
+### Starting Redis Commander
+```bash
+cd mep_ainabox/services
+docker compose --profile dev up -d redis-commander
+```
+
+### Accessing Redis Commander
+- **URL**: http://localhost:8081
+- **Purpose**: Monitor and manage Redis data
+- **Features**:
+  - Browse Redis keys
+  - View and edit values
+  - Monitor memory usage
+  - Execute Redis commands
+  - Import/export data
+
+### Redis Commander Configuration
+The service is configured to connect to the Redis instance with:
+- **Host**: redis (Docker service name)
+- **Port**: 6379
+- **Password**: Uses REDIS_PASSWORD from environment
+- **Database**: 0 

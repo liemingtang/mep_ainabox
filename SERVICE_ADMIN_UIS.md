@@ -106,15 +106,18 @@ All service admin interfaces can be accessed through the **Admin Panel** at `htt
   - Memory monitoring
   - Performance metrics
 
-### 9. Elasticsearch Head
-- **URL**: http://localhost:9100
-- **Description**: Elasticsearch cluster management
-- **Purpose**: Advanced Elasticsearch administration
+### 9. Elasticsearch Management
+- **URL**: http://localhost:5601
+- **Description**: Kibana - Official Elasticsearch management
+- **Purpose**: Comprehensive Elasticsearch administration and visualization
 - **Features**:
-  - Cluster health monitoring
-  - Index management
-  - Query testing
-  - Node information
+  - Advanced cluster health monitoring
+  - Index management and optimization
+  - Query builder and testing
+  - Data visualization and dashboards
+  - Alerting and monitoring
+  - Security management
+  - Reporting and analytics
 
 ## Monitoring Services (Monitoring Profile)
 
@@ -176,7 +179,6 @@ The admin panel also shows service status, helping you identify which services a
 ### Development Tools
 - **pgAdmin**: Depends on PostgreSQL
 - **Redis Commander**: Depends on Redis
-- **Elasticsearch Head**: Depends on Elasticsearch
 
 ### Monitoring Tools
 - **Prometheus**: Independent service

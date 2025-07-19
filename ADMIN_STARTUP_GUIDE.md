@@ -10,6 +10,49 @@ The Admin Startup Mode allows you to:
 3. **Monitor startup progress** in real-time with logs
 4. **Control service management** through a modern admin panel
 
+## 🛑 Stopping the System
+
+### Complete System Shutdown
+To completely shut down all services and clean up all processes:
+
+```bash
+cd mep_ainabox
+./stop_admin.sh
+```
+
+This script will:
+1. **Stop Dashboard Service** - Terminates the host-based dashboard
+2. **Stop Python Processes** - Kills all Python main.py processes
+3. **Stop Core Services** - Shuts down all core system Docker containers
+4. **Stop Infrastructure Services** - Shuts down all infrastructure Docker containers
+5. **Stop Development Services** - Shuts down development UIs (pgAdmin, Redis Commander, etc.)
+6. **Stop Monitoring Services** - Shuts down Prometheus and Grafana
+7. **Clean Up Containers** - Removes any remaining MEP containers
+8. **Final Cleanup** - Kills any remaining related processes
+9. **Verification** - Confirms all services are stopped
+
+### Manual Stop Commands (Alternative)
+If you prefer to stop services manually:
+
+```bash
+# Stop core services
+cd mep_ainabox/core
+docker compose down
+
+# Stop infrastructure services
+cd ../services
+docker compose down
+docker compose --profile dev down
+docker compose --profile monitoring down
+
+# Stop dashboard
+cd ../core
+pkill -f "python.*dashboard.*main.py"
+
+# Stop all Python processes
+pkill -f "python.*main.py"
+```
+
 ## 🚀 Quick Start
 
 ### Step 1: Start Admin Mode
