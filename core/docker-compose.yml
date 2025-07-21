@@ -222,6 +222,7 @@ services:
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+      - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:ro
     depends_on:
       - processing-pipeline
     healthcheck:

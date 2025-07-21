@@ -22,4 +22,5 @@ pandas==2.0.3
 # Text processing
 spacy==3.7.2
 nltk==3.8.1
-textract==1.6.5 
+textract==1.6.5
+chardet==3.0.4 

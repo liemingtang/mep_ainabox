@@ -75,20 +75,57 @@ async def update_job_status(document_id: str, status: str, result_data: Dict[str
 def extract_text_from_file(file_path: str) -> str:
     """Extract text from various file types"""
     try:
+        import time
         file_path = Path(file_path)
+        
+        logger.info(f"=== EXTRACT_TEXT_FROM_FILE CALLED at {time.time()} ===")
+        logger.info(f"File path: {file_path}")
+        logger.info(f"File exists: {file_path.exists()}")
         
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
         
         # Get file extension
         file_extension = file_path.suffix.lower()
+        logger.info(f"File extension: {file_extension}")
         
         # Handle different file types
         if file_extension in ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm']:
             # Text-based files - read directly
+            logger.info(f"Reading text file: {file_path}")
+            logger.info(f"File size before reading: {file_path.stat().st_size}")
+            logger.info(f"Absolute file path: {file_path.absolute()}")
+            logger.info(f"File path exists: {file_path.exists()}")
+            logger.info(f"File path is file: {file_path.is_file()}")
+            logger.info(f"File path is readable: {file_path.is_file() and os.access(file_path, os.R_OK)}")
+            
+            # Try to detect file encoding
+            import chardet
+            try:
+                with open(file_path, 'rb') as f:
+                    raw_data = f.read()
+                    detected = chardet.detect(raw_data)
+                    logger.info(f"Detected encoding: {detected}")
+                    logger.info(f"Confidence: {detected['confidence']}")
+                    logger.info(f"Language: {detected['language']}")
+            except Exception as e:
+                logger.info(f"Could not detect encoding: {e}")
+            
             with open(file_path, 'r', encoding='utf-8') as f:
+                logger.info(f"File handle opened successfully")
+                logger.info(f"File handle position before read: {f.tell()}")
                 content = f.read()
-            return content
+                logger.info(f"File handle position after read: {f.tell()}")
+                logger.info(f"Read operation completed")
+            
+            logger.info(f"Raw content length: {len(content)}")
+            logger.info(f"Raw content: {repr(content)}")
+            logger.info(f"Text content length: {len(content)}")
+            logger.info(f"Text content preview: {content[:100]}...")
+            logger.info(f"About to return content with length: {len(content)}")
+            result = content
+            logger.info(f"Returning result with length: {len(result)}")
+            return result
             
         elif file_extension in ['.py', '.js', '.java', '.cpp', '.c', '.h', '.php', '.rb', '.go', '.rs', '.swift', '.kt']:
             # Source code files - read as text

@@ -242,6 +242,134 @@
         .tab-content.active {
             display: block;
         }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2563eb;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .collection-detail-card {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .collection-detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .collection-detail-name {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2563eb;
+        }
+        
+        .collection-detail-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-green {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .status-yellow {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .status-red {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .collection-detail-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .detail-item {
+            text-align: center;
+        }
+        
+        .detail-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .detail-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .collection-detail-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+        
+        .overview-summary {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .overview-summary h3 {
+            color: #0369a1;
+            margin-bottom: 10px;
+        }
+        
+        .overview-summary p {
+            color: #0c4a6e;
+            margin-bottom: 5px;
+        }
     </style>
 </head>
 <body>
@@ -281,10 +409,31 @@
             </div>
             
             <div class="card">
+                <h2>📊 Collections Overview</h2>
+                <div id="collections-overview">
+                    <div class="loading">Loading collections overview...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>📈 Collection Statistics</h2>
+                <div id="collections-stats">
+                    <div class="loading">Loading collection statistics...</div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🔍 Collection Details</h2>
+                <div id="collections-details">
+                    <div class="loading">Loading collection details...</div>
+                </div>
+            </div>
+            
+            <div class="card">
                 <h2>Quick Actions</h2>
                 <div class="grid">
                     <div>
-                        <button class="btn" onclick="loadCollections()">Refresh Collections</button>
+                        <button class="btn" onclick="loadOverviewData()">🔄 Refresh All Data</button>
                     </div>
                     <div>
                         <button class="btn btn-secondary" onclick="showTab('collections')">Manage Collections</button>
@@ -520,10 +669,269 @@ curl -X PUT http://localhost:6333/collections/test \
             
             // Load data for specific tabs
             if (tabName === 'overview') {
-                loadStatus();
+                loadOverviewData();
             } else if (tabName === 'collections') {
                 loadCollections();
             }
+        }
+        
+        // Load comprehensive overview data
+        async function loadOverviewData() {
+            await Promise.all([
+                loadStatus(),
+                loadCollectionsOverview(),
+                loadCollectionsStats(),
+                loadCollectionsDetails()
+            ]);
+        }
+        
+        // Load collections overview with summary
+        async function loadCollectionsOverview() {
+            try {
+                const response = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                if (data.result && data.result.collections) {
+                    const collections = data.result.collections;
+                    const totalPoints = collections.reduce((sum, c) => sum + (c.points_count || 0), 0);
+                    const totalVectors = collections.reduce((sum, c) => sum + (c.vectors_count || 0), 0);
+                    const activeCollections = collections.filter(c => c.status === 'green').length;
+                    
+                    document.getElementById('collections-overview').innerHTML = `
+                        <div class="overview-summary">
+                            <h3>📊 Database Summary</h3>
+                            <p><strong>Total Collections:</strong> ${collections.length}</p>
+                            <p><strong>Active Collections:</strong> ${activeCollections}</p>
+                            <p><strong>Total Points:</strong> ${totalPoints.toLocaleString()}</p>
+                            <p><strong>Total Vectors:</strong> ${totalVectors.toLocaleString()}</p>
+                            <p><strong>Average Points per Collection:</strong> ${collections.length > 0 ? (totalPoints / collections.length).toFixed(1) : 0}</p>
+                        </div>
+                        
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-number">${collections.length}</div>
+                                <div class="stat-label">Collections</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${totalPoints}</div>
+                                <div class="stat-label">Total Points</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${totalVectors}</div>
+                                <div class="stat-label">Total Vectors</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${activeCollections}</div>
+                                <div class="stat-label">Active</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('collections-overview').innerHTML = `
+                        <div class="warning">
+                            No collections found or unable to load collection data.
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('collections-overview').innerHTML = `
+                    <div class="error">
+                        <strong>Error loading collections overview:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // Load collection statistics
+        async function loadCollectionsStats() {
+            try {
+                const response = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                if (data.result && data.result.collections) {
+                    const collections = data.result.collections;
+                    
+                    // Calculate statistics
+                    const stats = {
+                        largestCollection: collections.reduce((max, c) => 
+                            (c.points_count || 0) > (max.points_count || 0) ? c : max, collections[0]),
+                        smallestCollection: collections.reduce((min, c) => 
+                            (c.points_count || 0) < (min.points_count || 0) ? c : min, collections[0]),
+                        totalSize: collections.reduce((sum, c) => sum + (c.points_count || 0), 0),
+                        avgSize: collections.length > 0 ? collections.reduce((sum, c) => sum + (c.points_count || 0), 0) / collections.length : 0
+                    };
+                    
+                    document.getElementById('collections-stats').innerHTML = `
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-number">${stats.largestCollection ? stats.largestCollection.name : 'N/A'}</div>
+                                <div class="stat-label">Largest Collection</div>
+                                <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                                    ${stats.largestCollection ? stats.largestCollection.points_count + ' points' : ''}
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${stats.smallestCollection ? stats.smallestCollection.name : 'N/A'}</div>
+                                <div class="stat-label">Smallest Collection</div>
+                                <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                                    ${stats.smallestCollection ? stats.smallestCollection.points_count + ' points' : ''}
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${stats.avgSize.toFixed(1)}</div>
+                                <div class="stat-label">Avg Points/Collection</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${collections.filter(c => c.points_count > 0).length}</div>
+                                <div class="stat-label">Non-Empty Collections</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    document.getElementById('collections-stats').innerHTML = `
+                        <div class="warning">
+                            No collection statistics available.
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('collections-stats').innerHTML = `
+                    <div class="error">
+                        <strong>Error loading collection statistics:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // Load detailed collection information
+        async function loadCollectionsDetails() {
+            try {
+                const response = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                if (data.result && data.result.collections) {
+                    const collections = data.result.collections;
+                    let html = '';
+                    
+                    for (const collection of collections) {
+                        // Get collection info
+                        const infoResponse = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                            headers: getHeaders()
+                        });
+                        const infoData = await infoResponse.json();
+                        
+                        const statusClass = collection.status === 'green' ? 'status-green' : 
+                                          collection.status === 'yellow' ? 'status-yellow' : 'status-red';
+                        
+                        html += `
+                            <div class="collection-detail-card">
+                                <div class="collection-detail-header">
+                                    <div class="collection-detail-name">${collection.name}</div>
+                                    <div class="collection-detail-status ${statusClass}">${collection.status}</div>
+                                </div>
+                                
+                                <div class="collection-detail-info">
+                                    <div class="detail-item">
+                                        <div class="detail-value">${collection.points_count || 0}</div>
+                                        <div class="detail-label">Points</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-value">${collection.vectors_count || 0}</div>
+                                        <div class="detail-label">Vectors</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-value">${infoData.result && infoData.result.config && infoData.result.config.params ? infoData.result.config.params.vectors.size : 'N/A'}</div>
+                                        <div class="detail-label">Vector Size</div>
+                                    </div>
+                                    <div class="detail-item">
+                                        <div class="detail-value">${infoData.result && infoData.result.config && infoData.result.config.params ? infoData.result.config.params.vectors.distance : 'N/A'}</div>
+                                        <div class="detail-label">Distance</div>
+                                    </div>
+                                </div>
+                                
+                                <div class="collection-detail-actions">
+                                    <button class="btn btn-small" onclick="viewCollectionPoints('${collection.name}')">View Points</button>
+                                    <button class="btn btn-small btn-secondary" onclick="searchCollection('${collection.name}')">Search</button>
+                                    <button class="btn btn-small btn-danger" onclick="deleteCollection('${collection.name}')">Delete</button>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    document.getElementById('collections-details').innerHTML = html;
+                } else {
+                    document.getElementById('collections-details').innerHTML = `
+                        <div class="warning">
+                            No collections found.
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('collections-details').innerHTML = `
+                    <div class="error">
+                        <strong>Error loading collection details:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        // Helper functions for collection actions
+        async function viewCollectionPoints(collectionName) {
+            // Switch to points tab and set collection
+            showTab('points');
+            document.getElementById('points-collection').value = collectionName;
+            
+            // Load points for this collection
+            try {
+                const response = await fetch(`${QDRANT_URL}/collections/${collectionName}/points?limit=10&with_payload=true&with_vectors=false`, {
+                    headers: getHeaders()
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    let html = `<div class="success"><strong>Points in ${collectionName}:</strong><br><br>`;
+                    
+                    if (data.result && data.result.points && data.result.points.length > 0) {
+                        data.result.points.forEach((point, index) => {
+                            html += `<strong>Point ${index + 1}:</strong><br>`;
+                            html += `ID: ${point.id}<br>`;
+                            if (point.payload) {
+                                html += `Payload: ${JSON.stringify(point.payload, null, 2)}<br>`;
+                            }
+                            html += '<br>';
+                        });
+                    } else {
+                        html += 'No points found in this collection.';
+                    }
+                    
+                    html += '</div>';
+                    document.getElementById('points-results').innerHTML = html;
+                } else {
+                    document.getElementById('points-results').innerHTML = `
+                        <div class="error">
+                            <strong>Error loading points:</strong> ${response.status} ${response.statusText}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('points-results').innerHTML = `
+                    <div class="error">
+                        <strong>Error loading points:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
+        function searchCollection(collectionName) {
+            // Switch to search tab and set collection
+            showTab('search');
+            document.getElementById('search-collection').value = collectionName;
         }
         
         // Load database status

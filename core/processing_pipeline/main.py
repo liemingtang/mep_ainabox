@@ -109,77 +109,31 @@ async def get_document_info(document_id: str) -> Dict[str, Any]:
         raise
 
 async def extract_text_from_document(document_id: str, file_path: str) -> Dict[str, Any]:
-    """Extract text from document using dynamic text processor"""
+    """Extract text from document using text processor service"""
     try:
+        logger.info(f"=== EXTRACT_TEXT_FUNCTION_CALLED ===")
         logger.info(f"Extracting text from document {document_id} at {file_path}")
         
-        # Get the directory containing the file
-        file_dir = os.path.dirname(file_path)
-        if not file_dir:
-            file_dir = "."
+        # Use the text processor service directly
+        text_processor_url = "http://text-processor:8005"
         
-        # Run the dynamic text processor script
-        cmd = [
-            DYNAMIC_TEXT_PROCESSOR_SCRIPT,
-            file_dir,
-            "--max-depth", "0",  # Only process the immediate directory
-            "--output", "json",
-            "--concurrent", "1"   # Single file processing
-        ]
-        
-        logger.info(f"Running dynamic text processor: {' '.join(cmd)}")
-        
-        # Execute the script
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=60.0,
-            cwd="/app"  # Set working directory
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"Dynamic text processor failed: {result.stderr}")
-            raise Exception(f"Text extraction failed: {result.stderr}")
-        
-        # Parse the JSON output
-        try:
-            output_data = json.loads(result.stdout)
-            
-            # Find the specific file in the results
-            file_name = os.path.basename(file_path)
-            file_result = None
-            
-            for file_info in output_data.get("files", []):
-                if file_info.get("filename") == file_name:
-                    file_result = file_info
-                    break
-            
-            if not file_result:
-                raise Exception(f"File {file_name} not found in text processor results")
-            
-            # Format the result to match the expected structure
-            result_data = {
-                "document_id": document_id,
-                "success": True,
-                "text_content": file_result.get("text_content", ""),
-                "text_length": file_result.get("text_length", 0),
-                "quality_score": file_result.get("quality_score", 1.0),
-                "extracted_tables": file_result.get("extracted_tables", []),
-                "layout_info": file_result.get("layout_info", {}),
-                "file_path": file_path
-            }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{text_processor_url}/extract-text",
+                json={
+                    "document_path": file_path,
+                    "document_id": document_id
+                },
+                timeout=60.0
+            )
+            response.raise_for_status()
+            result = response.json()
             
             logger.info(f"Text extraction completed for document {document_id}")
-            return result_data
+            logger.info(f"Text extraction result: {result}")
+            logger.info(f"Text content length: {len(result.get('text_content', ''))}")
+            return result
             
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse text processor output: {e}")
-            raise Exception(f"Invalid text processor output: {e}")
-            
-    except subprocess.TimeoutExpired:
-        logger.error(f"Text extraction timed out for document {document_id}")
-        raise Exception("Text extraction timed out")
     except Exception as e:
         logger.error(f"Text extraction failed for document {document_id}: {e}")
         raise
@@ -204,6 +158,7 @@ async def generate_embeddings(document_id: str, text_content: str, metadata: Dic
             result = response.json()
             
             logger.info(f"Embedding generation completed for document {document_id} using {EMBEDDING_PROVIDER}")
+            logger.info(f"Embedding result: {result}")
             return result
             
     except Exception as e:
@@ -460,7 +415,7 @@ async def process_document(request: ProcessingRequest):
             }
         )
         
-        if not embedding_result.get("success"):
+        if embedding_result.get("status") != "completed":
             raise Exception(f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}")
         
         # Mark as completed
