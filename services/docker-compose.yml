@@ -350,19 +350,21 @@ services:
     profiles:
       - dev
 
-  # Qdrant UI - Vector database management interface (using API directly)
-  # qdrant-ui:
-  #   image: qdrant/qdrant-web-ui:latest
-  #   container_name: mep-qdrant-ui
-  #   restart: unless-stopped
-  #   environment:
-  #     - QDRANT_URL=http://qdrant:6333
-  #   ports:
-  #     - "7070:80"
-  #   depends_on:
-  #     - qdrant
-  #   profiles:
-  #     - dev
+  # Qdrant UI - Vector database management interface (custom HTML interface)
+  qdrant-ui:
+    build:
+      context: ./qdrant-ui
+      dockerfile: Dockerfile
+    container_name: mep-qdrant-ui
+    restart: unless-stopped
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+    ports:
+      - "7070:7070"
+    depends_on:
+      - qdrant
+    profiles:
+      - dev
 
   # MinIO Console - Object storage management (using built-in console on port 9001)
   # minio-console:

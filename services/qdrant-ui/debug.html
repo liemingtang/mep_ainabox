@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Qdrant API Debug</title>
+</head>
+<body>
+    <h1>Qdrant API Debug</h1>
+    <div id="output"></div>
+    
+    <script>
+        const QDRANT_URL = 'http://localhost:6333';
+        const apiToken = 'qdrant_api_key';
+        
+        async function testAPI() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Testing Qdrant API...</p>';
+            
+            try {
+                // Test 1: Basic connection
+                output.innerHTML += '<p>1. Testing basic connection...</p>';
+                const response1 = await fetch(QDRANT_URL, {
+                    headers: {
+                        'api-key': apiToken
+                    }
+                });
+                
+                if (response1.ok) {
+                    const data1 = await response1.json();
+                    output.innerHTML += `<p>✅ Basic connection successful: ${data1.version}</p>`;
+                } else {
+                    output.innerHTML += `<p>❌ Basic connection failed: ${response1.status}</p>`;
+                    return;
+                }
+                
+                // Test 2: Get collections
+                output.innerHTML += '<p>2. Testing collections API...</p>';
+                const response2 = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: {
+                        'api-key': apiToken
+                    }
+                });
+                
+                if (response2.ok) {
+                    const data2 = await response2.json();
+                    output.innerHTML += `<p>✅ Collections API successful: ${data2.result.collections.length} collections</p>`;
+                    
+                    // Test 3: Get details for each collection
+                    for (const collection of data2.result.collections) {
+                        output.innerHTML += `<p>3. Testing collection: ${collection.name}</p>`;
+                        
+                        const response3 = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                            headers: {
+                                'api-key': apiToken
+                            }
+                        });
+                        
+                        if (response3.ok) {
+                            const data3 = await response3.json();
+                            const info = data3.result;
+                            output.innerHTML += `<p>✅ ${collection.name}: ${info.points_count} points, status: ${info.status}</p>`;
+                        } else {
+                            output.innerHTML += `<p>❌ Failed to get details for ${collection.name}: ${response3.status}</p>`;
+                        }
+                    }
+                } else {
+                    output.innerHTML += `<p>❌ Collections API failed: ${response2.status}</p>`;
+                }
+                
+            } catch (error) {
+                output.innerHTML += `<p>❌ Error: ${error.message}</p>`;
+            }
+        }
+        
+        // Run the test when page loads
+        testAPI();
+    </script>
+</body>
+</html> 

@@ -559,19 +559,25 @@ curl -X PUT http://localhost:6333/collections/test \
         
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('=== QDRANT UI INITIALIZATION STARTED ===');
+            
             // Check for API token in URL parameters
             const urlParams = new URLSearchParams(window.location.search);
             const tokenFromUrl = urlParams.get('api_token');
             if (tokenFromUrl) {
+                console.log('API token found in URL parameters');
                 document.getElementById('api-token').value = tokenFromUrl;
                 apiToken = tokenFromUrl;
             } else {
+                console.log('Using default API token');
                 // Use default API key if none provided in URL
                 document.getElementById('api-token').value = apiToken;
             }
             
+            console.log('About to call testConnection()...');
             // Test connection and load data
             testConnection();
+            console.log('testConnection() called');
         });
         
         // Get headers for API requests
@@ -620,30 +626,44 @@ curl -X PUT http://localhost:6333/collections/test \
             const statusDiv = document.getElementById('connection-status');
             
             try {
+                console.log('Making request to:', QDRANT_URL);
+                console.log('Headers:', getHeaders());
+                
                 const response = await fetch(QDRANT_URL, {
                     headers: getHeaders()
                 });
                 
+                console.log('Response status:', response.status);
+                console.log('Response ok:', response.ok);
+                
                 if (response.ok) {
                     const data = await response.json();
+                    console.log('Response data:', data);
                     statusDiv.innerHTML = `
                         <div class="success">
                             ✅ Connected successfully! Version: ${data.version}
                         </div>
                     `;
+                    console.log('Calling loadStatus, loadCollections, and loadOverviewData...');
                     loadStatus();
                     loadCollections();
+                    loadOverviewData();
                 } else {
+                    const errorText = await response.text();
+                    console.log('Error response text:', errorText);
                     statusDiv.innerHTML = `
                         <div class="error">
                             ❌ Connection failed: ${response.status} ${response.statusText}
+                            <br>Details: ${errorText}
                         </div>
                     `;
                 }
             } catch (error) {
+                console.log('Exception caught:', error);
                 statusDiv.innerHTML = `
                     <div class="error">
                         ❌ Connection error: ${error.message}
+                        <br>Type: ${error.name}
                     </div>
                 `;
             }
@@ -677,16 +697,23 @@ curl -X PUT http://localhost:6333/collections/test \
         
         // Load comprehensive overview data
         async function loadOverviewData() {
-            await Promise.all([
-                loadStatus(),
-                loadCollectionsOverview(),
-                loadCollectionsStats(),
-                loadCollectionsDetails()
-            ]);
+            console.log('=== loadOverviewData() called ===');
+            try {
+                await Promise.all([
+                    loadStatus(),
+                    loadCollectionsOverview(),
+                    loadCollectionsStats(),
+                    loadCollectionsDetails()
+                ]);
+                console.log('=== loadOverviewData() completed successfully ===');
+            } catch (error) {
+                console.error('Error in loadOverviewData():', error);
+            }
         }
         
         // Load collections overview with summary
         async function loadCollectionsOverview() {
+            console.log('=== loadCollectionsOverview() called ===');
             try {
                 const response = await fetch(`${QDRANT_URL}/collections`, {
                     headers: getHeaders()
@@ -695,9 +722,32 @@ curl -X PUT http://localhost:6333/collections/test \
                 
                 if (data.result && data.result.collections) {
                     const collections = data.result.collections;
-                    const totalPoints = collections.reduce((sum, c) => sum + (c.points_count || 0), 0);
-                    const totalVectors = collections.reduce((sum, c) => sum + (c.vectors_count || 0), 0);
-                    const activeCollections = collections.filter(c => c.status === 'green').length;
+                    
+                    // Fetch detailed info for each collection
+                    let totalPoints = 0;
+                    let totalVectors = 0;
+                    let activeCollections = 0;
+                    
+                    for (const collection of collections) {
+                        try {
+                            const detailResponse = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                                headers: getHeaders()
+                            });
+                            
+                            if (detailResponse.ok) {
+                                const detailData = await detailResponse.json();
+                                const collectionInfo = detailData.result;
+                                
+                                totalPoints += collectionInfo.points_count || 0;
+                                totalVectors += collectionInfo.points_count || 0;
+                                if (collectionInfo.status === 'green') {
+                                    activeCollections++;
+                                }
+                            }
+                        } catch (error) {
+                            console.log(`Error fetching details for ${collection.name}:`, error);
+                        }
+                    }
                     
                     document.getElementById('collections-overview').innerHTML = `
                         <div class="overview-summary">
@@ -746,6 +796,7 @@ curl -X PUT http://localhost:6333/collections/test \
         
         // Load collection statistics
         async function loadCollectionsStats() {
+            console.log('=== loadCollectionsStats() called ===');
             try {
                 const response = await fetch(`${QDRANT_URL}/collections`, {
                     headers: getHeaders()
@@ -755,14 +806,37 @@ curl -X PUT http://localhost:6333/collections/test \
                 if (data.result && data.result.collections) {
                     const collections = data.result.collections;
                     
+                    // Fetch detailed info for each collection
+                    const collectionDetails = [];
+                    
+                    for (const collection of collections) {
+                        try {
+                            const detailResponse = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                                headers: getHeaders()
+                            });
+                            
+                            if (detailResponse.ok) {
+                                const detailData = await detailResponse.json();
+                                const collectionInfo = detailData.result;
+                                collectionDetails.push({
+                                    name: collection.name,
+                                    points_count: collectionInfo.points_count || 0,
+                                    status: collectionInfo.status
+                                });
+                            }
+                        } catch (error) {
+                            console.log(`Error fetching details for ${collection.name}:`, error);
+                        }
+                    }
+                    
                     // Calculate statistics
                     const stats = {
-                        largestCollection: collections.reduce((max, c) => 
-                            (c.points_count || 0) > (max.points_count || 0) ? c : max, collections[0]),
-                        smallestCollection: collections.reduce((min, c) => 
-                            (c.points_count || 0) < (min.points_count || 0) ? c : min, collections[0]),
-                        totalSize: collections.reduce((sum, c) => sum + (c.points_count || 0), 0),
-                        avgSize: collections.length > 0 ? collections.reduce((sum, c) => sum + (c.points_count || 0), 0) / collections.length : 0
+                        largestCollection: collectionDetails.reduce((max, c) => 
+                            c.points_count > max.points_count ? c : max, collectionDetails[0] || {name: 'N/A', points_count: 0}),
+                        smallestCollection: collectionDetails.reduce((min, c) => 
+                            c.points_count < min.points_count ? c : min, collectionDetails[0] || {name: 'N/A', points_count: 0}),
+                        totalSize: collectionDetails.reduce((sum, c) => sum + c.points_count, 0),
+                        avgSize: collectionDetails.length > 0 ? collectionDetails.reduce((sum, c) => sum + c.points_count, 0) / collectionDetails.length : 0
                     };
                     
                     document.getElementById('collections-stats').innerHTML = `
@@ -809,6 +883,7 @@ curl -X PUT http://localhost:6333/collections/test \
         
         // Load detailed collection information
         async function loadCollectionsDetails() {
+            console.log('=== loadCollectionsDetails() called ===');
             try {
                 const response = await fetch(`${QDRANT_URL}/collections`, {
                     headers: getHeaders()
@@ -826,23 +901,24 @@ curl -X PUT http://localhost:6333/collections/test \
                         });
                         const infoData = await infoResponse.json();
                         
-                        const statusClass = collection.status === 'green' ? 'status-green' : 
-                                          collection.status === 'yellow' ? 'status-yellow' : 'status-red';
+                        const collectionInfo = infoData.result;
+                        const statusClass = collectionInfo.status === 'green' ? 'status-green' : 
+                                          collectionInfo.status === 'yellow' ? 'status-yellow' : 'status-red';
                         
                         html += `
                             <div class="collection-detail-card">
                                 <div class="collection-detail-header">
                                     <div class="collection-detail-name">${collection.name}</div>
-                                    <div class="collection-detail-status ${statusClass}">${collection.status}</div>
+                                    <div class="collection-detail-status ${statusClass}">${collectionInfo.status}</div>
                                 </div>
                                 
                                 <div class="collection-detail-info">
                                     <div class="detail-item">
-                                        <div class="detail-value">${collection.points_count || 0}</div>
+                                        <div class="detail-value">${collectionInfo.points_count || 0}</div>
                                         <div class="detail-label">Points</div>
                                     </div>
                                     <div class="detail-item">
-                                        <div class="detail-value">${collection.vectors_count || 0}</div>
+                                        <div class="detail-value">${collectionInfo.points_count || 0}</div>
                                         <div class="detail-label">Vectors</div>
                                     </div>
                                     <div class="detail-item">
@@ -889,8 +965,14 @@ curl -X PUT http://localhost:6333/collections/test \
             
             // Load points for this collection
             try {
-                const response = await fetch(`${QDRANT_URL}/collections/${collectionName}/points?limit=10&with_payload=true&with_vectors=false`, {
-                    headers: getHeaders()
+                const response = await fetch(`${QDRANT_URL}/collections/${collectionName}/points/scroll`, {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({
+                        limit: 10,
+                        with_payload: true,
+                        with_vectors: false
+                    })
                 });
                 
                 if (response.ok) {
@@ -978,21 +1060,63 @@ curl -X PUT http://localhost:6333/collections/test \
                 const searchCollection = document.getElementById('search-collection');
                 const pointsCollection = document.getElementById('points-collection');
                 
+                console.log('Checking if collections exist...');
+                console.log('data.result:', data.result);
+                console.log('data.result.collections:', data.result.collections);
+                console.log('data.result.collections.length:', data.result.collections.length);
+                
                 if (data.result && data.result.collections && data.result.collections.length > 0) {
+                    console.log('✅ Collections found, starting detailed fetching...');
                     let html = '';
-                    data.result.collections.forEach(collection => {
-                        html += `
-                            <div class="collection-item">
-                                <div class="collection-name">${collection.name}</div>
-                                <div class="collection-info">
-                                    Points: ${collection.points_count || 0} | 
-                                    Vectors: ${collection.vectors_count || 0} |
-                                    Status: ${collection.status}
+                    
+                    // Fetch detailed info for each collection
+                    for (const collection of data.result.collections) {
+                        console.log(`Fetching details for collection: ${collection.name}`);
+                        try {
+                            const detailResponse = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                                headers: getHeaders()
+                            });
+                            
+                            console.log(`Detail response for ${collection.name}:`, detailResponse.status);
+                            
+                            if (detailResponse.ok) {
+                                const detailData = await detailResponse.json();
+                                const collectionInfo = detailData.result;
+                                console.log(`Collection info for ${collection.name}:`, collectionInfo);
+                                
+                                html += `
+                                    <div class="collection-item">
+                                        <div class="collection-name">${collection.name}</div>
+                                        <div class="collection-info">
+                                            Points: ${collectionInfo.points_count || 0} | 
+                                            Vectors: ${collectionInfo.points_count || 0} |
+                                            Status: ${collectionInfo.status || 'unknown'}
+                                        </div>
+                                        <button class="btn btn-danger" onclick="deleteCollection('${collection.name}')" style="margin-top: 10px;">Delete</button>
+                                    </div>
+                                `;
+                            } else {
+                                console.log(`Error fetching details for ${collection.name}:`, detailResponse.status);
+                                html += `
+                                    <div class="collection-item">
+                                        <div class="collection-name">${collection.name}</div>
+                                        <div class="collection-info">Error loading details</div>
+                                        <button class="btn btn-danger" onclick="deleteCollection('${collection.name}')" style="margin-top: 10px;">Delete</button>
+                                    </div>
+                                `;
+                            }
+                        } catch (error) {
+                            console.log(`Exception fetching details for ${collection.name}:`, error);
+                            html += `
+                                <div class="collection-item">
+                                    <div class="collection-name">${collection.name}</div>
+                                    <div class="collection-info">Error: ${error.message}</div>
+                                    <button class="btn btn-danger" onclick="deleteCollection('${collection.name}')" style="margin-top: 10px;">Delete</button>
                                 </div>
-                                <button class="btn btn-danger" onclick="deleteCollection('${collection.name}')" style="margin-top: 10px;">Delete</button>
-                            </div>
-                        `;
-                    });
+                            `;
+                        }
+                    }
+                    
                     collectionsList.innerHTML = html;
                     
                     // Update select options
