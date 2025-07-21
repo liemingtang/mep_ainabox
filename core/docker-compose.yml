@@ -204,6 +204,33 @@ services:
       retries: 3
       start_period: 30s
 
+  # Text Processor - Document text extraction service
+  text-processor:
+    build:
+      context: ./processors/text_processor
+      dockerfile: Dockerfile
+    container_name: mep-text-processor
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - CONFIG_PATH=/app/config
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://core-processor:8001
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+    depends_on:
+      - processing-pipeline
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8005)); s.close(); print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   # Ollama - Self-hosted LLM and embedding service
   ollama:
     image: ollama/ollama:latest
