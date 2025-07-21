@@ -125,9 +125,13 @@ services:
       - CONFIG_PATH=/app/config
       - CORE_PROCESSOR_URL=http://core-processor:8001
       - STORAGE_MANAGER_URL=http://storage-manager:8004
+      - DYNAMIC_TEXT_PROCESSOR_SCRIPT=/app/core/core/text_processor_dynamic.sh
+      - EMBEDDING_PROVIDER=huggingface
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
+      - ../:/app/core:ro
+      - /var/run/docker.sock:/var/run/docker.sock
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
       - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
@@ -171,32 +175,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # Document Processors - Text extraction and processing
-  text-processor:
-    build:
-      context: ./processors/text_processor
-      dockerfile: Dockerfile
-    container_name: mep-text-processor
-    restart: unless-stopped
-    ports:
-      - "8005:8005"
-    environment:
-      - CONFIG_PATH=/app/config
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
-    volumes:
-      - ./config:/app/config:ro
-      - ./logs:/app/logs
-      - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
-      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
-      - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
-    depends_on:
-      - processing-pipeline
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8005)); s.close(); print('Health check passed')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+
 
   # Metadata Processor - Metadata extraction and validation
   metadata-processor:
@@ -244,7 +223,7 @@ services:
       retries: 3
       start_period: 60s
 
-  # Embedding Processor - Vector embedding generation using Ollama
+  # Embedding Processor - Vector embedding generation using Ollama or HuggingFace
   embedding-processor:
     build:
       context: ./processors/embedding_processor
@@ -260,16 +239,23 @@ services:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=qdrant_api_key
+      # Embedding provider configuration
+      - EMBEDDING_PROVIDER=huggingface
       - OLLAMA_HOST=ollama
       - OLLAMA_PORT=11434
-      - DEFAULT_EMBEDDING_MODEL=nomic-embed-text
+      - OLLAMA_DEFAULT_MODEL=nomic-embed-text
+      # HuggingFace configuration (default)
+      - HF_DEFAULT_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - HF_CACHE_DIR=/app/cache/huggingface
+      - HF_DEVICE=cpu
+      - HF_BATCH_SIZE=32
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
+      - huggingface_cache:/app/cache/huggingface
     depends_on:
       - processing-pipeline
-      - ollama
     # Qdrant is managed externally
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8007)); s.close(); print('Health check passed')"]
@@ -322,14 +308,10 @@ services:
       - CONFIG_PATH=/app/config
       - CORE_PROCESSOR_URL=http://core-processor:8001
       - WATCH_PATHS=/app/watch_folder
-      - PROCESSED_FOLDER=/app/processed
-      - ERROR_FOLDER=/app/error
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:rw
-      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
-      - ${ERROR_FOLDER_PATH:-./error}:/app/error:rw
     depends_on:
       - core-processor
     healthcheck:
@@ -352,5 +334,7 @@ volumes:
   logs:
     driver: local
   ollama_data:
+    driver: local
+  huggingface_cache:
     driver: local
   

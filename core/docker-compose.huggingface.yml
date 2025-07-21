@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Embedding Processor with HuggingFace
+  embedding-processor-hf:
+    build:
+      context: ./processors/embedding_processor
+      dockerfile: Dockerfile
+    container_name: mep-embedding-processor-hf
+    restart: unless-stopped
+    ports:
+      - "8007:8007"
+    environment:
+      - CONFIG_PATH=/app/config
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_API_KEY=qdrant_api_key
+      # HuggingFace Configuration
+      - EMBEDDING_PROVIDER=huggingface
+      - HF_DEFAULT_MODEL=sentence-transformers/all-MiniLM-L6-v2
+      - HF_CACHE_DIR=/app/cache/huggingface
+      - HF_DEVICE=cpu
+      - HF_BATCH_SIZE=32
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
+      - huggingface_cache:/app/cache/huggingface
+    depends_on:
+      - processing-pipeline
+    # Qdrant is managed externally
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8007)); s.close(); print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Processing Pipeline (if not already running)
+  processing-pipeline:
+    build:
+      context: ./processing_pipeline
+      dockerfile: Dockerfile
+    container_name: mep-processing-pipeline
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - CONFIG_PATH=/app/config
+      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - EMBEDDING_PROCESSOR_URL=http://embedding-processor-hf:8007
+      - ENTITY_PROCESSOR_URL=http://entity-processor:8008
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8003)); s.close(); print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  huggingface_cache:
+    driver: local 

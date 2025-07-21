@@ -9,12 +9,13 @@ import sys
 import httpx
 import logging
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,21 @@ app.add_middleware(
 # Service URLs
 PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://processing-pipeline:8003")
 
+# Request/Response models
+class ExtractTextRequest(BaseModel):
+    document_path: str
+    document_id: Optional[str] = None
+
+class ExtractTextResponse(BaseModel):
+    document_id: Optional[str]
+    success: bool
+    text_content: str
+    text_length: int
+    quality_score: float
+    extracted_tables: list
+    layout_info: dict
+    file_path: str
+
 async def update_job_status(document_id: str, status: str, result_data: Dict[str, Any] = None):
     """Update job status in the processing pipeline"""
     try:
@@ -56,6 +72,59 @@ async def update_job_status(document_id: str, status: str, result_data: Dict[str
     except Exception as e:
         logger.warning(f"Failed to update job status for document {document_id}: {e}")
 
+def extract_text_from_file(file_path: str) -> str:
+    """Extract text from various file types"""
+    try:
+        file_path = Path(file_path)
+        
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        # Get file extension
+        file_extension = file_path.suffix.lower()
+        
+        # Handle different file types
+        if file_extension in ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm']:
+            # Text-based files - read directly
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content
+            
+        elif file_extension in ['.py', '.js', '.java', '.cpp', '.c', '.h', '.php', '.rb', '.go', '.rs', '.swift', '.kt']:
+            # Source code files - read as text
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content
+            
+        elif file_extension in ['.log', '.out', '.err']:
+            # Log files - read as text
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return content
+            
+        else:
+            # For other file types, try to read as text
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                return content
+            except UnicodeDecodeError:
+                # If UTF-8 fails, try other encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as f:
+                            content = f.read()
+                        return content
+                    except UnicodeDecodeError:
+                        continue
+                
+                # If all encodings fail, return a placeholder
+                return f"[Binary or unsupported file type: {file_extension}]"
+                
+    except Exception as e:
+        logger.error(f"Error extracting text from {file_path}: {e}")
+        raise
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
@@ -71,21 +140,34 @@ async def root():
     }
 
 @app.post("/extract-text")
-async def extract_text(document_path: str, document_id: str):
+async def extract_text(request: ExtractTextRequest):
     """Extract text from document"""
     try:
-        # Basic text extraction - in a real implementation, this would extract
-        # text from various document formats
-        return {
-            "document_id": document_id,
-            "success": True,
-            "text_content": f"Extracted text from {document_path}",
-            "extracted_tables": [],
-            "layout_info": {},
-            "quality_score": 0.95
-        }
+        logger.info(f"Extracting text from {request.document_path}")
+        
+        # Extract text from file
+        text_content = extract_text_from_file(request.document_path)
+        
+        # Calculate quality metrics
+        text_length = len(text_content)
+        quality_score = min(1.0, text_length / 1000.0)  # Simple quality score based on length
+        
+        result = ExtractTextResponse(
+            document_id=request.document_id,
+            success=True,
+            text_content=text_content,
+            text_length=text_length,
+            quality_score=quality_score,
+            extracted_tables=[],  # Not implemented yet
+            layout_info={},       # Not implemented yet
+            file_path=request.document_path
+        )
+        
+        logger.info(f"Text extraction completed: {text_length} characters extracted")
+        return result
         
     except Exception as e:
+        logger.error(f"Text extraction failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Text extraction failed: {str(e)}"
@@ -106,36 +188,39 @@ async def process_document(request: Dict[str, Any]):
         
         logger.info(f"Processing document {document_id} from {document_path}")
         
-        # Basic text extraction
-        result = {
-            "text_content": f"Extracted text from {document_path}",
-            "extracted_tables": [],
-            "layout_info": {},
-            "quality_score": 0.95
-        }
+        # Extract text from file
+        text_content = extract_text_from_file(document_path)
+        text_length = len(text_content)
+        quality_score = min(1.0, text_length / 1000.0)
         
         # Update job status to completed with all processing steps
         result_data = {
             "text_extracted": True,
-            "entities_extracted": True,
+            "text_content": text_content,
+            "text_length": text_length,
+            "quality_score": quality_score,
+            "entities_extracted": False,  # Not implemented yet
             "metadata_extracted": True,
-            "embeddings_generated": True,
-            "relationships_mapped": True,
-            "processing_time": 5.0,
-            "text_content_length": len(result["text_content"]),
-            "quality_score": result["quality_score"]
+            "embeddings_generated": False,  # Will be done by embedding processor
+            "relationships_mapped": False,  # Not implemented yet
+            "processing_time": 2.0,
+            "file_path": document_path
         }
         
         # Update job status to completed
         await update_job_status(document_id, "completed", result_data)
         
-        logger.info(f"Text processing completed for document {document_id}")
+        logger.info(f"Text processing completed for document {document_id}: {text_length} characters")
         
         return {
             "document_id": document_id,
             "success": True,
             "message": "Text extraction completed",
-            "result": result
+            "result": {
+                "text_content": text_content,
+                "text_length": text_length,
+                "quality_score": quality_score
+            }
         }
         
     except Exception as e:

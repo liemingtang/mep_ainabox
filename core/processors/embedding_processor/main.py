@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Embedding Processor - Vector embedding generation and storage service using Ollama
+Embedding Processor - Vector embedding generation and storage service using Ollama or HuggingFace
 """
 
 import asyncio
@@ -10,6 +10,7 @@ import os
 import re
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+from pathlib import Path
 
 import httpx
 import numpy as np
@@ -25,8 +26,8 @@ logger = logging.getLogger(__name__)
 # Create FastAPI application
 app = FastAPI(
     title="Embedding Processor",
-    description="Vector embedding generation and storage service using Ollama",
-    version="2.0.0"
+    description="Vector embedding generation and storage service using Ollama or HuggingFace",
+    version="2.1.0"
 )
 
 # Add middleware
@@ -45,18 +46,31 @@ QDRANT_HOST = os.getenv("QDRANT_HOST", "qdrant")
 QDRANT_PORT = os.getenv("QDRANT_PORT", "6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
 
+# Embedding provider configuration
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama")  # "ollama" or "huggingface"
+
 # Ollama configuration
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "ollama")
 OLLAMA_PORT = os.getenv("OLLAMA_PORT", "11434")
-DEFAULT_EMBEDDING_MODEL = os.getenv("DEFAULT_EMBEDDING_MODEL", "nomic-embed-text")
+OLLAMA_DEFAULT_MODEL = os.getenv("OLLAMA_DEFAULT_MODEL", "nomic-embed-text")
 OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
+
+# HuggingFace configuration
+HF_DEFAULT_MODEL = os.getenv("HF_DEFAULT_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+HF_CACHE_DIR = os.getenv("HF_CACHE_DIR", "/app/cache/huggingface")
+HF_DEVICE = os.getenv("HF_DEVICE", "cpu")
+HF_BATCH_SIZE = int(os.getenv("HF_BATCH_SIZE", "32"))
+
+# Default model based on provider
+DEFAULT_EMBEDDING_MODEL = HF_DEFAULT_MODEL if EMBEDDING_PROVIDER == "huggingface" else OLLAMA_DEFAULT_MODEL
 
 # Request/Response models
 class EmbeddingRequest(BaseModel):
     document_id: str
     text_content: str
     metadata: Optional[Dict[str, Any]] = None
-    model: Optional[str] = None  # Allow specifying different Ollama models
+    model: Optional[str] = None  # Allow specifying different models
+    provider: Optional[str] = None  # Allow specifying provider: "ollama" or "huggingface"
 
 class EmbeddingResponse(BaseModel):
     document_id: str
@@ -64,12 +78,14 @@ class EmbeddingResponse(BaseModel):
     embeddings_count: int
     vector_dimensions: int
     model_used: str
+    provider_used: str
     stored_in_qdrant: bool
     processing_time: float
 
 class EmbeddingQueryRequest(BaseModel):
     text: str
     model: Optional[str] = None
+    provider: Optional[str] = None
     limit: Optional[int] = 10
 
 class EmbeddingQueryResponse(BaseModel):
@@ -77,6 +93,7 @@ class EmbeddingQueryResponse(BaseModel):
     results: List[Dict[str, Any]]
     total_found: int
     model_used: str
+    provider_used: str
 
 class TextChunker:
     """Split text into chunks for embedding generation"""
@@ -99,14 +116,19 @@ class TextChunker:
             # Try to break at sentence boundary
             if end < len(text):
                 # Look for sentence endings
-                sentence_endings = ['.', '!', '?', '\n\n']
+                sentence_endings = ['. ', '! ', '? ', '\n\n']
+                best_break = end
+                
                 for ending in sentence_endings:
-                    last_ending = text.rfind(ending, start, end)
-                    if last_ending > start:
-                        end = last_ending + 1
+                    pos = text.rfind(ending, start, end)
+                    if pos > start and pos < end:
+                        best_break = pos + len(ending.rstrip())
                         break
+                
+                chunk = text[start:best_break].strip()
+            else:
+                chunk = text[start:].strip()
             
-            chunk = text[start:end].strip()
             if chunk:
                 chunks.append(chunk)
             
@@ -117,12 +139,99 @@ class TextChunker:
         
         return chunks
 
+class HuggingFaceEmbeddingGenerator:
+    """Generate embeddings using HuggingFace models"""
+    
+    def __init__(self, cache_dir: str = HF_CACHE_DIR, device: str = HF_DEVICE, batch_size: int = HF_BATCH_SIZE):
+        self.cache_dir = cache_dir
+        self.device = device
+        self.batch_size = batch_size
+        self.default_model = HF_DEFAULT_MODEL
+        self.model_dimensions = {
+            "sentence-transformers/all-MiniLM-L6-v2": 384,
+            "sentence-transformers/all-mpnet-base-v2": 768,
+            "sentence-transformers/paraphrase-MiniLM-L3-v2": 384,
+            "sentence-transformers/e5-small-v2": 384,
+            "sentence-transformers/e5-base-v2": 768,
+            "sentence-transformers/e5-large-v2": 1024,
+            "sentence-transformers/multi-qa-MiniLM-L6-cos-v1": 384,
+            "sentence-transformers/all-distilroberta-v1": 768
+        }
+        self._model = None
+        self._model_name = None
+    
+    def _load_model(self, model_name: str):
+        """Load HuggingFace model"""
+        if self._model is None or self._model_name != model_name:
+            try:
+                from sentence_transformers import SentenceTransformer
+                
+                # Create cache directory if it doesn't exist
+                Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+                
+                logger.info(f"Loading HuggingFace model: {model_name}")
+                self._model = SentenceTransformer(
+                    model_name,
+                    cache_folder=self.cache_dir,
+                    device=self.device
+                )
+                self._model_name = model_name
+                logger.info(f"Successfully loaded HuggingFace model: {model_name}")
+                
+            except Exception as e:
+                logger.error(f"Error loading HuggingFace model {model_name}: {e}")
+                raise
+    
+    def get_model_dimensions(self, model_name: str) -> int:
+        """Get the expected dimensions for a model"""
+        return self.model_dimensions.get(model_name, 384)  # Default to 384
+    
+    async def generate_embeddings(self, texts: List[str], model_name: str = None) -> List[List[float]]:
+        """Generate embeddings for a list of texts using HuggingFace"""
+        model = model_name or self.default_model
+        
+        try:
+            # Load model if needed
+            self._load_model(model)
+            
+            logger.info(f"Generating embeddings using HuggingFace model: {model}")
+            
+            # Generate embeddings
+            embeddings = self._model.encode(
+                texts,
+                batch_size=self.batch_size,
+                normalize_embeddings=True,
+                convert_to_numpy=True
+            )
+            
+            # Convert to list of lists
+            embeddings_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
+            
+            logger.info(f"Generated {len(embeddings_list)} embeddings using model {model}")
+            return embeddings_list
+            
+        except Exception as e:
+            logger.error(f"Error generating embeddings with HuggingFace: {e}")
+            raise
+    
+    async def list_available_models(self) -> List[Dict[str, Any]]:
+        """List available HuggingFace models"""
+        return [
+            {
+                "name": model_name,
+                "dimensions": dimensions,
+                "provider": "huggingface",
+                "description": f"HuggingFace {model_name} ({dimensions} dimensions)"
+            }
+            for model_name, dimensions in self.model_dimensions.items()
+        ]
+
 class OllamaEmbeddingGenerator:
     """Generate embeddings using Ollama models"""
     
     def __init__(self, base_url: str = OLLAMA_BASE_URL):
         self.base_url = base_url
-        self.default_model = DEFAULT_EMBEDDING_MODEL
+        self.default_model = OLLAMA_DEFAULT_MODEL
         self.model_dimensions = {
             "nomic-embed-text": 768,
             "all-minilm": 384,
@@ -216,82 +325,79 @@ class OllamaEmbeddingGenerator:
         return self.model_dimensions.get(model_name, 768)  # Default to 768
     
     async def list_available_models(self) -> List[Dict[str, Any]]:
-        """List available models in Ollama"""
+        """List available Ollama models"""
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{self.base_url}/api/tags",
-                    timeout=10.0
-                )
+                response = await client.get(f"{self.base_url}/api/tags", timeout=10.0)
                 response.raise_for_status()
                 
                 models = response.json().get("models", [])
                 return [
                     {
                         "name": model["name"],
-                        "size": model.get("size", 0),
-                        "modified_at": model.get("modified_at", ""),
-                        "dimensions": self.get_model_dimensions(model["name"])
+                        "dimensions": self.get_model_dimensions(model["name"]),
+                        "provider": "ollama",
+                        "description": f"Ollama {model['name']} ({self.get_model_dimensions(model['name'])} dimensions)"
                     }
                     for model in models
                 ]
                 
         except Exception as e:
-            logger.error(f"Error listing models: {e}")
+            logger.error(f"Error listing Ollama models: {e}")
             return []
 
 class QdrantClient:
-    """Client for interacting with Qdrant vector database"""
+    """Client for Qdrant vector database operations"""
     
     def __init__(self, host: str = "qdrant", port: int = 6333, api_key: str = "qdrant_api_key"):
         self.host = host
         self.port = port
-        self.base_url = f"http://{host}:{port}"
         self.api_key = api_key
-        self.collection_name = "document_embeddings"
-        self.headers = {"api-key": api_key} if api_key else {}
+        self.base_url = f"http://{host}:{port}"
     
     async def create_collection(self, dimensions: int = 768) -> bool:
-        """Create the embeddings collection if it doesn't exist"""
+        """Create a collection in Qdrant if it doesn't exist"""
         try:
+            collection_name = "documents"
+            
+            # Check if collection exists
             async with httpx.AsyncClient() as client:
-                # Check if collection exists
                 response = await client.get(
-                    f"{self.base_url}/collections/{self.collection_name}",
-                    headers=self.headers,
+                    f"{self.base_url}/collections/{collection_name}",
+                    headers={"api-key": self.api_key},
                     timeout=10.0
                 )
                 
                 if response.status_code == 200:
-                    logger.info(f"Collection {self.collection_name} already exists")
+                    logger.info(f"Collection {collection_name} already exists")
                     return True
-                
-                # Create collection
-                create_response = await client.put(
-                    f"{self.base_url}/collections/{self.collection_name}",
-                    headers=self.headers,
-                    json={
-                        "vectors": {
-                            "size": dimensions,
-                            "distance": "Cosine"
-                        }
-                    },
-                    timeout=10.0
+            
+            # Create collection
+            collection_config = {
+                "vectors": {
+                    "size": dimensions,
+                    "distance": "Cosine"
+                }
+            }
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.put(
+                    f"{self.base_url}/collections/{collection_name}",
+                    headers={"api-key": self.api_key, "Content-Type": "application/json"},
+                    json=collection_config,
+                    timeout=30.0
                 )
+                response.raise_for_status()
                 
-                if create_response.status_code == 200:
-                    logger.info(f"Created collection {self.collection_name} with {dimensions} dimensions")
-                    return True
-                else:
-                    logger.error(f"Failed to create collection: {create_response.text}")
-                    return False
-                    
+                logger.info(f"Created collection {collection_name} with {dimensions} dimensions")
+                return True
+                
         except Exception as e:
             logger.error(f"Error creating collection: {e}")
             return False
     
     async def store_embeddings(self, document_id: str, embeddings: List[List[float]], 
-                             texts: List[str], metadata: Dict[str, Any] = None, model_name: str = None) -> bool:
+                             texts: List[str], metadata: Dict[str, Any] = None, model_name: str = None, provider: str = None) -> bool:
         """Store embeddings in Qdrant"""
         try:
             # Ensure collection exists with correct dimensions
@@ -316,59 +422,77 @@ class QdrantClient:
                         "text_length": len(text),
                         "metadata": metadata or {},
                         "model_used": model_name or DEFAULT_EMBEDDING_MODEL,
+                        "provider_used": provider or EMBEDDING_PROVIDER,
                         "created_at": datetime.utcnow().isoformat()
                     }
                 }
                 points.append(point)
             
             # Insert points
+            collection_name = "documents"
             async with httpx.AsyncClient() as client:
                 response = await client.put(
-                    f"{self.base_url}/collections/{self.collection_name}/points",
-                    headers=self.headers,
+                    f"{self.base_url}/collections/{collection_name}/points",
+                    headers={"api-key": self.api_key, "Content-Type": "application/json"},
                     json={"points": points},
                     timeout=30.0
                 )
+                response.raise_for_status()
                 
-                if response.status_code == 200:
-                    logger.info(f"Stored {len(points)} embeddings for document {document_id}")
-                    return True
-                else:
-                    logger.error(f"Failed to store embeddings: {response.text}")
-                    return False
-                    
+                logger.info(f"Stored {len(points)} embeddings for document {document_id}")
+                return True
+                
         except Exception as e:
             logger.error(f"Error storing embeddings: {e}")
             return False
     
     async def search_similar(self, query_embedding: List[float], limit: int = 10) -> List[Dict[str, Any]]:
-        """Search for similar embeddings"""
+        """Search for similar documents using vector similarity"""
         try:
+            collection_name = "documents"
+            
+            search_params = {
+                "vector": query_embedding,
+                "limit": limit,
+                "with_payload": True
+            }
+            
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    f"{self.base_url}/collections/{self.collection_name}/points/search",
-                    headers=self.headers,
-                    json={
-                        "vector": query_embedding,
-                        "limit": limit,
-                        "with_payload": True
-                    },
+                    f"{self.base_url}/collections/{collection_name}/points/search",
+                    headers={"api-key": self.api_key, "Content-Type": "application/json"},
+                    json=search_params,
                     timeout=10.0
                 )
+                response.raise_for_status()
                 
-                if response.status_code == 200:
-                    return response.json()["result"]
-                else:
-                    logger.error(f"Search failed: {response.text}")
-                    return []
-                    
+                results = response.json().get("result", [])
+                return [
+                    {
+                        "score": result["score"],
+                        "document_id": result["payload"]["document_id"],
+                        "chunk_index": result["payload"]["chunk_index"],
+                        "text": result["payload"]["text"],
+                        "metadata": result["payload"]["metadata"]
+                    }
+                    for result in results
+                ]
+                
         except Exception as e:
             logger.error(f"Error searching embeddings: {e}")
             return []
 
 # Initialize components
 text_chunker = TextChunker()
-embedding_generator = OllamaEmbeddingGenerator()
+
+# Initialize embedding generators based on provider
+if EMBEDDING_PROVIDER == "huggingface":
+    embedding_generator = HuggingFaceEmbeddingGenerator()
+    logger.info(f"Initialized HuggingFace embedding generator with model: {HF_DEFAULT_MODEL}")
+else:
+    embedding_generator = OllamaEmbeddingGenerator()
+    logger.info(f"Initialized Ollama embedding generator with model: {OLLAMA_DEFAULT_MODEL}")
+
 qdrant_client = QdrantClient(QDRANT_HOST, int(QDRANT_PORT), QDRANT_API_KEY)
 
 @app.get("/health")
@@ -386,40 +510,49 @@ async def health_check():
     except:
         qdrant_healthy = False
     
-    try:
-        # Check Ollama connection
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5.0)
-            ollama_healthy = response.status_code == 200
-    except:
-        ollama_healthy = False
+    # Check embedding provider connection
+    embedding_healthy = False
+    if EMBEDDING_PROVIDER == "ollama":
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5.0)
+                embedding_healthy = response.status_code == 200
+        except:
+            embedding_healthy = False
+    else:  # huggingface
+        try:
+            # Test HuggingFace model loading
+            test_generator = HuggingFaceEmbeddingGenerator()
+            await test_generator.generate_embeddings(["test"], HF_DEFAULT_MODEL)
+            embedding_healthy = True
+        except:
+            embedding_healthy = False
     
     return {
-        "status": "healthy" if (qdrant_healthy and ollama_healthy) else "degraded",
+        "status": "healthy" if (qdrant_healthy and embedding_healthy) else "degraded",
         "service": "embedding-processor",
+        "provider": EMBEDDING_PROVIDER,
         "qdrant_connection": "healthy" if qdrant_healthy else "unhealthy",
-        "ollama_connection": "healthy" if ollama_healthy else "unhealthy",
+        "embedding_connection": "healthy" if embedding_healthy else "unhealthy",
         "default_model": DEFAULT_EMBEDDING_MODEL,
-        "ollama_url": OLLAMA_BASE_URL
+        "ollama_url": OLLAMA_BASE_URL if EMBEDDING_PROVIDER == "ollama" else None,
+        "huggingface_cache": HF_CACHE_DIR if EMBEDDING_PROVIDER == "huggingface" else None
     }
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint with service information"""
     return {
-        "message": "MDIS Embedding Processor with Ollama",
-        "version": "2.0.0",
-        "processing_pipeline": PROCESSING_PIPELINE_URL,
-        "core_processor": CORE_PROCESSOR_URL,
-        "qdrant_host": QDRANT_HOST,
-        "ollama_url": OLLAMA_BASE_URL,
+        "service": "Embedding Processor",
+        "version": "2.1.0",
+        "provider": EMBEDDING_PROVIDER,
         "default_model": DEFAULT_EMBEDDING_MODEL,
         "endpoints": {
             "health": "/health",
             "process": "/process",
             "search": "/search",
-            "models": "/models",
-            "embed": "/embed"
+            "embed": "/embed",
+            "models": "/models"
         }
     }
 
@@ -431,13 +564,22 @@ async def process_embeddings(request: EmbeddingRequest):
     try:
         logger.info(f"Processing embeddings for document {request.document_id}")
         
+        # Determine provider and model
+        provider = request.provider or EMBEDDING_PROVIDER
+        model_name = request.model or DEFAULT_EMBEDDING_MODEL
+        
+        # Use appropriate generator
+        if provider == "huggingface":
+            generator = HuggingFaceEmbeddingGenerator()
+        else:
+            generator = OllamaEmbeddingGenerator()
+        
         # Chunk the text
         text_chunks = text_chunker.chunk_text(request.text_content)
         logger.info(f"Created {len(text_chunks)} text chunks for document {request.document_id}")
         
         # Generate embeddings
-        model_name = request.model or DEFAULT_EMBEDDING_MODEL
-        embeddings = await embedding_generator.generate_embeddings(text_chunks, model_name)
+        embeddings = await generator.generate_embeddings(text_chunks, model_name)
         logger.info(f"Generated {len(embeddings)} embeddings for document {request.document_id}")
         
         # Store in Qdrant
@@ -446,7 +588,8 @@ async def process_embeddings(request: EmbeddingRequest):
             embeddings,
             text_chunks,
             request.metadata,
-            model_name
+            model_name,
+            provider
         )
         
         processing_time = (datetime.utcnow() - start_time).total_seconds()
@@ -456,6 +599,7 @@ async def process_embeddings(request: EmbeddingRequest):
             "embeddings_count": len(embeddings),
             "vector_dimensions": len(embeddings[0]) if embeddings else 0,
             "model_used": model_name,
+            "provider_used": provider,
             "stored_in_qdrant": stored,
             "processing_time": processing_time,
             "text_chunks": len(text_chunks),
@@ -472,112 +616,114 @@ async def process_embeddings(request: EmbeddingRequest):
             embeddings_count=len(embeddings),
             vector_dimensions=len(embeddings[0]) if embeddings else 0,
             model_used=model_name,
+            provider_used=provider,
             stored_in_qdrant=stored,
             processing_time=processing_time
         )
         
     except Exception as e:
         logger.error(f"Error processing embeddings for document {request.document_id}: {e}")
-        
-        # Update job status to failed
         await update_job_status(request.document_id, "failed", {"error": str(e)})
-        
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing embeddings: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/search")
 async def search_embeddings(request: EmbeddingQueryRequest):
-    """Search for similar documents"""
+    """Search for similar documents using embeddings"""
     try:
+        # Determine provider and model
+        provider = request.provider or EMBEDDING_PROVIDER
         model_name = request.model or DEFAULT_EMBEDDING_MODEL
         
-        # Generate embedding for query
-        query_embeddings = await embedding_generator.generate_embeddings([request.text], model_name)
-        query_embedding = query_embeddings[0]
+        # Use appropriate generator
+        if provider == "huggingface":
+            generator = HuggingFaceEmbeddingGenerator()
+        else:
+            generator = OllamaEmbeddingGenerator()
         
-        # Search in Qdrant
-        results = await qdrant_client.search_similar(query_embedding, request.limit)
+        # Generate query embedding
+        query_embedding = await generator.generate_embeddings([request.text], model_name)
+        
+        if not query_embedding:
+            raise HTTPException(status_code=500, detail="Failed to generate query embedding")
+        
+        # Search for similar documents
+        results = await qdrant_client.search_similar(query_embedding[0], request.limit)
         
         return EmbeddingQueryResponse(
             query=request.text,
             results=results,
             total_found=len(results),
-            model_used=model_name
+            model_used=model_name,
+            provider_used=provider
         )
         
     except Exception as e:
         logger.error(f"Error searching embeddings: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error searching embeddings: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/embed")
-async def generate_single_embedding(text: str, model: str = None):
-    """Generate a single embedding for a text (useful for external services like n8n)"""
+async def generate_single_embedding(text: str, model: str = None, provider: str = None):
+    """Generate embedding for a single text (ideal for external services)"""
     try:
+        # Determine provider and model
+        provider = provider or EMBEDDING_PROVIDER
         model_name = model or DEFAULT_EMBEDDING_MODEL
-        embeddings = await embedding_generator.generate_embeddings([text], model_name)
+        
+        # Use appropriate generator
+        if provider == "huggingface":
+            generator = HuggingFaceEmbeddingGenerator()
+        else:
+            generator = OllamaEmbeddingGenerator()
+        
+        # Generate embedding
+        embeddings = await generator.generate_embeddings([text], model_name)
+        
+        if not embeddings:
+            raise HTTPException(status_code=500, detail="Failed to generate embedding")
         
         return {
             "text": text,
             "embedding": embeddings[0],
             "dimensions": len(embeddings[0]),
-            "model_used": model_name
+            "model_used": model_name,
+            "provider_used": provider
         }
         
     except Exception as e:
         logger.error(f"Error generating single embedding: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error generating embedding: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/models")
 async def list_available_models():
     """List available embedding models"""
     try:
-        ollama_models = await embedding_generator.list_available_models()
+        if EMBEDDING_PROVIDER == "huggingface":
+            generator = HuggingFaceEmbeddingGenerator()
+        else:
+            generator = OllamaEmbeddingGenerator()
+        
+        models = await generator.list_available_models()
         
         return {
+            "provider": EMBEDDING_PROVIDER,
             "default_model": DEFAULT_EMBEDDING_MODEL,
-            "ollama_models": ollama_models,
-            "recommended_models": [
-                "nomic-embed-text",  # 768 dimensions, high quality
-                "all-minilm",  # 384 dimensions, fast
-                "all-mpnet-base-v2",  # 768 dimensions, high quality
-                "e5-large-v2",  # 1024 dimensions, excellent quality
-                "e5-base-v2",  # 768 dimensions, good quality
-                "e5-small-v2"  # 384 dimensions, fast
-            ]
+            "models": models
         }
+        
     except Exception as e:
         logger.error(f"Error listing models: {e}")
-        return {
-            "default_model": DEFAULT_EMBEDDING_MODEL,
-            "ollama_models": [],
-            "error": str(e)
-        }
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/v1/process")
 async def process_embeddings_legacy():
     """Legacy endpoint for backward compatibility"""
-    return {
-        "status": "processed",
-        "embeddings": {
-            "count": 1,
-            "dimensions": 768,
-            "model": DEFAULT_EMBEDDING_MODEL
-        }
-    }
+    raise HTTPException(status_code=410, detail="This endpoint is deprecated. Use /process instead.")
 
 async def update_job_status(document_id: str, status: str, result_data: Dict[str, Any] = None):
-    """Update job status in the processing pipeline"""
+    """Update job status in processing pipeline"""
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(
+            await client.post(
                 f"{PROCESSING_PIPELINE_URL}/jobs/{document_id}/status",
                 json={
                     "status": status,
@@ -585,16 +731,8 @@ async def update_job_status(document_id: str, status: str, result_data: Dict[str
                 },
                 timeout=10.0
             )
-            response.raise_for_status()
-            logger.info(f"Updated job status for document {document_id} to {status}")
     except Exception as e:
-        logger.warning(f"Failed to update job status for document {document_id}: {e}")
+        logger.warning(f"Failed to update job status: {e}")
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8007,
-        reload=False,
-        log_level="info"
-    ) 
+    uvicorn.run(app, host="0.0.0.0", port=8007) 

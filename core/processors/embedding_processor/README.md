@@ -1,32 +1,47 @@
-# Embedding Processor with Ollama
+# Embedding Processor with Ollama or HuggingFace
 
-This service provides vector embedding generation using self-hosted Ollama models. It's designed to be easily integrated with external services like n8n, Flowise, and other automation platforms.
+This service provides vector embedding generation using either self-hosted Ollama models or HuggingFace Transformers models. It's designed to be easily integrated with external services like n8n, Flowise, and other automation platforms.
 
 ## Features
 
-- **Self-hosted embeddings**: Uses Ollama for local embedding generation
-- **Multiple models**: Support for various embedding models (nomic-embed-text, all-minilm, e5-series, etc.)
+- **Multiple embedding providers**: Choose between Ollama (self-hosted) or HuggingFace (cloud/local)
+- **Multiple models**: Support for various embedding models from both providers
 - **External integration**: RESTful API for easy integration with n8n, Flowise, and other services
 - **Vector storage**: Automatic storage in Qdrant vector database
 - **Model management**: Automatic model pulling and availability checking
+- **Easy switching**: Simple configuration to switch between providers
 
 ## Quick Start
 
-### 1. Start the Services
+### Option 1: Using Ollama (Self-hosted)
 
 ```bash
 cd mep_ainabox/core
 docker compose up -d ollama embedding-processor
 ```
 
-### 2. Initialize Ollama Models
+### Option 2: Using HuggingFace (Recommended for quick setup)
 
+```bash
+cd mep_ainabox/core
+docker compose -f docker-compose.huggingface.yml up -d embedding-processor-hf
+```
+
+### Initialize Models
+
+#### For Ollama:
 ```bash
 # Wait for Ollama to start, then run:
 docker compose exec embedding-processor python init_ollama.py
 ```
 
-### 3. Test the Service
+#### For HuggingFace:
+```bash
+# Initialize HuggingFace models:
+docker compose -f docker-compose.huggingface.yml exec embedding-processor-hf python init_huggingface.py
+```
+
+### Test the Service
 
 ```bash
 # Health check
@@ -38,8 +53,34 @@ curl http://localhost:8007/models
 # Generate a single embedding
 curl -X POST http://localhost:8007/embed \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello world", "model": "nomic-embed-text"}'
+  -d '{"text": "Hello world", "model": "sentence-transformers/all-MiniLM-L6-v2"}'
 ```
+
+## Provider Comparison
+
+| Feature | Ollama | HuggingFace |
+|---------|--------|-------------|
+| **Privacy** | Complete (self-hosted) | Good (local models) |
+| **Setup** | Requires Ollama server | Simple (direct download) |
+| **Model Selection** | Limited | Extensive |
+| **Resource Usage** | Higher | Lower |
+| **Offline Capability** | Full | Limited (after download) |
+| **Custom Models** | Supported | Supported |
+| **GPU Support** | Yes | Yes |
+
+### When to Use Each Provider
+
+**Use Ollama when:**
+- You need complete privacy and control
+- Working in offline environments
+- Using custom or specialized models
+- Have sufficient server resources
+
+**Use HuggingFace when:**
+- You want quick setup and deployment
+- Need access to a wide variety of models
+- Working in development or testing environments
+- Have limited server resources
 
 ## API Endpoints
 
@@ -47,7 +88,7 @@ curl -X POST http://localhost:8007/embed \
 ```
 GET /health
 ```
-Returns service health status including Ollama and Qdrant connections.
+Returns service health status including provider and Qdrant connections.
 
 ### Generate Single Embedding
 ```
@@ -59,7 +100,8 @@ Generate embedding for a single text (ideal for external services).
 ```json
 {
   "text": "Your text here",
-  "model": "nomic-embed-text"  // optional, defaults to DEFAULT_EMBEDDING_MODEL
+  "model": "sentence-transformers/all-MiniLM-L6-v2",  // optional
+  "provider": "huggingface"  // optional, defaults to EMBEDDING_PROVIDER
 }
 ```
 
@@ -68,8 +110,9 @@ Generate embedding for a single text (ideal for external services).
 {
   "text": "Your text here",
   "embedding": [0.1, 0.2, 0.3, ...],
-  "dimensions": 768,
-  "model_used": "nomic-embed-text"
+  "dimensions": 384,
+  "model_used": "sentence-transformers/all-MiniLM-L6-v2",
+  "provider_used": "huggingface"
 }
 ```
 
@@ -85,7 +128,8 @@ Process a document with text chunking and store embeddings in Qdrant.
   "document_id": "doc123",
   "text_content": "Long document text...",
   "metadata": {"source": "file.pdf", "author": "John Doe"},
-  "model": "nomic-embed-text"  // optional
+  "model": "sentence-transformers/all-MiniLM-L6-v2",  // optional
+  "provider": "huggingface"  // optional
 }
 ```
 
@@ -99,7 +143,8 @@ Search for similar documents using semantic similarity.
 ```json
 {
   "text": "Search query",
-  "model": "nomic-embed-text",  // optional
+  "model": "sentence-transformers/all-MiniLM-L6-v2",  // optional
+  "provider": "huggingface",  // optional
   "limit": 10  // optional, defaults to 10
 }
 ```
@@ -108,7 +153,86 @@ Search for similar documents using semantic similarity.
 ```
 GET /models
 ```
-List all available embedding models in Ollama.
+List all available embedding models for the current provider.
+
+## Available Models
+
+### HuggingFace Models (Recommended)
+
+| Model | Dimensions | Quality | Speed | Use Case |
+|-------|------------|---------|-------|----------|
+| `sentence-transformers/all-MiniLM-L6-v2` | 384 | Good | Fast | General purpose |
+| `sentence-transformers/paraphrase-MiniLM-L3-v2` | 384 | Good | Very Fast | Quick embeddings |
+| `sentence-transformers/all-mpnet-base-v2` | 768 | High | Medium | High quality |
+| `sentence-transformers/e5-small-v2` | 384 | Good | Fast | Balanced |
+| `sentence-transformers/e5-base-v2` | 768 | Excellent | Medium | Best quality |
+| `sentence-transformers/e5-large-v2` | 1024 | Excellent | Slow | Best quality |
+| `sentence-transformers/multi-qa-MiniLM-L6-cos-v1` | 384 | Good | Fast | QA applications |
+
+### Ollama Models
+
+| Model | Dimensions | Quality | Speed | Use Case |
+|-------|------------|---------|-------|----------|
+| `nomic-embed-text` | 768 | High | Medium | General purpose |
+| `all-minilm` | 384 | Good | Fast | Quick embeddings |
+| `all-mpnet-base-v2` | 768 | High | Medium | High quality |
+| `e5-large-v2` | 1024 | Excellent | Slow | Best quality |
+| `e5-base-v2` | 768 | Good | Medium | Balanced |
+| `e5-small-v2` | 384 | Good | Fast | Quick embeddings |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMBEDDING_PROVIDER` | `ollama` | Provider: "ollama" or "huggingface" |
+| `OLLAMA_HOST` | `ollama` | Ollama service hostname |
+| `OLLAMA_PORT` | `11434` | Ollama service port |
+| `OLLAMA_DEFAULT_MODEL` | `nomic-embed-text` | Default Ollama model |
+| `HF_DEFAULT_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Default HuggingFace model |
+| `HF_CACHE_DIR` | `/app/cache/huggingface` | HuggingFace cache directory |
+| `HF_DEVICE` | `cpu` | Device for HuggingFace models |
+| `HF_BATCH_SIZE` | `32` | Batch size for HuggingFace processing |
+| `QDRANT_HOST` | `qdrant` | Qdrant vector database host |
+| `QDRANT_PORT` | `6333` | Qdrant vector database port |
+
+### Docker Compose Configurations
+
+#### For Ollama (Original)
+```yaml
+# docker-compose.yml
+ollama:
+  image: ollama/ollama:latest
+  ports:
+    - "11434:11434"
+  volumes:
+    - ollama_data:/root/.ollama
+
+embedding-processor:
+  build:
+    context: ./processors/embedding_processor
+  environment:
+    - EMBEDDING_PROVIDER=ollama
+    - OLLAMA_HOST=ollama
+    - OLLAMA_PORT=11434
+  depends_on:
+    - ollama
+```
+
+#### For HuggingFace (New)
+```yaml
+# docker-compose.huggingface.yml
+embedding-processor-hf:
+  build:
+    context: ./processors/embedding_processor
+  environment:
+    - EMBEDDING_PROVIDER=huggingface
+    - HF_DEFAULT_MODEL=sentence-transformers/all-MiniLM-L6-v2
+    - HF_CACHE_DIR=/app/cache/huggingface
+  volumes:
+    - huggingface_cache:/app/cache/huggingface
+```
 
 ## Integration with External Services
 
@@ -122,7 +246,8 @@ List all available embedding models in Ollama.
    ```json
    {
      "text": "{{ $json.text }}",
-     "model": "nomic-embed-text"
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "provider": "huggingface"
    }
    ```
 
@@ -136,7 +261,7 @@ List all available embedding models in Ollama.
    - URL: `http://localhost:8007/embed`
    - Method: POST
    - Headers: `Content-Type: application/json`
-   - Body: JSON with text and optional model
+   - Body: JSON with text, model, and provider
 
 2. **Custom Node**:
    - Create a custom node that calls the embedding service
@@ -148,11 +273,15 @@ List all available embedding models in Ollama.
 import httpx
 import asyncio
 
-async def get_embedding(text: str, model: str = "nomic-embed-text"):
+async def get_embedding(text: str, model: str = None, provider: str = "huggingface"):
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "http://localhost:8007/embed",
-            json={"text": text, "model": model}
+            json={
+                "text": text, 
+                "model": model,
+                "provider": provider
+            }
         )
         return response.json()["embedding"]
 
@@ -161,78 +290,46 @@ embedding = await get_embedding("Hello world")
 print(f"Embedding dimensions: {len(embedding)}")
 ```
 
-## Available Models
+## Performance Tips
 
-### Recommended Models
+### HuggingFace Optimization
 
-| Model | Dimensions | Quality | Speed | Use Case |
-|-------|------------|---------|-------|----------|
-| `nomic-embed-text` | 768 | High | Medium | General purpose |
-| `all-minilm` | 384 | Good | Fast | Quick embeddings |
-| `all-mpnet-base-v2` | 768 | High | Medium | High quality |
-| `e5-large-v2` | 1024 | Excellent | Slow | Best quality |
-| `e5-base-v2` | 768 | Good | Medium | Balanced |
-| `e5-small-v2` | 384 | Good | Fast | Quick embeddings |
+1. **Model Selection**:
+   - Use `paraphrase-MiniLM-L3-v2` for speed-critical applications
+   - Use `all-mpnet-base-v2` for quality-critical applications
+   - Use `all-MiniLM-L6-v2` for balanced performance
 
-### Adding New Models
+2. **Batch Processing**:
+   - Increase `HF_BATCH_SIZE` for better throughput
+   - Process multiple texts in batches when possible
 
-1. **Pull a model to Ollama**:
-   ```bash
-   docker compose exec ollama ollama pull model-name
-   ```
+3. **Caching**:
+   - Models are automatically cached in `HF_CACHE_DIR`
+   - Consider using persistent volumes for cache
 
-2. **Update model dimensions** (if needed):
-   Edit the `model_dimensions` dictionary in `main.py`
+### Ollama Optimization
 
-3. **Test the model**:
-   ```bash
-   curl -X POST http://localhost:8007/embed \
-     -H "Content-Type: application/json" \
-     -d '{"text": "test", "model": "model-name"}'
-   ```
+1. **Model Selection**:
+   - Use `all-minilm` for speed-critical applications
+   - Use `e5-large-v2` for quality-critical applications
+   - Use `nomic-embed-text` for balanced performance
 
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OLLAMA_HOST` | `ollama` | Ollama service hostname |
-| `OLLAMA_PORT` | `11434` | Ollama service port |
-| `DEFAULT_EMBEDDING_MODEL` | `nomic-embed-text` | Default embedding model |
-| `QDRANT_HOST` | `qdrant` | Qdrant vector database host |
-| `QDRANT_PORT` | `6333` | Qdrant vector database port |
-
-### Docker Compose
-
-The service is configured in `docker-compose.yml`:
-
-```yaml
-ollama:
-  image: ollama/ollama:latest
-  ports:
-    - "11434:11434"
-  volumes:
-    - ollama_data:/root/.ollama
-
-embedding-processor:
-  build:
-    context: ./processors/embedding_processor
-  ports:
-    - "8007:8007"
-  environment:
-    - OLLAMA_HOST=ollama
-    - OLLAMA_PORT=11434
-    - DEFAULT_EMBEDDING_MODEL=nomic-embed-text
-  depends_on:
-    - ollama
-```
+2. **Resource Management**:
+   - Ensure sufficient memory for Ollama
+   - Use GPU acceleration if available
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Ollama not accessible**:
+1. **HuggingFace model download fails**:
+   ```bash
+   # Check internet connection
+   # Verify cache directory permissions
+   docker compose -f docker-compose.huggingface.yml logs embedding-processor-hf
+   ```
+
+2. **Ollama not accessible**:
    ```bash
    # Check if Ollama is running
    docker compose ps ollama
@@ -241,47 +338,30 @@ embedding-processor:
    docker compose logs ollama
    ```
 
-2. **Model not found**:
-   ```bash
-   # Pull the model manually
-   docker compose exec ollama ollama pull nomic-embed-text
-   ```
-
 3. **High memory usage**:
-   - Use smaller models like `all-minilm` or `e5-small-v2`
+   - Use smaller models like `paraphrase-MiniLM-L3-v2` or `all-minilm`
    - Increase Docker memory limits
+   - Reduce batch size for HuggingFace
 
 4. **Slow embedding generation**:
-   - Use faster models like `all-minilm`
+   - Use faster models
    - Ensure sufficient CPU resources
+   - Consider GPU acceleration
 
 ### Logs
 
 ```bash
 # View embedding processor logs
 docker compose logs embedding-processor
+# or
+docker compose -f docker-compose.huggingface.yml logs embedding-processor-hf
 
-# View Ollama logs
+# View Ollama logs (if using Ollama)
 docker compose logs ollama
 
 # Follow logs in real-time
 docker compose logs -f embedding-processor
 ```
-
-## Performance Tips
-
-1. **Model Selection**:
-   - Use `all-minilm` for speed-critical applications
-   - Use `e5-large-v2` for quality-critical applications
-   - Use `nomic-embed-text` for balanced performance
-
-2. **Batch Processing**:
-   - Process multiple texts in batches when possible
-   - Use the `/process` endpoint for large documents
-
-3. **Caching**:
-   - Consider implementing embedding caching for repeated texts
-   - Use Redis or similar for caching frequently used embeddings
 
 ## Security Considerations
 
@@ -291,9 +371,14 @@ docker compose logs -f embedding-processor
    - Restrict access to trusted networks
 
 2. **Model Security**:
-   - Only pull models from trusted sources
-   - Regularly update Ollama and models
+   - Only use models from trusted sources
+   - Regularly update dependencies
    - Monitor model usage and performance
+
+3. **Data Privacy**:
+   - HuggingFace models are downloaded locally
+   - No data is sent to external services during inference
+   - Consider using Ollama for complete privacy
 
 ## Development
 
@@ -301,11 +386,12 @@ docker compose logs -f embedding-processor
 
 ```bash
 # Start only required services
-docker compose up -d ollama qdrant
+docker compose up -d qdrant
 
 # Run embedding processor locally
 cd processors/embedding_processor
 pip install -r requirements.txt
+export EMBEDDING_PROVIDER=huggingface
 python main.py
 ```
 
@@ -318,11 +404,57 @@ curl http://localhost:8007/health
 # Test embedding generation
 curl -X POST http://localhost:8007/embed \
   -H "Content-Type: application/json" \
-  -d '{"text": "test"}'
+  -d '{"text": "test", "provider": "huggingface"}'
 ```
 
 ### Adding New Features
 
 1. **New endpoints**: Add to `main.py`
-2. **New models**: Update `model_dimensions` and test
-3. **New integrations**: Create example scripts in this directory 
+2. **New models**: Update model dimensions in `config.py`
+3. **New integrations**: Create example scripts in this directory
+
+## Migration Guide
+
+### From Ollama to HuggingFace
+
+1. **Stop Ollama services**:
+   ```bash
+   docker compose down ollama embedding-processor
+   ```
+
+2. **Start HuggingFace services**:
+   ```bash
+   docker compose -f docker-compose.huggingface.yml up -d
+   ```
+
+3. **Initialize HuggingFace models**:
+   ```bash
+   docker compose -f docker-compose.huggingface.yml exec embedding-processor-hf python init_huggingface.py
+   ```
+
+4. **Update environment variables**:
+   ```bash
+   export EMBEDDING_PROVIDER=huggingface
+   ```
+
+### From HuggingFace to Ollama
+
+1. **Stop HuggingFace services**:
+   ```bash
+   docker compose -f docker-compose.huggingface.yml down
+   ```
+
+2. **Start Ollama services**:
+   ```bash
+   docker compose up -d ollama embedding-processor
+   ```
+
+3. **Initialize Ollama models**:
+   ```bash
+   docker compose exec embedding-processor python init_ollama.py
+   ```
+
+4. **Update environment variables**:
+   ```bash
+   export EMBEDDING_PROVIDER=ollama
+   ``` 

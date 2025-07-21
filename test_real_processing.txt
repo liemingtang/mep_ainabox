@@ -1,0 +1,1 @@
+This is a test document for real text extraction and embedding generation. It contains some sample text that should be processed by the text processor and then converted to embeddings by the embedding processor.
