@@ -342,6 +342,46 @@ cd ../services && docker compose down
 - **Startup Logs**: Real-time startup progress tracking
 - **Error Logs**: Detailed error reporting and debugging
 
+## 🛠️ Available Scripts
+
+### System Management Scripts
+```bash
+# Start admin mode with web interface
+./start_admin.sh
+
+# Stop all services and clean up
+./stop_admin.sh
+
+# Clean all data from databases (preserves local files)
+./clean_all_data.sh --real
+
+# Dry run to see what would be cleaned
+./clean_all_data.sh
+```
+
+### File Management Scripts
+```bash
+# Monitor uploaded files and processing status
+./check_uploaded_files.sh [all|watch|status|recent|failed|watcher|count]
+
+# Scan and process files in any folder
+./scan_folder.sh /path/to/folder --dry-run
+./scan_folder.sh /path/to/folder
+./scan_folder.sh /path/to/folder --concurrent 10 --save-report report.json
+```
+
+### Dashboard Management Scripts
+```bash
+# Start dashboard only (host-based)
+cd core && ./start_dashboard_host.sh
+
+# Stop dashboard only
+cd core && ./stop_dashboard_host.sh
+
+# Start dashboard in background
+cd core && ./start_dashboard_host.sh --background
+```
+
 ## 🚀 Advanced Features
 
 ### Custom Configuration

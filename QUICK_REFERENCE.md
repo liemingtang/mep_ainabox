@@ -108,6 +108,30 @@ echo "Test content" > core/watch_folder/test_file.txt
 ./check_uploaded_files.sh count
 ```
 
+### Folder Scanning Script
+```bash
+# Scan a folder with dry run (recommended first)
+./scan_folder.sh /path/to/folder --dry-run
+
+# Scan a folder and process all files
+./scan_folder.sh /path/to/folder
+
+# Scan with custom settings
+./scan_folder.sh /path/to/folder --concurrent 10 --save-report report.json
+
+# Scan with specific processor URL
+./scan_folder.sh /path/to/folder --processor-url http://localhost:8001
+
+# Non-recursive scanning
+./scan_folder.sh /path/to/folder --no-recursive
+
+# Scan with maximum depth limit
+./scan_folder.sh /path/to/folder --max-depth 3
+
+# Show help
+./scan_folder.sh --help
+```
+
 ## 🗄️ Database Connections
 
 | Service | Host | Port | Database |

@@ -127,16 +127,21 @@ fi
 
 # 3. Clean PostgreSQL
 echo "🗄️  Cleaning PostgreSQL..."
-tables=$(PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "")
+# Use environment variables or defaults
+POSTGRES_USER=${POSTGRES_USER:-mep_user}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mep_password}
+POSTGRES_DB=${POSTGRES_DB:-mep_ainabox}
+
+tables=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "")
 if [ -n "$tables" ]; then
     echo "   Found tables: $tables"
     if [ "$DRY_RUN" = true ]; then
         echo "   [DRY RUN] Would drop and recreate public schema"
     else
-        PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "
+        PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public;
-GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO $POSTGRES_USER;
 GRANT ALL ON SCHEMA public TO public;
 " || echo "   PostgreSQL cleanup failed (might be expected if no data)"
     fi
@@ -152,16 +157,19 @@ fi
 
 # 4. Clean Redis
 echo "🔴 Cleaning Redis..."
-redis_keys=$(redis-cli -h localhost -p 6379 DBSIZE 2>/dev/null | grep -E '^[0-9]+$' || echo "0")
+# Use environment variables or defaults
+REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password}
+
+redis_keys=$(redis-cli -h localhost -p 6379 -a "$REDIS_PASSWORD" DBSIZE 2>/dev/null | grep -E '^[0-9]+$' || echo "0")
 if [ "$redis_keys" -gt 0 ] 2>/dev/null; then
     echo "   Found $redis_keys keys"
     if [ "$DRY_RUN" = true ]; then
         echo "   [DRY RUN] Would flush all keys"
     else
-        redis-cli -h localhost -p 6379 FLUSHALL || echo "   Redis cleanup failed"
+        redis-cli -h localhost -p 6379 -a "$REDIS_PASSWORD" FLUSHALL || echo "   Redis cleanup failed"
     fi
 else
-    echo "   No keys found or authentication required"
+    echo "   No keys found"
 fi
 
 if [ "$DRY_RUN" = true ]; then
@@ -172,7 +180,10 @@ fi
 
 # 5. Clean Neo4j
 echo "🕸️  Cleaning Neo4j..."
-node_count=$(curl -s -u neo4j:password -X POST "http://localhost:7474/db/neo4j/tx/commit" \
+# Use environment variables or defaults
+NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j_password}
+
+node_count=$(curl -s -u "neo4j:$NEO4J_PASSWORD" -X POST "http://localhost:7474/db/neo4j/tx/commit" \
   -H "Content-Type: application/json" \
   -d '{"statements":[{"statement":"MATCH (n) RETURN count(n) as count"}]}' 2>/dev/null | jq -r '.results[0].data[0].row[0]' | grep -E '^[0-9]+$' || echo "0")
 if [ "$node_count" -gt 0 ] 2>/dev/null; then
@@ -180,12 +191,12 @@ if [ "$node_count" -gt 0 ] 2>/dev/null; then
     if [ "$DRY_RUN" = true ]; then
         echo "   [DRY RUN] Would delete all nodes"
     else
-        curl -u neo4j:password -X POST "http://localhost:7474/db/neo4j/tx/commit" \
+        curl -u "neo4j:$NEO4J_PASSWORD" -X POST "http://localhost:7474/db/neo4j/tx/commit" \
           -H "Content-Type: application/json" \
           -d '{"statements":[{"statement":"MATCH (n) DETACH DELETE n"}]}' || echo "   Neo4j cleanup failed"
     fi
 else
-    echo "   No nodes found or authentication required"
+    echo "   No nodes found"
 fi
 
 if [ "$DRY_RUN" = true ]; then
@@ -196,8 +207,12 @@ fi
 
 # 6. Clean MinIO
 echo "📦 Cleaning MinIO..."
+# Use environment variables or defaults
+MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minio_access_key}
+MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minio_secret_key}
+
 if command -v mc >/dev/null 2>&1; then
-    mc alias set myminio http://localhost:9000 minioadmin minioadmin >/dev/null 2>&1 || echo "   MinIO alias setup failed"
+    mc alias set myminio http://localhost:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" >/dev/null 2>&1 || echo "   MinIO alias setup failed"
     buckets="documents processed uploads"
     for bucket in $buckets; do
         if mc ls myminio/$bucket >/dev/null 2>&1; then
@@ -272,7 +287,7 @@ else
     fi
     
     # Check PostgreSQL
-    doc_count=$(PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
+    doc_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
     if [ "$doc_count" -gt 0 ]; then
         echo "⚠️  PostgreSQL still has $doc_count tables"
     else
@@ -280,8 +295,8 @@ else
     fi
     
     # Check Redis
-    redis_keys=$(redis-cli -h localhost -p 6379 DBSIZE 2>/dev/null || echo "0")
-    if [ "$redis_keys" -gt 0 ]; then
+    redis_keys=$(redis-cli -h localhost -p 6379 -a "$REDIS_PASSWORD" DBSIZE 2>/dev/null | grep -E '^[0-9]+$' || echo "0")
+    if [ "$redis_keys" -gt 0 ] 2>/dev/null; then
         echo "⚠️  Redis still has $redis_keys keys"
     else
         echo "✅ Redis is clean"

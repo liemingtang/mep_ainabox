@@ -182,6 +182,7 @@ mep_ainabox/
 ├── QUICK_REFERENCE.md        # Quick reference guide
 ├── CHANGELOG.md              # Change history
 ├── check_uploaded_files.sh   # File upload monitoring script
+├── scan_folder.sh            # Folder scanning and processing script
 ├── services/                 # Infrastructure services
 │   ├── docker-compose.yml    # Infrastructure stack
 │   ├── config/               # Service configurations

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Folder Scanning Script**: `scan_folder.sh` moved to project root for easy access
+  - **Dry Run Mode**: Safe testing with `--dry-run` flag to preview processing
+  - **Flexible Configuration**: Support for concurrent processing, custom processor URLs, and depth limits
+  - **Comprehensive Reporting**: JSON report generation with processing statistics
+  - **Error Handling**: Graceful handling of processing failures and authentication issues
+  - **Multiple File Types**: Support for documents, images, and spreadsheets
+  - **Recursive Scanning**: Optional recursive folder scanning with depth control
+  - **Integration**: Seamless integration with core processor and file watcher services
+- **Enhanced Documentation**: Updated README files with scan_folder.sh usage examples
+  - **Quick Reference**: Added comprehensive usage examples in QUICK_REFERENCE.md
+  - **Admin Guide**: Added script documentation in ADMIN_STARTUP_GUIDE.md
+  - **Directory Structure**: Updated main README.md with script location
+
 ### Fixed
 - **Dashboard Error Handling**: Fixed critical issue where dashboard would show "Failed to load dashboard data" alert when starting up after system shutdown. The problem was caused by:
   1. **Unhandled API Failures**: JavaScript wasn't properly handling HTTP errors when backend services weren't running yet
