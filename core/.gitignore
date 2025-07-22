@@ -157,6 +157,9 @@ coverage.xml
 # Celery beat schedule file
 celerybeat-schedule
 
+# Process ID files
+*.pid
+
 # SageMath parsed files
 *.sage.py
 

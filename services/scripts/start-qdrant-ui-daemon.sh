@@ -27,7 +27,17 @@ if ! curl -s http://localhost:6333/ > /dev/null 2>&1; then
     exit 1
 fi
 
-# Check if Qdrant UI is already running
+# Cleanup existing Qdrant UI processes
+echo "🧹 Cleaning up existing Qdrant UI processes..."
+
+# Kill any existing Qdrant UI processes
+if pgrep -f "python3.*server.py" > /dev/null; then
+    echo "⚠️  Found existing Qdrant UI process. Stopping..."
+    pkill -f "python3.*server.py" || true
+    sleep 3
+fi
+
+# Check if Qdrant UI is already running by PID file
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if ps -p "$PID" > /dev/null 2>&1; then
@@ -41,8 +51,13 @@ fi
 
 # Check if port 7070 is already in use
 if netstat -tuln 2>/dev/null | grep -q ":7070 "; then
-    echo "❌ Port 7070 is already in use"
-    exit 1
+    echo "⚠️  Port 7070 is in use. Finding and stopping process..."
+    PID=$(netstat -tulnp 2>/dev/null | grep ":7070 " | awk '{print $7}' | cut -d'/' -f1)
+    if [ -n "$PID" ] && [ "$PID" != "-" ]; then
+        echo "🛑 Killing process $PID using port 7070..."
+        kill "$PID" 2>/dev/null || true
+        sleep 3
+    fi
 fi
 
 # Change to the qdrant-ui directory
@@ -61,12 +76,21 @@ PID=$!
 echo "$PID" > "$PID_FILE"
 
 # Wait a moment and check if it started successfully
-sleep 2
+sleep 3
 if ps -p "$PID" > /dev/null 2>&1; then
     echo "✅ Qdrant UI started successfully (PID: $PID)"
     echo "🔍 Access the UI at: http://localhost:7070/index.html"
+    
+    # Test if the server is responding
+    sleep 2
+    if curl -s http://localhost:7070/index.html > /dev/null 2>&1; then
+        echo "✅ Qdrant UI is responding to requests"
+    else
+        echo "⚠️  Qdrant UI started but not responding to requests yet"
+    fi
 else
     echo "❌ Failed to start Qdrant UI"
     rm -f "$PID_FILE"
+    echo "📋 Check logs at: $LOG_FILE"
     exit 1
 fi 

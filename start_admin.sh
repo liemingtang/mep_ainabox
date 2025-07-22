@@ -32,6 +32,66 @@ if ! docker info &> /dev/null; then
     exit 1
 fi
 
+# Cleanup existing admin UI services
+echo "🧹 Cleaning up existing admin UI services..."
+echo "📋 Checking for existing processes..."
+
+# Kill existing dashboard processes
+if pgrep -f "python3.*main.py" > /dev/null; then
+    echo "⚠️  Found existing dashboard process. Stopping..."
+    pkill -f "python3.*main.py" || true
+    sleep 2
+fi
+
+# Kill existing Qdrant UI processes
+if pgrep -f "python3.*server.py" > /dev/null; then
+    echo "⚠️  Found existing Qdrant UI process. Stopping..."
+    pkill -f "python3.*server.py" || true
+    sleep 2
+fi
+
+# Clean up stale PID files
+if [ -f "services/qdrant-ui.pid" ]; then
+    PID=$(cat services/qdrant-ui.pid)
+    if ! ps -p "$PID" > /dev/null 2>&1; then
+        echo "🧹 Removing stale Qdrant UI PID file..."
+        rm -f services/qdrant-ui.pid
+    fi
+fi
+
+if [ -f "core/dashboard.pid" ]; then
+    PID=$(cat core/dashboard.pid)
+    if ! ps -p "$PID" > /dev/null 2>&1; then
+        echo "🧹 Removing stale dashboard PID file..."
+        rm -f core/dashboard.pid
+    fi
+fi
+
+# Check if ports are in use and kill processes using them
+echo "🔍 Checking for processes using admin UI ports..."
+
+# Check port 8010 (dashboard)
+if netstat -tuln 2>/dev/null | grep -q ":8010 "; then
+    echo "⚠️  Port 8010 is in use. Finding and stopping process..."
+    PID=$(netstat -tulnp 2>/dev/null | grep ":8010 " | awk '{print $7}' | cut -d'/' -f1)
+    if [ -n "$PID" ] && [ "$PID" != "-" ]; then
+        kill "$PID" 2>/dev/null || true
+        sleep 2
+    fi
+fi
+
+# Check port 7070 (Qdrant UI)
+if netstat -tuln 2>/dev/null | grep -q ":7070 "; then
+    echo "⚠️  Port 7070 is in use. Finding and stopping process..."
+    PID=$(netstat -tulnp 2>/dev/null | grep ":7070 " | awk '{print $7}' | cut -d'/' -f1)
+    if [ -n "$PID" ] && [ "$PID" != "-" ]; then
+        kill "$PID" 2>/dev/null || true
+        sleep 2
+    fi
+fi
+
+echo "✅ Cleanup completed!"
+
 # Create necessary directories
 echo "📁 Creating necessary directories..."
 mkdir -p core/documents core/processed core/temp core/logs core/watch_folder
