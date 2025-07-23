@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Service URLs
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://localhost:8001")
+PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
 
 # Supported file extensions
 SUPPORTED_EXTENSIONS = {
@@ -122,31 +123,33 @@ class FolderScanner:
             if not mime_type:
                 mime_type, _ = mimetypes.guess_type(file_path)
             
-            # Handle file path for Docker container vs host
-            # If we're running inside a Docker container and the file is in /app/scan_folder,
-            # we need to send the container path to the processor
-            container_file_path = str(file_path)
+            # Always use container path format for external folders
+            # This ensures the processing pipeline's dynamic mounting logic works correctly
+            if '/media/lie/DATA2/ai_scan_folder' in file_path:
+                container_file_path = file_path.replace('/media/lie/DATA2/ai_scan_folder', '/app/scan_folder')
+                logger.info(f"Converting external path to container path: {file_path} -> {container_file_path}")
+                file_path = container_file_path
+            elif '/app/scan_folder' not in file_path and not file_path.startswith('/app/'):
+                # For any other external path, convert to a container path
+                # Extract the folder name and use it as the mount point
+                folder_name = os.path.basename(os.path.dirname(file_path))
+                container_file_path = f"/app/scan_folder/{os.path.basename(file_path)}"
+                logger.info(f"Converting external path to container path: {file_path} -> {container_file_path}")
+                file_path = container_file_path
             
-            # Create metadata
-            metadata = {
+            return {
                 "filename": file_path_obj.name,
-                "file_path": container_file_path,
+                "file_path": file_path,  # Use container path
                 "file_size": file_size,
-                "mime_type": mime_type,
                 "file_hash": file_hash,
+                "mime_type": mime_type,
                 "source": "folder_scanner",
-                "processing_status": "pending",
-                "document_type": self._detect_document_type(file_path_obj.name),
-                "metadata": {
-                    "scanned_folder": source_folder,
-                    "scanned_at": datetime.utcnow().isoformat()
-                }
+                "source_folder": source_folder,
+                "uploaded_at": datetime.utcnow().isoformat(),
+                "processing_status": "pending"
             }
-            
-            return metadata
-            
         except Exception as e:
-            logger.error(f"Error creating metadata: {e}")
+            logger.error(f"Error creating document metadata for {file_path}: {e}")
             raise
     
     async def _send_to_processor(self, metadata: Dict) -> Optional[Dict]:
@@ -287,6 +290,252 @@ class FolderScanner:
         logger.info(f"Found {len(files_to_process)} files to process")
         return files_to_process
     
+    async def process_folder_queued(self, folder_path: str, recursive: bool = True, max_depth: int = None, 
+                                   concurrent_limit: int = 5):
+        """Process all files in a folder using queue-based approach to prevent race conditions"""
+        files_to_process = self.scan_folder(folder_path, recursive, max_depth)
+        
+        if not files_to_process:
+            logger.info("No files to process")
+            return
+        
+        logger.info(f"Processing {len(files_to_process)} files using queue-based approach...")
+        
+        # Process files one at a time using a queue to prevent race conditions
+        # This ensures only one document is being processed at any given time
+        
+        import asyncio
+        from collections import deque
+        
+        # Create a queue of files to process
+        file_queue = deque(files_to_process)
+        processed_count = 0
+        failed_count = 0
+        
+        while file_queue:
+            file_path = file_queue.popleft()
+            processed_count += 1
+            
+            logger.info(f"Processing file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
+            
+            try:
+                # Upload document first
+                await self.process_document(file_path, folder_path)
+                logger.info(f"✅ Uploaded file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
+                
+                # Now trigger processing through the pipeline
+                await self._trigger_processing_pipeline(file_path, folder_path)
+                logger.info(f"✅ Triggered processing for file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
+                
+                # Small delay to ensure status updates are processed
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"❌ Failed to process file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)} - {e}")
+                
+                # Add file back to queue for retry (optional)
+                # file_queue.append(file_path)
+                
+                # Continue with next file
+                continue
+        
+        logger.info(f"Queue processing completed. Processed: {processed_count}, Failed: {failed_count}")
+        
+        # Print summary
+        self.print_summary()
+
+    async def _trigger_processing_pipeline(self, file_path: str, source_folder: str):
+        """Trigger processing pipeline for a document after upload"""
+        try:
+            # Get the document ID from the uploaded document
+            filename = os.path.basename(file_path)
+            
+            # Find the document in the database
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"{CORE_PROCESSOR_URL}/documents", timeout=10.0)
+                response.raise_for_status()
+                documents = response.json()
+                
+                # Find the document by filename and source
+                document_id = None
+                for doc in documents:
+                    if doc.get("filename") == filename and doc.get("source") == "folder_scanner":
+                        document_id = doc.get("id")
+                        break
+                
+                if not document_id:
+                    logger.error(f"Could not find document ID for {filename}")
+                    return False
+                
+                # Generate job ID
+                import uuid
+                job_id = str(uuid.uuid4())
+                
+                # Trigger processing pipeline
+                logger.info(f"Triggering processing pipeline for document {document_id}")
+                pipeline_response = await client.post(
+                    f"{PROCESSING_PIPELINE_URL}/process",
+                    json={
+                        "document_id": document_id,
+                        "job_id": job_id
+                    },
+                    timeout=30.0
+                )
+                
+                if pipeline_response.status_code == 200:
+                    logger.info(f"✅ Successfully triggered processing for document {document_id}")
+                    return True
+                else:
+                    logger.error(f"❌ Failed to trigger processing for document {document_id}: {pipeline_response.text}")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error triggering processing pipeline for {file_path}: {e}")
+            return False
+
+    async def process_folder_concurrent(self, folder_path: str, recursive: bool = True, max_depth: int = None, 
+                                       concurrent_limit: int = 5):
+        """Process all files in a folder concurrently with race condition prevention"""
+        files_to_process = self.scan_folder(folder_path, recursive, max_depth)
+        
+        if not files_to_process:
+            logger.info("No files to process")
+            return
+        
+        logger.info(f"Processing {len(files_to_process)} files concurrently with race condition prevention...")
+        
+        # Process files with concurrency limit and race condition prevention
+        semaphore = asyncio.Semaphore(concurrent_limit)
+        
+        async def process_with_semaphore(file_path: str):
+            async with semaphore:
+                return await self.process_document_safe(file_path, folder_path)
+        
+        # Create tasks for all files
+        tasks = [process_with_semaphore(file_path) for file_path in files_to_process]
+        
+        # Wait for all tasks to complete
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        processed_count = 0
+        failed_count = 0
+        
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failed_count += 1
+                logger.error(f"❌ Failed to process file {i+1}/{len(files_to_process)}: {result}")
+            elif result:
+                processed_count += 1
+                logger.info(f"✅ Successfully processed file {i+1}/{len(files_to_process)}")
+            else:
+                failed_count += 1
+                logger.error(f"❌ Failed to process file {i+1}/{len(files_to_process)}")
+        
+        logger.info(f"Concurrent processing completed. Processed: {processed_count}, Failed: {failed_count}")
+        
+        # Print summary
+        self.print_summary()
+
+    async def process_document_safe(self, file_path: str, source_folder: str):
+        """Process a single document with race condition prevention"""
+        if file_path in self.processing_files:
+            logger.info(f"File already being processed: {file_path}")
+            return False
+        
+        self.processing_files.add(file_path)
+        
+        try:
+            # Validate file
+            if not self._is_valid_file(file_path):
+                logger.warning(f"Invalid file type or size: {file_path}")
+                self.skipped_files.append({
+                    "file_path": file_path,
+                    "reason": "Invalid file type or size",
+                    "skipped_at": datetime.utcnow().isoformat()
+                })
+                return False
+            
+            # Create document metadata
+            metadata = await self._create_document_metadata(file_path, source_folder)
+            
+            # Send to core processor with retry logic
+            result = await self._send_to_processor_with_retry(metadata)
+            
+            if result:
+                # Mark as processed (no file movement)
+                await self._mark_as_processed(file_path)
+                self.processed_files.append({
+                    "file_path": file_path,
+                    "processed_at": datetime.utcnow().isoformat(),
+                    "document_id": result.get("document_id")
+                })
+                logger.info(f"Successfully processed: {file_path}")
+                
+                # Trigger processing pipeline for concurrent mode
+                await self._trigger_processing_pipeline(file_path, source_folder)
+                
+                return True
+            else:
+                # Mark as error (no file movement)
+                await self._mark_as_error(file_path, "Processing failed")
+                self.error_files.append({
+                    "file_path": file_path,
+                    "error_at": datetime.utcnow().isoformat(),
+                    "error": "Processing failed"
+                })
+                logger.error(f"Failed to process: {file_path}")
+                return False
+            
+        except Exception as e:
+            logger.error(f"Error processing document {file_path}: {str(e)}")
+            await self._mark_as_error(file_path, str(e))
+            self.error_files.append({
+                "file_path": file_path,
+                "error_at": datetime.utcnow().isoformat(),
+                "error": str(e)
+            })
+            return False
+        finally:
+            self.processing_files.discard(file_path)
+
+    async def _send_to_processor_with_retry(self, metadata: Dict, max_retries: int = 3) -> Optional[Dict]:
+        """Send document to core processor with retry logic and race condition prevention"""
+        if self.dry_run:
+            logger.info(f"[DRY RUN] Would send to processor: {metadata['filename']}")
+            return {"document_id": "dry_run_document_id"}
+        
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"{CORE_PROCESSOR_URL}/documents/upload",
+                        json=metadata,
+                        headers={"Content-Type": "application/json"}
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        logger.info(f"Successfully uploaded document: {metadata['filename']}")
+                        return result
+                    else:
+                        logger.error(f"Processor returned error: {response.status_code} - {response.text}")
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(1.0 * (attempt + 1))  # Exponential backoff
+                            continue
+                        else:
+                            return None
+                            
+            except Exception as e:
+                logger.error(f"Error sending to processor (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1.0 * (attempt + 1))  # Exponential backoff
+                else:
+                    return None
+        
+        return None
+
     async def process_folder(self, folder_path: str, recursive: bool = True, max_depth: int = None, 
                            concurrent_limit: int = 5):
         """Process all files in a folder"""
@@ -298,18 +547,21 @@ class FolderScanner:
         
         logger.info(f"Processing {len(files_to_process)} files...")
         
-        # Process files with concurrency limit
-        semaphore = asyncio.Semaphore(concurrent_limit)
+        # Process files sequentially to prevent race conditions in status updates
+        # The processing pipeline is designed to handle one document at a time
+        # Concurrent processing causes status updates to interfere with each other
         
-        async def process_with_semaphore(file_path: str):
-            async with semaphore:
+        logger.info(f"Processing files sequentially to prevent status update race conditions")
+        
+        for i, file_path in enumerate(files_to_process, 1):
+            logger.info(f"Processing file {i}/{len(files_to_process)}: {os.path.basename(file_path)}")
+            try:
                 await self.process_document(file_path, folder_path)
-        
-        # Create tasks for all files
-        tasks = [process_with_semaphore(file_path) for file_path in files_to_process]
-        
-        # Wait for all tasks to complete
-        await asyncio.gather(*tasks, return_exceptions=True)
+                logger.info(f"✅ Completed file {i}/{len(files_to_process)}: {os.path.basename(file_path)}")
+            except Exception as e:
+                logger.error(f"❌ Failed to process file {i}/{len(files_to_process)}: {os.path.basename(file_path)} - {e}")
+                # Continue with next file instead of stopping
+                continue
         
         # Print summary
         self.print_summary()
@@ -377,6 +629,10 @@ def main():
                        help="Save processing report to JSON file")
     parser.add_argument("--no-recursive", action="store_true",
                        help="Disable recursive scanning")
+    parser.add_argument("--sequential", action="store_true",
+                       help="Use sequential processing instead of concurrent (slower but safer)")
+    parser.add_argument("--queue", action="store_true",
+                       help="Use queue-based processing (best for large batches)")
     
     args = parser.parse_args()
     
@@ -386,14 +642,32 @@ def main():
     # Create scanner
     scanner = FolderScanner(dry_run=args.dry_run)
     
-    # Process folder
+    # Process folder based on processing mode
     try:
-        asyncio.run(scanner.process_folder(
-            folder_path=args.folder_path,
-            recursive=recursive,
-            max_depth=args.max_depth,
-            concurrent_limit=args.concurrent
-        ))
+        if args.sequential:
+            logger.info("Using sequential processing mode")
+            asyncio.run(scanner.process_folder(
+                folder_path=args.folder_path,
+                recursive=recursive,
+                max_depth=args.max_depth,
+                concurrent_limit=args.concurrent
+            ))
+        elif args.queue:
+            logger.info("Using queue-based processing mode")
+            asyncio.run(scanner.process_folder_queued(
+                folder_path=args.folder_path,
+                recursive=recursive,
+                max_depth=args.max_depth,
+                concurrent_limit=args.concurrent
+            ))
+        else:
+            logger.info("Using concurrent processing mode (default)")
+            asyncio.run(scanner.process_folder_concurrent(
+                folder_path=args.folder_path,
+                recursive=recursive,
+                max_depth=args.max_depth,
+                concurrent_limit=args.concurrent
+            ))
         
         # Save report if requested
         if args.save_report:

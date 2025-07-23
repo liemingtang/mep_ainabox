@@ -89,29 +89,68 @@ check_services() {
     return 0
 }
 
-# Function to scan folder using original script
+# Function to check if queue workers are running
+check_queue_workers() {
+    print_info "Checking queue worker status..."
+    
+    # Check if queue worker processes are running
+    local queue_worker_count=$(ps aux | grep -E "(queue_worker|enhanced_monitor)" | grep -v grep | wc -l)
+    
+    if [[ $queue_worker_count -eq 0 ]]; then
+        print_warning "No queue workers detected. Queue-based processing may not work properly."
+        print_info "To start queue workers, run:"
+        print_info "  python3 queue_worker.py &"
+        print_info "  python3 enhanced_monitor.py --continuous &"
+        return 1
+    else
+        print_status "Found $queue_worker_count queue worker process(es) running"
+        return 0
+    fi
+}
+
+# Function to scan folder using new concurrent processing
 scan_folder() {
     local folder_path="$1"
     local concurrent="$2"
     local max_depth="$3"
     local recursive="$4"
     local save_report="$5"
+    local processing_mode="$6"
     
-    print_info "Scanning folder: $folder_path"
+    print_info "Scanning folder: $folder_path with $processing_mode mode"
     
-    # Build command
-    local cmd="./scan_folder.sh \"$folder_path\""
+    # Build command using the folder scanner from the host system (has latest features)
+    local cmd="python3 ./core/file_watcher/folder_scanner.py \"$folder_path\""
     
-    if [[ "$concurrent" != "5" ]]; then
-        cmd="$cmd --concurrent $concurrent"
+    # Add processing mode flags
+    case $processing_mode in
+        "enhanced")
+            # Use concurrent processing (default)
+            cmd="$cmd"
+            ;;
+        "queue")
+            cmd="$cmd --queue"
+            ;;
+        "sync")
+            cmd="$cmd --sync"
+            ;;
+        *)
+            print_error "Unknown processing mode: $processing_mode"
+            return 1
+            ;;
+    esac
+    
+    # Add other options
+    if [[ "$recursive" == "false" ]]; then
+        cmd="$cmd --no-recursive"
     fi
     
-    if [[ "$max_depth" != "unlimited" ]]; then
+    if [[ -n "$max_depth" && "$max_depth" != "unlimited" ]]; then
         cmd="$cmd --max-depth $max_depth"
     fi
     
-    if [[ "$recursive" == "false" ]]; then
-        cmd="$cmd --no-recursive"
+    if [[ "$concurrent" != "1" ]]; then
+        cmd="$cmd --concurrent $concurrent"
     fi
     
     if [[ "$save_report" == "true" ]]; then
@@ -137,6 +176,21 @@ except:
 "
 }
 
+# Function to get all documents (for processing regardless of status)
+get_all_documents() {
+    local response=$(curl -s "$CORE_PROCESSOR_URL/documents")
+    echo "$response" | python3 -c "
+import sys, json
+try:
+    docs = json.load(sys.stdin)
+    for doc in docs:
+        if doc.get('source') == 'folder_scanner':
+            print(f\"{doc['id']}\t{doc['filename']}\t{doc['processing_status']}\")
+except:
+    pass
+"
+}
+
 # Function to process document with queue-based processing
 process_document_queue() {
     local document_id="$1"
@@ -144,7 +198,13 @@ process_document_queue() {
     
     print_info "Processing document $document_id via queue..."
     
-    local response=$(curl -s -X POST "$PROCESSING_PIPELINE_URL/process-queue" \
+    # Validate job_id is a proper UUID
+    if [[ ! "$job_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        print_error "Invalid job_id format: $job_id (must be UUID)"
+        return 1
+    fi
+    
+    local response=$(curl -s --max-time 10 -X POST "$PROCESSING_PIPELINE_URL/process-queue" \
         -H "Content-Type: application/json" \
         -d "{\"document_id\": \"$document_id\", \"job_id\": \"$job_id\"}")
     
@@ -172,6 +232,12 @@ process_document_sync() {
     local job_id="$2"
     
     print_info "Processing document $document_id synchronously..."
+    
+    # Validate job_id is a proper UUID
+    if [[ ! "$job_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        print_error "Invalid job_id format: $job_id (must be UUID)"
+        return 1
+    fi
     
     local response=$(curl -s -X POST "$PROCESSING_PIPELINE_URL/process-sync" \
         -H "Content-Type: application/json" \
@@ -201,6 +267,12 @@ process_document_atomic() {
     local job_id="$2"
     
     print_info "Processing document $document_id atomically..."
+    
+    # Validate job_id is a proper UUID
+    if [[ ! "$job_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        print_error "Invalid job_id format: $job_id (must be UUID)"
+        return 1
+    fi
     
     local response=$(curl -s -X POST "$PROCESSING_PIPELINE_URL/process-atomic" \
         -H "Content-Type: application/json" \
@@ -251,6 +323,69 @@ monitor_processing() {
     sleep 2
     print_info "Final document status:"
     get_uploaded_documents
+}
+
+# Function to verify processing results
+verify_processing_results() {
+    local processing_mode="$1"
+    
+    print_header "Verifying Processing Results"
+    
+    # Wait a bit for processing to complete
+    if [[ "$processing_mode" == "queue" ]]; then
+        print_info "Waiting for queue processing to complete..."
+        sleep 5
+    fi
+    
+    # Get current document status
+    local documents=$(get_all_documents)
+    local total_docs=0
+    local completed_docs=0
+    local processing_docs=0
+    local failed_docs=0
+    
+    while IFS=$'\t' read -r document_id filename status; do
+        if [[ -n "$document_id" ]]; then
+            ((total_docs++))
+            case $status in
+                "completed")
+                    ((completed_docs++))
+                    ;;
+                "processing")
+                    ((processing_docs++))
+                    ;;
+                "failed")
+                    ((failed_docs++))
+                    ;;
+            esac
+        fi
+    done <<< "$documents"
+    
+    print_info "📊 Processing Results Summary:"
+    print_info "   Total documents: $total_docs"
+    print_info "   ✅ Completed: $completed_docs"
+    print_info "   🔄 Processing: $processing_docs"
+    print_info "   ❌ Failed: $failed_docs"
+    
+    # Check for stuck documents
+    if [[ $processing_docs -gt 0 ]]; then
+        print_warning "Found $processing_docs documents still in processing status"
+        if [[ "$processing_mode" == "queue" ]]; then
+            print_info "This is normal for queue mode. Documents will be processed by queue workers."
+        else
+            print_warning "Documents may be stuck. Consider running:"
+            print_info "  python3 enhanced_monitor.py --analyze"
+        fi
+    fi
+    
+    # Success criteria
+    if [[ $completed_docs -gt 0 && $failed_docs -eq 0 ]]; then
+        print_status "✅ Processing completed successfully!"
+    elif [[ $completed_docs -gt 0 ]]; then
+        print_warning "⚠️  Processing completed with some failures"
+    else
+        print_error "❌ No documents were processed successfully"
+    fi
 }
 
 # Main function
@@ -367,76 +502,20 @@ main() {
         exit 1
     fi
     
+    # Check queue workers for queue mode
+    if [[ "$processing_mode" == "queue" ]]; then
+        check_queue_workers
+    fi
+    
     # Step 1: Scan folder (upload documents)
     print_header "Step 1: Scanning folder and uploading documents"
     if [[ "$dry_run" == "false" ]]; then
-        scan_folder "$folder_path" "$concurrent" "$max_depth" "$recursive" "$save_report"
-    else
-        print_info "Would scan folder: $folder_path"
-    fi
-    
-    # Step 2: Process documents based on mode
-    if [[ "$dry_run" == "false" ]]; then
-        print_header "Step 2: Processing documents with $processing_mode mode"
+        scan_folder "$folder_path" "$concurrent" "$max_depth" "$recursive" "$save_report" "$processing_mode"
         
-        # Get uploaded documents
-        local documents=$(get_uploaded_documents)
+        # The new folder scanner handles processing directly, so we don't need the old two-step process
+        print_status "Folder scanning and processing completed!"
         
-        if [[ -z "$documents" ]]; then
-            print_warning "No documents found to process"
-            return 0
-        fi
-        
-        local processed_count=0
-        local failed_count=0
-        
-        while IFS=$'\t' read -r document_id filename status; do
-            if [[ -n "$document_id" ]]; then
-                print_info "Processing: $filename (ID: $document_id, Status: $status)"
-                
-                local job_id="job-$(date +%s)-$RANDOM"
-                local success=false
-                
-                case $processing_mode in
-                    "enhanced")
-                        print_info "Document $document_id will be processed by enhanced async flow"
-                        success=true
-                        ;;
-                    "queue")
-                        if process_document_queue "$document_id" "$job_id"; then
-                            success=true
-                        fi
-                        ;;
-                    "sync")
-                        if process_document_sync "$document_id" "$job_id"; then
-                            success=true
-                        fi
-                        ;;
-                    "atomic")
-                        if process_document_atomic "$document_id" "$job_id"; then
-                            success=true
-                        fi
-                        ;;
-                esac
-                
-                if [[ "$success" == "true" ]]; then
-                    ((processed_count++))
-                else
-                    ((failed_count++))
-                fi
-            fi
-        done <<< "$documents"
-        
-        print_header "Processing Summary"
-        print_status "Successfully processed: $processed_count"
-        if [[ $failed_count -gt 0 ]]; then
-            print_error "Failed to process: $failed_count"
-        fi
-        
-        # Step 3: Monitor processing
-        monitor_processing "$processing_mode"
-        
-        # Step 4: Queue worker instructions
+        # Step 2: Monitor processing (if needed)
         if [[ "$processing_mode" == "queue" ]]; then
             print_header "Queue Processing Instructions"
             print_info "To process queued jobs, run one of the following:"
@@ -444,6 +523,9 @@ main() {
             print_info "  python3 queue_worker.py --test             # Process one job"
             print_info "  python3 enhanced_monitor.py --continuous   # Monitor and auto-fix"
         fi
+        
+    else
+        print_info "Would scan folder: $folder_path"
     fi
     
     print_status "Enhanced scan folder processing completed!"

@@ -1,0 +1,28 @@
+{
+  "scan_timestamp": "2025-07-23T14:45:08.876557",
+  "processed_files": [
+    {
+      "file_path": "/media/lie/DATA2/ai_scan_folder/job_status_test.txt",
+      "processed_at": "2025-07-23T14:44:54.055412",
+      "document_id": "98883388-584d-4264-8ca1-50d7424dff61"
+    },
+    {
+      "file_path": "/media/lie/DATA2/ai_scan_folder/queue_test_document.txt",
+      "processed_at": "2025-07-23T14:44:59.844131",
+      "document_id": "6e3bc594-907f-474d-ad35-73f9b642c5be"
+    },
+    {
+      "file_path": "/media/lie/DATA2/ai_scan_folder/sync_test_document.txt",
+      "processed_at": "2025-07-23T14:45:05.741622",
+      "document_id": "c5b760a9-77b5-4956-8857-38cfd84a8e13"
+    }
+  ],
+  "error_files": [],
+  "skipped_files": [],
+  "summary": {
+    "total_processed": 3,
+    "total_errors": 0,
+    "total_skipped": 0,
+    "total_files": 3
+  }
+}

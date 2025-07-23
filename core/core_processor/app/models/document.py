@@ -17,6 +17,12 @@ class ProcessingStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    # New descriptive statuses for better visibility
+    INITIALIZING = "initializing"
+    GENERATING_EMBEDDINGS = "generating_embeddings"
+    FINALIZING = "finalizing"
+    TEXT_EXTRACTION_FAILED = "text_extraction_failed"
+    EMBEDDING_GENERATION_FAILED = "embedding_generation_failed"
 
 
 class DocumentType(str, Enum):

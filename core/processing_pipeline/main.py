@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional, Dict, Any
 import httpx
 import os
@@ -11,8 +11,134 @@ import tempfile
 from datetime import datetime
 import uuid
 import asyncio
+import re
 from queue_manager import queue_manager, ProcessingJob, StatusUpdate
 from state_manager import state_manager
+
+# Add atomic status update function at the top of the file, after the imports
+async def atomic_status_update(document_id: str, job_id: str, status: str, results: Dict[str, Any] = None, error_message: str = None) -> bool:
+    """Perform atomic status update for both job and document to prevent race conditions"""
+    logger.info(f"🔒 ATOMIC UPDATE: Starting atomic status update for document {document_id}, job {job_id} to {status}")
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            # Step 1: Update job status first
+            logger.info(f"🔒 ATOMIC UPDATE: Attempt {attempt + 1}/{max_retries} - Updating job status")
+            job_success = await update_job_status(job_id, status, results, max_retries=1, document_id=document_id)
+            
+            if not job_success:
+                logger.warning(f"❌ ATOMIC UPDATE: Job status update failed (attempt {attempt + 1})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                else:
+                    logger.error(f"❌ ATOMIC UPDATE: Job status update failed after {max_retries} attempts")
+                    return False
+            
+            # Step 2: Update document status
+            logger.info(f"🔒 ATOMIC UPDATE: Updating document status")
+            doc_success = await update_document_status(document_id, status, max_retries=1)
+            
+            if not doc_success:
+                logger.warning(f"❌ ATOMIC UPDATE: Document status update failed (attempt {attempt + 1})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                else:
+                    logger.error(f"❌ ATOMIC UPDATE: Document status update failed after {max_retries} attempts")
+                    return False
+            
+            # Step 3: Update cache immediately
+            await update_document_status_cache(document_id, status)
+            
+            # Step 4: Verify both updates were successful
+            logger.info(f"🔒 ATOMIC UPDATE: Verifying status updates")
+            await asyncio.sleep(0.2)  # Small delay to ensure database consistency
+            
+            # Verify job status
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(
+                        f"{CORE_PROCESSOR_URL}/processing/jobs/{job_id}",
+                        timeout=5.0
+                    )
+                    if response.status_code == 200:
+                        job_data = response.json()
+                        if job_data.get("status") == status:
+                            logger.info(f"✅ ATOMIC UPDATE: Job status verified as {status}")
+                        else:
+                            logger.warning(f"❌ ATOMIC UPDATE: Job status verification failed - expected {status}, got {job_data.get('status')}")
+                            if attempt < max_retries - 1:
+                                continue
+                            else:
+                                return False
+            except Exception as e:
+                logger.warning(f"⚠️ ATOMIC UPDATE: Could not verify job status: {e}")
+            
+            # Verify document status using cache
+            cached_status = await get_document_status_cache(document_id)
+            if cached_status == status:
+                logger.info(f"✅ ATOMIC UPDATE: Document status verified as {status}")
+            else:
+                logger.warning(f"❌ ATOMIC UPDATE: Document status verification failed - expected {status}, got {cached_status}")
+                if attempt < max_retries - 1:
+                    continue
+                else:
+                    return False
+            
+            logger.info(f"✅ ATOMIC UPDATE: Successfully completed atomic status update for {document_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ ATOMIC UPDATE: Unexpected error (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(0.5 * (attempt + 1))
+            else:
+                return False
+    
+    logger.error(f"❌ ATOMIC UPDATE: All attempts failed for {document_id}")
+    return False
+
+# Add concurrency control with document-specific locks
+processing_locks = {}
+document_status_cache = {}
+
+async def get_processing_lock(document_id: str):
+    """Get or create a lock for document processing to prevent race conditions"""
+    if document_id not in processing_locks:
+        processing_locks[document_id] = asyncio.Lock()
+    return processing_locks[document_id]
+
+async def get_document_status_cache(document_id: str) -> str:
+    """Get cached document status to reduce database calls"""
+    if document_id in document_status_cache:
+        return document_status_cache[document_id]
+    
+    try:
+        status_data = await get_document_processing_status(document_id)
+        status = status_data.get("processing_status", "unknown")
+        document_status_cache[document_id] = status
+        return status
+    except Exception as e:
+        logger.warning(f"Could not get status for {document_id}: {e}")
+        return "unknown"
+
+async def update_document_status_cache(document_id: str, status: str):
+    """Update cached document status"""
+    document_status_cache[document_id] = status
+
+async def clear_document_status_cache(document_id: str = None):
+    """Clear document status cache"""
+    if document_id:
+        document_status_cache.pop(document_id, None)
+    else:
+        document_status_cache.clear()
+
+def is_valid_uuid(job_id: str) -> bool:
+    """Validate if job_id is a proper UUID format"""
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    return bool(uuid_pattern.match(job_id))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +157,7 @@ app.add_middleware(
 
 # Service URLs
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://core-processor:8001")
+PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
 EMBEDDING_PROCESSOR_URL = os.getenv("EMBEDDING_PROCESSOR_URL", "http://embedding-processor:8007")
 STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://storage-manager:8004")
 
@@ -44,6 +171,12 @@ DYNAMIC_TEXT_PROCESSOR_SCRIPT = os.getenv("DYNAMIC_TEXT_PROCESSOR_SCRIPT", "/app
 class ProcessingRequest(BaseModel):
     document_id: str
     job_id: str
+    
+    @validator('job_id')
+    def validate_job_id(cls, v):
+        if not is_valid_uuid(v):
+            raise ValueError('job_id must be a valid UUID')
+        return v
 
 class ProcessingResponse(BaseModel):
     status: str
@@ -109,6 +242,20 @@ async def get_document_info(document_id: str) -> Dict[str, Any]:
             return response.json()
     except Exception as e:
         logger.error(f"Failed to get document info for {document_id}: {e}")
+        raise
+
+async def get_document_processing_status(document_id: str) -> Dict[str, Any]:
+    """Get document processing status from core processor"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{CORE_PROCESSOR_URL}/documents/{document_id}/processing-status",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        logger.error(f"Failed to get document processing status for {document_id}: {e}")
         raise
 
 async def extract_text_from_document(document_id: str, file_path: str) -> Dict[str, Any]:
@@ -429,107 +576,203 @@ async def process_folder_directly(folder_path: str, max_depth: int = 0, concurre
 @app.post("/process")
 async def process_document(request: ProcessingRequest):
     """Process a document through the pipeline with centralized status management"""
-    try:
-        logger.info(f"Starting processing for document {request.document_id}, job {request.job_id}")
-        
-        # Initialize job tracking locally (no external status updates during processing)
-        job_id = request.job_id
-        document_id = request.document_id
-        
-        processing_jobs[job_id] = {
-            "job_id": job_id,
-            "document_id": document_id,
-            "status": "processing",
-            "progress": 0,
-            "current_step": "text_extraction",
-            "started_at": datetime.utcnow(),
-            "results": {},
-            "error_message": None
-        }
-        
-        # Step 1: Get document information
-        logger.info(f"Step 1/3: Getting document information for {document_id}")
-        document_info = await get_document_info(document_id)
-        file_path = document_info.get("file_path")
-        
-        if not file_path:
-            raise Exception("Document file path not found")
-        
-        # Step 2: Extract text from document
-        logger.info(f"Step 2/3: Extracting text from {file_path}")
-        text_result = await extract_text_from_document(document_id, file_path)
-        
-        if not text_result.get("success"):
-            raise Exception(f"Text extraction failed: {text_result.get('error', 'Unknown error')}")
-        
-        text_content = text_result.get("text_content", "")
-        if not text_content:
-            raise Exception("No text content extracted from document")
-        
-        # Step 3: Generate embeddings
-        logger.info(f"Step 3/3: Generating embeddings for {len(text_content)} characters of text")
-        embedding_result = await generate_embeddings(
-            document_id, 
-            text_content, 
-            metadata={
-                "filename": document_info.get("filename"),
-                "document_type": document_info.get("document_type"),
-                "file_path": file_path
+    # Get processing lock to prevent race conditions
+    document_id = request.document_id
+    processing_lock = await get_processing_lock(document_id)
+    
+    async with processing_lock:
+        try:
+            logger.info(f"Starting processing for document {request.document_id}, job {request.job_id}")
+            
+            # Initialize job tracking locally (no external status updates during processing)
+            
+            # Get the existing job ID from the database for this document
+            try:
+                document_info = await get_document_info(document_id)
+                processing_status = await get_document_processing_status(document_id)
+                
+                # Find the first job for this document
+                existing_jobs = processing_status.get("processing_jobs", [])
+                if existing_jobs:
+                    # Use the first job ID from the database
+                    job_id = existing_jobs[0]["id"]
+                    logger.info(f"Using existing job ID from database: {job_id}")
+                else:
+                    # Fallback to the provided job_id if no jobs exist
+                    job_id = request.job_id
+                    logger.warning(f"No existing jobs found, using provided job_id: {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to get existing job ID, using provided job_id: {e}")
+                job_id = request.job_id
+            
+            processing_jobs[job_id] = {
+                "job_id": job_id,
+                "document_id": document_id,
+                "status": "processing",
+                "progress": 0,
+                "current_step": "initialized",
+                "started_at": datetime.utcnow(),
+                "results": {},
+                "error_message": None
             }
-        )
-        
-        if embedding_result.get("status") != "completed":
-            raise Exception(f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}")
-        
-        # Prepare final results
-        final_results = {
-            "embeddings_generated": True,
-            "entities_extracted": False,  # Not implemented yet
-            "relationships_mapped": False,  # Not implemented yet
-            "processing_time": (datetime.utcnow() - processing_jobs[job_id]["started_at"]).total_seconds(),
-            "embedding_result": embedding_result,
-            "text_extracted": True,
-            "text_content_length": len(text_content)
-        }
-        
-        # Update local job status
-        processing_jobs[job_id]["status"] = "completed"
-        processing_jobs[job_id]["progress"] = 100
-        processing_jobs[job_id]["results"] = final_results
-        
-        # SINGLE STATUS UPDATE: Report final completion to core processor
-        logger.info(f"Processing completed successfully for document {document_id}, reporting final status")
-        
-        # Use a more robust completion reporting mechanism
-        completion_success = await report_completion_to_core_processor(document_id, job_id, final_results)
-        
-        if completion_success:
-            logger.info(f"✅ Successfully reported completion for document {document_id}")
-        else:
-            logger.error(f"❌ Failed to report completion for document {document_id} - will retry")
-            # Schedule retry for completion reporting
-            await schedule_completion_retry(document_id, job_id, final_results)
-        
-        return ProcessingResponse(
-            status="processing",
-            job_id=job_id,
-            document_id=document_id,
-            message="Document processing started successfully",
-            processing_steps=["text_extraction", "embedding_generation"]
-        )
-        
-    except Exception as e:
-        logger.error(f"Error processing document {request.document_id}: {e}")
-        
-        # Update local job status to failed
-        if request.job_id in processing_jobs:
-            processing_jobs[request.job_id]["status"] = "failed"
-            processing_jobs[request.job_id]["error_message"] = str(e)
-        
-        # Report failure to core processor
-        await report_failure_to_core_processor(request.document_id, request.job_id, str(e))
-        
-        raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
+            
+            # STEP 1: Initialize processing with atomic status update
+            logger.info(f"Step 1/5: Initializing processing for {document_id}")
+            init_success = await atomic_status_update(
+                document_id, 
+                job_id, 
+                "processing", 
+                {
+                    "current_step": "initialized",
+                    "progress": 10,
+                    "message": "Processing pipeline initialized"
+                }
+            )
+            
+            if not init_success:
+                raise Exception("Failed to initialize processing status")
+            
+            # STEP 2: Get document information
+            logger.info(f"Step 2/5: Getting document information for {document_id}")
+            await update_job_status(job_id, "processing", {
+                "current_step": "document_info_retrieval",
+                "progress": 20,
+                "message": "Retrieving document information"
+            })
+            
+            document_info = await get_document_info(document_id)
+            file_path = document_info.get("file_path")
+            
+            if not file_path:
+                error_msg = "Document file path not found"
+                logger.error(f"Error in step 2: {error_msg}")
+                await atomic_status_update(document_id, job_id, "failed", {
+                    "current_step": "document_info_retrieval",
+                    "error": error_msg
+                })
+                raise Exception(error_msg)
+            
+            logger.info(f"✅ Step 2 completed: Document info retrieved for {document_id}")
+            
+            # STEP 3: Extract text from document
+            logger.info(f"Step 3/5: Extracting text from {file_path}")
+            await update_job_status(job_id, "processing", {
+                "current_step": "text_extraction",
+                "progress": 40,
+                "message": f"Extracting text from {os.path.basename(file_path)}"
+            })
+            
+            text_result = await extract_text_from_document(document_id, file_path)
+            
+            if not text_result.get("success"):
+                error_msg = f"Text extraction failed: {text_result.get('error', 'Unknown error')}"
+                logger.error(f"Error in step 3: {error_msg}")
+                await atomic_status_update(document_id, job_id, "failed", {
+                    "current_step": "text_extraction",
+                    "error": error_msg
+                })
+                raise Exception(error_msg)
+            
+            text_content = text_result.get("text_content", "")
+            if not text_content:
+                error_msg = "No text content extracted from document"
+                logger.error(f"Error in step 3: {error_msg}")
+                await atomic_status_update(document_id, job_id, "failed", {
+                    "current_step": "text_extraction",
+                    "error": error_msg
+                })
+                raise Exception(error_msg)
+            
+            logger.info(f"✅ Step 3 completed: Text extracted ({len(text_content)} characters) for {document_id}")
+            
+            # STEP 4: Generate embeddings
+            logger.info(f"Step 4/5: Generating embeddings for {len(text_content)} characters of text")
+            await update_job_status(job_id, "processing", {
+                "current_step": "embedding_generation",
+                "progress": 70,
+                "message": f"Generating embeddings for {len(text_content)} characters of text"
+            })
+            
+            embedding_result = await generate_embeddings(
+                document_id, 
+                text_content, 
+                metadata={
+                    "filename": document_info.get("filename"),
+                    "document_type": document_info.get("document_type"),
+                    "file_path": file_path
+                }
+            )
+            
+            if embedding_result.get("status") != "completed":
+                error_msg = f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}"
+                logger.error(f"Error in step 4: {error_msg}")
+                await atomic_status_update(document_id, job_id, "failed", {
+                    "current_step": "embedding_generation",
+                    "error": error_msg
+                })
+                raise Exception(error_msg)
+            
+            logger.info(f"✅ Step 4 completed: Embeddings generated for {document_id}")
+            
+            # STEP 5: Finalize processing with atomic completion
+            logger.info(f"Step 5/5: Finalizing processing for {document_id}")
+            
+            # Prepare final results
+            final_results = {
+                "embeddings_generated": True,
+                "entities_extracted": False,  # Not implemented yet
+                "relationships_mapped": False,  # Not implemented yet
+                "processing_time": (datetime.utcnow() - processing_jobs[job_id]["started_at"]).total_seconds(),
+                "embedding_result": embedding_result,
+                "text_extracted": True,
+                "text_content_length": len(text_content),
+                "current_step": "completed",
+                "progress": 100,
+                "message": "Processing completed successfully"
+            }
+            
+            # Update local job status
+            processing_jobs[job_id]["status"] = "completed"
+            processing_jobs[job_id]["progress"] = 100
+            processing_jobs[job_id]["results"] = final_results
+            
+            # ATOMIC COMPLETION: Use atomic status update to prevent race conditions
+            logger.info(f"Processing completed successfully for document {document_id}, performing atomic completion")
+            
+            completion_success = await atomic_status_update(document_id, job_id, "completed", final_results)
+            
+            if completion_success:
+                logger.info(f"✅ Successfully completed processing for document {document_id}")
+            else:
+                logger.error(f"❌ Failed to complete processing for document {document_id} - will retry")
+                # Schedule retry for completion reporting
+                await schedule_completion_retry(document_id, job_id, final_results)
+            
+            logger.info(f"✅ Step 5 completed: Processing finalized for {document_id}")
+            
+            return ProcessingResponse(
+                status="completed",
+                job_id=job_id,
+                document_id=document_id,
+                message="Document processing completed successfully",
+                processing_steps=["text_extraction", "embedding_generation"]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error processing document {request.document_id}: {e}")
+            
+            # ATOMIC FAILURE: Use atomic status update for failures too
+            try:
+                await atomic_status_update(request.document_id, request.job_id, "failed", {"error": str(e)})
+            except Exception as update_error:
+                logger.error(f"Failed to update failure status: {update_error}")
+            
+            # Update local job status to failed
+            if request.job_id in processing_jobs:
+                processing_jobs[request.job_id]["status"] = "failed"
+                processing_jobs[request.job_id]["error_message"] = str(e)
+            
+            raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
 
 @app.get("/status/{job_id}")
 async def get_processing_status(job_id: str):
@@ -572,6 +815,11 @@ async def update_job_status_from_processor(document_id: str, status_update: dict
                 break
         
         if job_id:
+            # Validate job_id format before processing
+            if not is_valid_uuid(job_id):
+                logger.error(f"Invalid job_id format in status update: {job_id} (must be UUID)")
+                return {"message": "Invalid job_id format", "error": "Job ID must be a valid UUID"}
+            
             # Update the job status
             processing_jobs[job_id]["status"] = status
             if status == "completed":
@@ -597,37 +845,104 @@ async def update_job_status_from_processor(document_id: str, status_update: dict
         logger.error(f"Error updating job status for document {document_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error updating job status: {str(e)}")
 
-async def update_job_status(job_id: str, status: str, result_data: Dict[str, Any] = None, max_retries: int = 2):
+async def update_job_status(job_id: str, status: str, result_data: Dict[str, Any] = None, max_retries: int = 2, document_id: str = None):
     """Update job status in the core processor with retry logic"""
+    logger.info(f"🔧 JOB STATUS UPDATE: Starting job status update for {job_id} to {status}")
+    logger.info(f"🔧 JOB STATUS UPDATE: Result data: {result_data}")
+    logger.info(f"🔧 JOB STATUS UPDATE: Document ID: {document_id}")
+    
+    # Validate job_id format
+    if not is_valid_uuid(job_id):
+        logger.error(f"❌ JOB STATUS UPDATE: Invalid job_id format: {job_id} (must be UUID)")
+        return False
+    
+    # If document_id is not provided, we can't update job status
+    if not document_id:
+        logger.error(f"❌ JOB STATUS UPDATE: Document ID is required but not provided for job {job_id}")
+        return False
+    
     for attempt in range(max_retries):
         try:
+            logger.info(f"🔧 JOB STATUS UPDATE: Attempt {attempt + 1}/{max_retries} for job {job_id}")
+            
             async with httpx.AsyncClient() as client:
+                # Prepare request payload
+                payload = {
+                    "status": status,
+                    "result_data": result_data or {}
+                }
+                logger.info(f"🔧 JOB STATUS UPDATE: Sending POST request to {PROCESSING_PIPELINE_URL}/jobs/{document_id}/status")
+                logger.info(f"🔧 JOB STATUS UPDATE: Request payload: {payload}")
+                
                 response = await client.post(
-                    f"{CORE_PROCESSOR_URL}/processing/jobs/{job_id}/status",
-                    json={
-                        "status": status,
-                        "result_data": result_data or {}
-                    },
+                    f"{PROCESSING_PIPELINE_URL}/jobs/{document_id}/status",
+                    json=payload,
                     timeout=10.0
                 )
+                
+                logger.info(f"🔧 JOB STATUS UPDATE: Response status code: {response.status_code}")
+                logger.info(f"🔧 JOB STATUS UPDATE: Response headers: {dict(response.headers)}")
+                
+                try:
+                    response_text = response.text
+                    logger.info(f"🔧 JOB STATUS UPDATE: Response body: {response_text}")
+                except Exception as e:
+                    logger.warning(f"🔧 JOB STATUS UPDATE: Could not read response body: {e}")
+                
                 response.raise_for_status()
-                logger.info(f"Updated job {job_id} status to {status}")
+                logger.info(f"✅ JOB STATUS UPDATE: Successfully updated job {job_id} status to {status}")
                 return True
-        except Exception as e:
-            logger.warning(f"Failed to update job status for {job_id} (attempt {attempt + 1}/{max_retries}): {e}")
+                
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ JOB STATUS UPDATE: HTTP error for {job_id} (attempt {attempt + 1}/{max_retries})")
+            logger.error(f"❌ JOB STATUS UPDATE: Status code: {e.response.status_code}")
+            logger.error(f"❌ JOB STATUS UPDATE: Response: {e.response.text}")
+            logger.error(f"❌ JOB STATUS UPDATE: Error: {e}")
+            
             if attempt < max_retries - 1:
+                logger.info(f"🔧 JOB STATUS UPDATE: Retrying in {0.5 * (attempt + 1)} seconds...")
                 await asyncio.sleep(0.5 * (attempt + 1))  # Short exponential backoff
             else:
-                logger.error(f"Failed to update job status for {job_id} after {max_retries} attempts: {e}")
+                logger.error(f"❌ JOB STATUS UPDATE: Failed to update job status for {job_id} after {max_retries} attempts")
+                return False
+                
+        except httpx.TimeoutException as e:
+            logger.error(f"❌ JOB STATUS UPDATE: Timeout error for {job_id} (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"🔧 JOB STATUS UPDATE: Retrying in {0.5 * (attempt + 1)} seconds...")
+                await asyncio.sleep(0.5 * (attempt + 1))  # Short exponential backoff
+            else:
+                logger.error(f"❌ JOB STATUS UPDATE: Failed to update job status for {job_id} after {max_retries} attempts")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ JOB STATUS UPDATE: Unexpected error for {job_id} (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.error(f"❌ JOB STATUS UPDATE: Error type: {type(e).__name__}")
+            logger.error(f"❌ JOB STATUS UPDATE: Error details: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"🔧 JOB STATUS UPDATE: Retrying in {0.5 * (attempt + 1)} seconds...")
+                await asyncio.sleep(0.5 * (attempt + 1))  # Short exponential backoff
+            else:
+                logger.error(f"❌ JOB STATUS UPDATE: Failed to update job status for {job_id} after {max_retries} attempts")
                 return False
     
+    logger.error(f"❌ JOB STATUS UPDATE: All attempts failed for job {job_id}")
     return False
 
 async def update_document_status(document_id: str, status: str, max_retries: int = 3):
     """Update document status in the core processor with retry logic and verification"""
+    logger.info(f"🔧 STATUS UPDATE: Starting document status update for {document_id} to {status}")
+    
     for attempt in range(max_retries):
         try:
+            logger.info(f"🔧 STATUS UPDATE: Attempt {attempt + 1}/{max_retries} for document {document_id}")
+            
             async with httpx.AsyncClient() as client:
+                # Step 1: Send status update request
+                logger.info(f"🔧 STATUS UPDATE: Sending POST request to {CORE_PROCESSOR_URL}/documents/{document_id}/status")
+                logger.info(f"🔧 STATUS UPDATE: Request payload: {{'processing_status': '{status}'}}")
+                
                 response = await client.post(
                     f"{CORE_PROCESSOR_URL}/documents/{document_id}/status",
                     json={
@@ -635,78 +950,152 @@ async def update_document_status(document_id: str, status: str, max_retries: int
                     },
                     timeout=10.0
                 )
-                response.raise_for_status()
-                logger.info(f"Updated document {document_id} status to {status}")
                 
-                # Verify the status was actually updated
+                logger.info(f"🔧 STATUS UPDATE: Response status code: {response.status_code}")
+                logger.info(f"🔧 STATUS UPDATE: Response headers: {dict(response.headers)}")
+                
+                try:
+                    response_text = response.text
+                    logger.info(f"🔧 STATUS UPDATE: Response body: {response_text}")
+                except Exception as e:
+                    logger.warning(f"🔧 STATUS UPDATE: Could not read response body: {e}")
+                
+                response.raise_for_status()
+                logger.info(f"✅ STATUS UPDATE: Successfully sent status update for document {document_id} to {status}")
+                
+                # Step 2: Verify the status was actually updated
+                logger.info(f"🔧 STATUS UPDATE: Starting verification for document {document_id}")
                 await asyncio.sleep(0.5)  # Small delay to ensure database update
+                
                 verification_response = await client.get(
                     f"{CORE_PROCESSOR_URL}/documents/{document_id}/processing-status",
                     timeout=5.0
                 )
+                
+                logger.info(f"🔧 STATUS UPDATE: Verification response status: {verification_response.status_code}")
                 verification_response.raise_for_status()
                 verification_data = verification_response.json()
                 
+                logger.info(f"🔧 STATUS UPDATE: Verification data: {verification_data}")
+                
                 if verification_data.get("processing_status") == status:
-                    logger.info(f"✅ Verified document {document_id} status is now {status}")
+                    logger.info(f"✅ STATUS UPDATE: Verified document {document_id} status is now {status}")
                     return True
                 else:
-                    logger.warning(f"Status verification failed for {document_id}. Expected: {status}, Got: {verification_data.get('processing_status')}")
+                    logger.warning(f"❌ STATUS UPDATE: Status verification failed for {document_id}")
+                    logger.warning(f"❌ STATUS UPDATE: Expected: {status}, Got: {verification_data.get('processing_status')}")
+                    logger.warning(f"❌ STATUS UPDATE: Full verification data: {verification_data}")
+                    
                     if attempt < max_retries - 1:
+                        logger.info(f"🔧 STATUS UPDATE: Retrying in {1.0 * (attempt + 1)} seconds...")
                         await asyncio.sleep(1.0 * (attempt + 1))  # Exponential backoff
                         continue
                     else:
-                        logger.error(f"Failed to verify document status after {max_retries} attempts")
+                        logger.error(f"❌ STATUS UPDATE: Failed to verify document status after {max_retries} attempts")
                         return False
                         
-        except Exception as e:
-            logger.warning(f"Failed to update document status for {document_id} (attempt {attempt + 1}/{max_retries}): {e}")
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ STATUS UPDATE: HTTP error for {document_id} (attempt {attempt + 1}/{max_retries})")
+            logger.error(f"❌ STATUS UPDATE: Status code: {e.response.status_code}")
+            logger.error(f"❌ STATUS UPDATE: Response: {e.response.text}")
+            logger.error(f"❌ STATUS UPDATE: Error: {e}")
+            
             if attempt < max_retries - 1:
+                logger.info(f"🔧 STATUS UPDATE: Retrying in {1.0 * (attempt + 1)} seconds...")
                 await asyncio.sleep(1.0 * (attempt + 1))  # Exponential backoff
             else:
-                logger.error(f"Failed to update document status for {document_id} after {max_retries} attempts: {e}")
+                logger.error(f"❌ STATUS UPDATE: Failed to update document status for {document_id} after {max_retries} attempts")
+                return False
+                
+        except httpx.TimeoutException as e:
+            logger.error(f"❌ STATUS UPDATE: Timeout error for {document_id} (attempt {attempt + 1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"🔧 STATUS UPDATE: Retrying in {1.0 * (attempt + 1)} seconds...")
+                await asyncio.sleep(1.0 * (attempt + 1))  # Exponential backoff
+            else:
+                logger.error(f"❌ STATUS UPDATE: Failed to update document status for {document_id} after {max_retries} attempts")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ STATUS UPDATE: Unexpected error for {document_id} (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.error(f"❌ STATUS UPDATE: Error type: {type(e).__name__}")
+            logger.error(f"❌ STATUS UPDATE: Error details: {str(e)}")
+            
+            if attempt < max_retries - 1:
+                logger.info(f"🔧 STATUS UPDATE: Retrying in {1.0 * (attempt + 1)} seconds...")
+                await asyncio.sleep(1.0 * (attempt + 1))  # Exponential backoff
+            else:
+                logger.error(f"❌ STATUS UPDATE: Failed to update document status for {document_id} after {max_retries} attempts")
                 return False
     
+    logger.error(f"❌ STATUS UPDATE: All attempts failed for document {document_id}")
     return False
 
 async def report_completion_to_core_processor(document_id: str, job_id: str, results: Dict[str, Any]) -> bool:
     """Report completion to core processor with retry logic"""
+    logger.info(f"🎯 COMPLETION REPORT: Starting completion report for document {document_id}, job {job_id}")
+    logger.info(f"🎯 COMPLETION REPORT: Results: {results}")
+    
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            # Update job status to completed
-            job_success = await update_job_status(job_id, "completed", results, max_retries=1)
+            logger.info(f"🎯 COMPLETION REPORT: Attempt {attempt + 1}/{max_retries}")
+            
+            # Step 1: Update job status to completed
+            logger.info(f"🎯 COMPLETION REPORT: Step 1 - Updating job status for {job_id}")
+            job_success = await update_job_status(job_id, "completed", results, max_retries=1, document_id=document_id)
+            
             if not job_success:
-                logger.warning(f"Job status update failed for {job_id} (attempt {attempt + 1})")
+                logger.warning(f"❌ COMPLETION REPORT: Job status update failed for {job_id} (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
+                    logger.info(f"🎯 COMPLETION REPORT: Retrying job status update in {1.0 * (attempt + 1)} seconds...")
                     await asyncio.sleep(1.0 * (attempt + 1))
                     continue
+                else:
+                    logger.error(f"❌ COMPLETION REPORT: Job status update failed after {max_retries} attempts")
+                    return False
+            else:
+                logger.info(f"✅ COMPLETION REPORT: Job status update successful for {job_id}")
             
-            # Update document status to completed
+            # Step 2: Update document status to completed
+            logger.info(f"🎯 COMPLETION REPORT: Step 2 - Updating document status for {document_id}")
             doc_success = await update_document_status(document_id, "completed", max_retries=1)
+            
             if not doc_success:
-                logger.warning(f"Document status update failed for {document_id} (attempt {attempt + 1})")
+                logger.warning(f"❌ COMPLETION REPORT: Document status update failed for {document_id} (attempt {attempt + 1})")
                 if attempt < max_retries - 1:
+                    logger.info(f"🎯 COMPLETION REPORT: Retrying document status update in {1.0 * (attempt + 1)} seconds...")
                     await asyncio.sleep(1.0 * (attempt + 1))
                     continue
+                else:
+                    logger.error(f"❌ COMPLETION REPORT: Document status update failed after {max_retries} attempts")
+                    return False
+            else:
+                logger.info(f"✅ COMPLETION REPORT: Document status update successful for {document_id}")
             
+            logger.info(f"✅ COMPLETION REPORT: Successfully completed all status updates for {document_id}")
             return True
             
         except Exception as e:
-            logger.warning(f"Completion reporting failed for {document_id} (attempt {attempt + 1}): {e}")
+            logger.error(f"❌ COMPLETION REPORT: Unexpected error for {document_id} (attempt {attempt + 1}): {e}")
+            logger.error(f"❌ COMPLETION REPORT: Error type: {type(e).__name__}")
+            logger.error(f"❌ COMPLETION REPORT: Error details: {str(e)}")
+            
             if attempt < max_retries - 1:
+                logger.info(f"🎯 COMPLETION REPORT: Retrying in {1.0 * (attempt + 1)} seconds...")
                 await asyncio.sleep(1.0 * (attempt + 1))
             else:
-                logger.error(f"Failed to report completion for {document_id} after {max_retries} attempts")
+                logger.error(f"❌ COMPLETION REPORT: Failed to report completion for {document_id} after {max_retries} attempts")
                 return False
     
+    logger.error(f"❌ COMPLETION REPORT: All attempts failed for document {document_id}")
     return False
 
 async def report_failure_to_core_processor(document_id: str, job_id: str, error_message: str) -> bool:
     """Report failure to core processor"""
     try:
         # Update job status to failed
-        await update_job_status(job_id, "failed", {"error": error_message}, max_retries=1)
+        await update_job_status(job_id, "failed", {"error": error_message}, max_retries=1, document_id=document_id)
         
         # Update document status to failed
         await update_document_status(document_id, "failed", max_retries=1)
@@ -814,31 +1203,100 @@ async def process_document_sync(request: ProcessingRequest):
     try:
         logger.info(f"Starting SYNC processing for document {request.document_id}, job {request.job_id}")
         
-        # Initialize job tracking
-        job_id = request.job_id
+        # Get the existing job ID from the database for this document
         document_id = request.document_id
         
-        # Step 1: Get document information
-        logger.info(f"Step 1/3: Getting document information for {document_id}")
+        try:
+            document_info = await get_document_info(document_id)
+            processing_status = await get_document_processing_status(document_id)
+            
+            # Find the first job for this document
+            existing_jobs = processing_status.get("processing_jobs", [])
+            if existing_jobs:
+                # Use the first job ID from the database
+                job_id = existing_jobs[0]["id"]
+                logger.info(f"Using existing job ID from database: {job_id}")
+            else:
+                # Fallback to the provided job_id if no jobs exist
+                job_id = request.job_id
+                logger.warning(f"No existing jobs found, using provided job_id: {job_id}")
+        except Exception as e:
+            logger.warning(f"Failed to get existing job ID, using provided job_id: {e}")
+            job_id = request.job_id
+        
+        # STEP 1: Initialize processing
+        logger.info(f"Step 1/5: Initializing SYNC processing for {document_id}")
+        await update_job_status(job_id, "processing", {
+            "current_step": "initialized",
+            "progress": 10,
+            "message": "Synchronous processing pipeline initialized"
+        })
+        await update_document_status(document_id, "processing")
+        
+        # STEP 2: Get document information
+        logger.info(f"Step 2/5: Getting document information for {document_id}")
+        await update_job_status(job_id, "processing", {
+            "current_step": "document_info_retrieval",
+            "progress": 20,
+            "message": "Retrieving document information"
+        })
+        
         document_info = await get_document_info(document_id)
         file_path = document_info.get("file_path")
         
         if not file_path:
-            raise Exception("Document file path not found")
+            error_msg = "Document file path not found"
+            logger.error(f"Error in step 2: {error_msg}")
+            await update_job_status(job_id, "failed", {
+                "current_step": "document_info_retrieval",
+                "error": error_msg
+            })
+            await update_document_status(document_id, "failed")
+            raise Exception(error_msg)
         
-        # Step 2: Extract text from document
-        logger.info(f"Step 2/3: Extracting text from {file_path}")
+        logger.info(f"✅ Step 2 completed: Document info retrieved for {document_id}")
+        
+        # STEP 3: Extract text from document
+        logger.info(f"Step 3/5: Extracting text from {file_path}")
+        await update_job_status(job_id, "processing", {
+            "current_step": "text_extraction",
+            "progress": 40,
+            "message": f"Extracting text from {os.path.basename(file_path)}"
+        })
+        
         text_result = await extract_text_from_document(document_id, file_path)
         
         if not text_result.get("success"):
-            raise Exception(f"Text extraction failed: {text_result.get('error', 'Unknown error')}")
+            error_msg = f"Text extraction failed: {text_result.get('error', 'Unknown error')}"
+            logger.error(f"Error in step 3: {error_msg}")
+            await update_job_status(job_id, "failed", {
+                "current_step": "text_extraction",
+                "error": error_msg
+            })
+            await update_document_status(document_id, "failed")
+            raise Exception(error_msg)
         
         text_content = text_result.get("text_content", "")
         if not text_content:
-            raise Exception("No text content extracted from document")
+            error_msg = "No text content extracted from document"
+            logger.error(f"Error in step 3: {error_msg}")
+            await update_job_status(job_id, "failed", {
+                "current_step": "text_extraction",
+                "error": error_msg
+            })
+            await update_document_status(document_id, "failed")
+            raise Exception(error_msg)
         
-        # Step 3: Generate embeddings
-        logger.info(f"Step 3/3: Generating embeddings for {len(text_content)} characters of text")
+        logger.info(f"✅ Step 3 completed: Text extracted ({len(text_content)} characters) for {document_id}")
+        
+        # STEP 4: Generate embeddings
+        logger.info(f"Step 4/5: Generating embeddings for {len(text_content)} characters of text")
+        await update_job_status(job_id, "processing", {
+            "current_step": "embedding_generation",
+            "progress": 70,
+            "message": f"Generating embeddings for {len(text_content)} characters of text"
+        })
+        
         embedding_result = await generate_embeddings(
             document_id, 
             text_content, 
@@ -850,7 +1308,24 @@ async def process_document_sync(request: ProcessingRequest):
         )
         
         if embedding_result.get("status") != "completed":
-            raise Exception(f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}")
+            error_msg = f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}"
+            logger.error(f"Error in step 4: {error_msg}")
+            await update_job_status(job_id, "failed", {
+                "current_step": "embedding_generation",
+                "error": error_msg
+            })
+            await update_document_status(document_id, "failed")
+            raise Exception(error_msg)
+        
+        logger.info(f"✅ Step 4 completed: Embeddings generated for {document_id}")
+        
+        # STEP 5: Finalize processing
+        logger.info(f"Step 5/5: Finalizing SYNC processing for {document_id}")
+        await update_job_status(job_id, "processing", {
+            "current_step": "finalizing",
+            "progress": 90,
+            "message": "Finalizing processing and storing results"
+        })
         
         # Prepare final results
         final_results = {
@@ -860,7 +1335,10 @@ async def process_document_sync(request: ProcessingRequest):
             "processing_time": 0,  # Will be calculated
             "embedding_result": embedding_result,
             "text_extracted": True,
-            "text_content_length": len(text_content)
+            "text_content_length": len(text_content),
+            "current_step": "completed",
+            "progress": 100,
+            "message": "Synchronous processing completed successfully"
         }
         
         # GUARANTEED STATUS UPDATE: Update both job and document status before returning
@@ -876,7 +1354,7 @@ async def process_document_sync(request: ProcessingRequest):
         if not doc_update_success:
             raise Exception(f"Failed to update document status for {document_id}")
         
-        logger.info(f"✅ SYNC processing completed successfully for document {document_id}")
+        logger.info(f"✅ Step 5 completed: SYNC processing finalized for {document_id}")
         
         return {
             "status": "completed",
@@ -946,19 +1424,27 @@ async def process_document_queue(request: ProcessingRequest):
 async def process_queue_worker():
     """Worker endpoint to process jobs from the queue"""
     try:
+        logger.info(f"🔄 QUEUE WORKER: Starting queue worker processing")
+        
         # Get job from queue
         job = await queue_manager.dequeue_processing_job(timeout=5)
         
         if not job:
+            logger.info(f"🔄 QUEUE WORKER: No jobs in queue")
             return {"status": "no_jobs", "message": "No jobs in queue"}
         
-        logger.info(f"🔄 Processing queued job for document {job.document_id}")
+        logger.info(f"🔄 QUEUE WORKER: Processing queued job for document {job.document_id}")
+        logger.info(f"🔄 QUEUE WORKER: Job details: {job}")
         
         try:
             # Process the document
+            logger.info(f"🔄 QUEUE WORKER: Starting document processing for {job.document_id}")
             result = await process_document_from_queue(job)
+            logger.info(f"✅ QUEUE WORKER: Document processing completed for {job.document_id}")
+            logger.info(f"✅ QUEUE WORKER: Processing result: {result}")
             
             # Enqueue success status update
+            logger.info(f"🔄 QUEUE WORKER: Creating success status update for {job.document_id}")
             status_update = StatusUpdate(
                 document_id=job.document_id,
                 job_id=job.job_id,
@@ -966,8 +1452,11 @@ async def process_queue_worker():
                 results=result
             )
             
+            logger.info(f"🔄 QUEUE WORKER: Enqueuing status update: {status_update}")
             await queue_manager.enqueue_status_update(status_update)
-            logger.info(f"✅ Successfully processed queued job for document {job.document_id}")
+            logger.info(f"✅ QUEUE WORKER: Successfully enqueued status update for {job.document_id}")
+            
+            logger.info(f"✅ QUEUE WORKER: Successfully processed queued job for document {job.document_id}")
             
             return {
                 "status": "processed",
@@ -977,9 +1466,12 @@ async def process_queue_worker():
             }
             
         except Exception as e:
-            logger.error(f"❌ Failed to process queued job for document {job.document_id}: {e}")
+            logger.error(f"❌ QUEUE WORKER: Failed to process queued job for document {job.document_id}: {e}")
+            logger.error(f"❌ QUEUE WORKER: Error type: {type(e).__name__}")
+            logger.error(f"❌ QUEUE WORKER: Error details: {str(e)}")
             
             # Enqueue failure status update
+            logger.info(f"🔄 QUEUE WORKER: Creating failure status update for {job.document_id}")
             status_update = StatusUpdate(
                 document_id=job.document_id,
                 job_id=job.job_id,
@@ -988,10 +1480,14 @@ async def process_queue_worker():
                 error_message=str(e)
             )
             
+            logger.info(f"🔄 QUEUE WORKER: Enqueuing failure status update: {status_update}")
             await queue_manager.enqueue_status_update(status_update)
+            logger.info(f"✅ QUEUE WORKER: Successfully enqueued failure status update for {job.document_id}")
             
             # Enqueue for retry
+            logger.info(f"🔄 QUEUE WORKER: Enqueuing job for retry: {job.document_id}")
             await queue_manager.enqueue_failed_job(job, str(e), retry_count=0)
+            logger.info(f"✅ QUEUE WORKER: Successfully enqueued job for retry: {job.document_id}")
             
             return {
                 "status": "failed",
@@ -1001,7 +1497,9 @@ async def process_queue_worker():
             }
             
     except Exception as e:
-        logger.error(f"Error in queue worker: {e}")
+        logger.error(f"❌ QUEUE WORKER: Error in queue worker: {e}")
+        logger.error(f"❌ QUEUE WORKER: Error type: {type(e).__name__}")
+        logger.error(f"❌ QUEUE WORKER: Error details: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Queue worker error: {str(e)}")
 
 @app.get("/queue-worker/health")
@@ -1018,29 +1516,39 @@ async def status_worker_health():
 async def process_status_update():
     """Worker endpoint to process status updates from the queue"""
     try:
+        logger.info(f"🔄 STATUS WORKER: Starting status update processing")
+        
         # Get status update from queue
         status_update = await queue_manager.dequeue_status_update(timeout=5)
         
         if not status_update:
+            logger.info(f"🔄 STATUS WORKER: No status updates in queue")
             return {"status": "no_updates", "message": "No status updates in queue"}
         
-        logger.info(f"🔄 Processing status update for document {status_update.document_id}")
+        logger.info(f"🔄 STATUS WORKER: Processing status update for document {status_update.document_id}")
+        logger.info(f"🔄 STATUS WORKER: Status update details: {status_update}")
         
         try:
-            # Update job status in core processor
-            job_success = await update_job_status(status_update.job_id, status_update.status, status_update.results)
+            # Step 1: Update job status in core processor
+            logger.info(f"🔄 STATUS WORKER: Step 1 - Updating job status for {status_update.job_id}")
+            job_success = await update_job_status(status_update.job_id, status_update.status, status_update.results, document_id=status_update.document_id)
             
             if not job_success:
-                logger.warning(f"Failed to update job status for {status_update.job_id}")
+                logger.warning(f"❌ STATUS WORKER: Failed to update job status for {status_update.job_id}")
+            else:
+                logger.info(f"✅ STATUS WORKER: Successfully updated job status for {status_update.job_id}")
             
-            # Update document status in core processor
+            # Step 2: Update document status in core processor
+            logger.info(f"🔄 STATUS WORKER: Step 2 - Updating document status for {status_update.document_id}")
             doc_success = await update_document_status(status_update.document_id, status_update.status)
             
             if not doc_success:
-                logger.warning(f"Failed to update document status for {status_update.document_id}")
+                logger.warning(f"❌ STATUS WORKER: Failed to update document status for {status_update.document_id}")
+            else:
+                logger.info(f"✅ STATUS WORKER: Successfully updated document status for {status_update.document_id}")
             
             if job_success and doc_success:
-                logger.info(f"✅ Successfully processed status update for document {status_update.document_id}")
+                logger.info(f"✅ STATUS WORKER: Successfully processed status update for document {status_update.document_id}")
                 return {
                     "status": "processed",
                     "document_id": status_update.document_id,
@@ -1048,7 +1556,8 @@ async def process_status_update():
                     "status_update": status_update.status
                 }
             else:
-                logger.error(f"❌ Failed to process status update for document {status_update.document_id}")
+                logger.error(f"❌ STATUS WORKER: Failed to process status update for document {status_update.document_id}")
+                logger.error(f"❌ STATUS WORKER: Job success: {job_success}, Document success: {doc_success}")
                 return {
                     "status": "failed",
                     "document_id": status_update.document_id,
@@ -1057,7 +1566,9 @@ async def process_status_update():
                 }
             
         except Exception as e:
-            logger.error(f"❌ Failed to process status update for document {status_update.document_id}: {e}")
+            logger.error(f"❌ STATUS WORKER: Failed to process status update for document {status_update.document_id}: {e}")
+            logger.error(f"❌ STATUS WORKER: Error type: {type(e).__name__}")
+            logger.error(f"❌ STATUS WORKER: Error details: {str(e)}")
             return {
                 "status": "failed",
                 "document_id": status_update.document_id,
@@ -1066,7 +1577,9 @@ async def process_status_update():
             }
             
     except Exception as e:
-        logger.error(f"Error in status update worker: {e}")
+        logger.error(f"❌ STATUS WORKER: Error in status update worker: {e}")
+        logger.error(f"❌ STATUS WORKER: Error type: {type(e).__name__}")
+        logger.error(f"❌ STATUS WORKER: Error details: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Status update worker error: {str(e)}")
 
 async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
@@ -1074,19 +1587,61 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
     try:
         logger.info(f"Processing queued document: {job.document_id}")
         
-        # Step 1: Extract text from document
-        logger.info(f"Step 1/2: Extracting text from {job.file_path}")
+        # STEP 1: Initialize queue processing
+        logger.info(f"Step 1/4: Initializing queue processing for {job.document_id}")
+        await update_job_status(job.job_id, "initializing", {
+            "current_step": "queue_initialized",
+            "progress": 10,
+            "message": "Queue processing pipeline initialized"
+        }, document_id=job.document_id)
+        
+        # Update document status to reflect current step
+        await update_document_status(job.document_id, "initializing")
+        
+        # STEP 2: Extract text from document
+        logger.info(f"Step 2/4: Extracting text from {job.file_path}")
+        await update_job_status(job.job_id, "generating_embeddings", {
+            "current_step": "text_extraction",
+            "progress": 30,
+            "message": f"Extracting text from {os.path.basename(job.file_path)}"
+        }, document_id=job.document_id)
+        
         text_result = await extract_text_from_document(job.document_id, job.file_path)
         
         if not text_result.get("success"):
-            raise Exception(f"Text extraction failed: {text_result.get('error', 'Unknown error')}")
+            error_msg = f"Text extraction failed: {text_result.get('error', 'Unknown error')}"
+            logger.error(f"Error in step 2: {error_msg}")
+            await update_job_status(job.job_id, "text_extraction_failed", {
+                "current_step": "text_extraction",
+                "error": error_msg
+            }, document_id=job.document_id)
+            await update_document_status(job.document_id, "text_extraction_failed")
+            raise Exception(error_msg)
         
         text_content = text_result.get("text_content", "")
         if not text_content:
-            raise Exception("No text content extracted from document")
+            error_msg = "No text content extracted from document"
+            logger.error(f"Error in step 2: {error_msg}")
+            await update_job_status(job.job_id, "text_extraction_failed", {
+                "current_step": "text_extraction",
+                "error": error_msg
+            }, document_id=job.document_id)
+            await update_document_status(job.document_id, "text_extraction_failed")
+            raise Exception(error_msg)
         
-        # Step 2: Generate embeddings
-        logger.info(f"Step 2/2: Generating embeddings for {len(text_content)} characters of text")
+        logger.info(f"✅ Step 2 completed: Text extracted ({len(text_content)} characters) for {job.document_id}")
+        
+        # Update document status to reflect next step
+        await update_document_status(job.document_id, "generating_embeddings")
+        
+        # STEP 3: Generate embeddings
+        logger.info(f"Step 3/4: Generating embeddings for {len(text_content)} characters of text")
+        await update_job_status(job.job_id, "generating_embeddings", {
+            "current_step": "embedding_generation",
+            "progress": 60,
+            "message": f"Generating embeddings for {len(text_content)} characters of text"
+        }, document_id=job.document_id)
+        
         embedding_result = await generate_embeddings(
             job.document_id, 
             text_content, 
@@ -1098,7 +1653,27 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
         )
         
         if embedding_result.get("status") != "completed":
-            raise Exception(f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}")
+            error_msg = f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}"
+            logger.error(f"Error in step 3: {error_msg}")
+            await update_job_status(job.job_id, "embedding_generation_failed", {
+                "current_step": "embedding_generation",
+                "error": error_msg
+            }, document_id=job.document_id)
+            await update_document_status(job.document_id, "embedding_generation_failed")
+            raise Exception(error_msg)
+        
+        logger.info(f"✅ Step 3 completed: Embeddings generated for {job.document_id}")
+        
+        # Update document status to reflect next step
+        await update_document_status(job.document_id, "finalizing")
+        
+        # STEP 4: Finalize queue processing
+        logger.info(f"Step 4/4: Finalizing queue processing for {job.document_id}")
+        await update_job_status(job.job_id, "finalizing", {
+            "current_step": "finalizing",
+            "progress": 90,
+            "message": "Finalizing queue processing and storing results"
+        }, document_id=job.document_id)
         
         # Prepare results
         results = {
@@ -1108,8 +1683,19 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
             "processing_time": 0,  # Will be calculated
             "embedding_result": embedding_result,
             "text_extracted": True,
-            "text_content_length": len(text_content)
+            "text_content_length": len(text_content),
+            "current_step": "completed",
+            "progress": 100,
+            "message": "Queue processing completed successfully"
         }
+        
+        logger.info(f"✅ Step 4 completed: Queue processing finalized for {job.document_id}")
+        
+        # Update document status to finalizing before completion
+        await update_document_status(job.document_id, "finalizing")
+        
+        # Update document status to completed at the end
+        await update_document_status(job.document_id, "completed")
         
         logger.info(f"✅ Successfully processed queued document {job.document_id}")
         return results
@@ -1164,23 +1750,70 @@ async def process_document_atomic(request: ProcessingRequest):
     try:
         logger.info(f"Starting ATOMIC processing for document {request.document_id}, job {request.job_id}")
         
-        # Get document information
+        # STEP 1: Initialize atomic processing
+        logger.info(f"Step 1/5: Initializing ATOMIC processing for {request.document_id}")
+        await update_job_status(request.job_id, "processing", {
+            "current_step": "atomic_initialized",
+            "progress": 10,
+            "message": "Atomic processing pipeline initialized"
+        })
+        await update_document_status(request.document_id, "processing")
+        
+        # STEP 2: Get document information
+        logger.info(f"Step 2/5: Getting document information for {request.document_id}")
+        await update_job_status(request.job_id, "processing", {
+            "current_step": "document_info_retrieval",
+            "progress": 20,
+            "message": "Retrieving document information"
+        })
+        
         document_info = await get_document_info(request.document_id)
         file_path = document_info.get("file_path")
         
         if not file_path:
-            raise Exception("Document file path not found")
+            error_msg = "Document file path not found"
+            logger.error(f"Error in step 2: {error_msg}")
+            await update_job_status(request.job_id, "failed", {
+                "current_step": "document_info_retrieval",
+                "error": error_msg
+            })
+            await update_document_status(request.document_id, "failed")
+            raise Exception(error_msg)
         
-        # Step 1: Extract text from document
-        logger.info(f"Step 1/3: Extracting text from {file_path}")
+        logger.info(f"✅ Step 2 completed: Document info retrieved for {request.document_id}")
+        
+        # STEP 3: Extract text from document
+        logger.info(f"Step 3/5: Extracting text from {file_path}")
+        await update_job_status(request.job_id, "processing", {
+            "current_step": "text_extraction",
+            "progress": 40,
+            "message": f"Extracting text from {os.path.basename(file_path)}"
+        })
+        
         text_result = await extract_text_from_document(request.document_id, file_path)
         
         if not text_result.get("success"):
-            raise Exception(f"Text extraction failed: {text_result.get('error', 'Unknown error')}")
+            error_msg = f"Text extraction failed: {text_result.get('error', 'Unknown error')}"
+            logger.error(f"Error in step 3: {error_msg}")
+            await update_job_status(request.job_id, "failed", {
+                "current_step": "text_extraction",
+                "error": error_msg
+            })
+            await update_document_status(request.document_id, "failed")
+            raise Exception(error_msg)
         
         text_content = text_result.get("text_content", "")
         if not text_content:
-            raise Exception("No text content extracted from document")
+            error_msg = "No text content extracted from document"
+            logger.error(f"Error in step 3: {error_msg}")
+            await update_job_status(request.job_id, "failed", {
+                "current_step": "text_extraction",
+                "error": error_msg
+            })
+            await update_document_status(request.document_id, "failed")
+            raise Exception(error_msg)
+        
+        logger.info(f"✅ Step 3 completed: Text extracted ({len(text_content)} characters) for {request.document_id}")
         
         # Update progress atomically
         progress_results = {
@@ -1191,8 +1824,14 @@ async def process_document_atomic(request: ProcessingRequest):
         }
         await state_manager.update_job_progress(request.job_id, 60, "embedding_generation", progress_results)
         
-        # Step 2: Generate embeddings
-        logger.info(f"Step 2/3: Generating embeddings for {len(text_content)} characters of text")
+        # STEP 4: Generate embeddings
+        logger.info(f"Step 4/5: Generating embeddings for {len(text_content)} characters of text")
+        await update_job_status(request.job_id, "processing", {
+            "current_step": "embedding_generation",
+            "progress": 70,
+            "message": f"Generating embeddings for {len(text_content)} characters of text"
+        })
+        
         embedding_result = await generate_embeddings(
             request.document_id, 
             text_content, 
@@ -1204,7 +1843,24 @@ async def process_document_atomic(request: ProcessingRequest):
         )
         
         if embedding_result.get("status") != "completed":
-            raise Exception(f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}")
+            error_msg = f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}"
+            logger.error(f"Error in step 4: {error_msg}")
+            await update_job_status(request.job_id, "failed", {
+                "current_step": "embedding_generation",
+                "error": error_msg
+            })
+            await update_document_status(request.document_id, "failed")
+            raise Exception(error_msg)
+        
+        logger.info(f"✅ Step 4 completed: Embeddings generated for {request.document_id}")
+        
+        # STEP 5: Finalize atomic processing
+        logger.info(f"Step 5/5: Finalizing ATOMIC processing for {request.document_id}")
+        await update_job_status(request.job_id, "processing", {
+            "current_step": "finalizing",
+            "progress": 90,
+            "message": "Finalizing atomic processing and storing results"
+        })
         
         # Prepare final results
         final_results = {
@@ -1216,7 +1872,8 @@ async def process_document_atomic(request: ProcessingRequest):
             "text_extracted": True,
             "text_content_length": len(text_content),
             "current_step": "completed",
-            "progress": 100
+            "progress": 100,
+            "message": "Atomic processing completed successfully"
         }
         
         # ATOMIC STATUS UPDATE: Update both job and document status in single transaction
@@ -1230,7 +1887,7 @@ async def process_document_atomic(request: ProcessingRequest):
         )
         
         if success:
-            logger.info(f"✅ ATOMIC processing completed successfully for document {request.document_id}")
+            logger.info(f"✅ Step 5 completed: ATOMIC processing finalized for {request.document_id}")
         else:
             raise Exception("Failed to update status atomically")
         

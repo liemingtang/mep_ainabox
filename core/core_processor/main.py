@@ -297,17 +297,9 @@ async def update_document_status_endpoint(document_id: str, status_update: dict)
         status_str = status_update.get("processing_status")
         
         # Convert status string to ProcessingStatus enum
-        if status_str == "pending":
-            doc_status = ProcessingStatus.PENDING
-        elif status_str == "processing":
-            doc_status = ProcessingStatus.PROCESSING
-        elif status_str == "completed":
-            doc_status = ProcessingStatus.COMPLETED
-        elif status_str == "failed":
-            doc_status = ProcessingStatus.FAILED
-        elif status_str == "cancelled":
-            doc_status = ProcessingStatus.CANCELLED
-        else:
+        try:
+            doc_status = ProcessingStatus(status_str)
+        except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid status: {status_str}"

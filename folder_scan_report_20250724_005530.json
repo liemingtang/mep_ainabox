@@ -1,0 +1,28 @@
+{
+  "scan_timestamp": "2025-07-23T14:55:30.864200",
+  "processed_files": [],
+  "error_files": [
+    {
+      "file_path": "/media/lie/DATA2/ai_scan_folder/job_status_test.txt",
+      "error_at": "2025-07-23T14:55:20.365512",
+      "error": "Processing failed"
+    },
+    {
+      "file_path": "/media/lie/DATA2/ai_scan_folder/queue_test_document.txt",
+      "error_at": "2025-07-23T14:55:24.442290",
+      "error": "Processing failed"
+    },
+    {
+      "file_path": "/media/lie/DATA2/ai_scan_folder/sync_test_document.txt",
+      "error_at": "2025-07-23T14:55:28.613189",
+      "error": "Processing failed"
+    }
+  ],
+  "skipped_files": [],
+  "summary": {
+    "total_processed": 0,
+    "total_errors": 3,
+    "total_skipped": 0,
+    "total_files": 3
+  }
+}
