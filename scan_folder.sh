@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Folder Scanner Wrapper Script
-# This script provides an easy way to use the folder scanner utility
+# Dynamic Folder Scanner Script
+# This script creates a temporary Docker container that mounts any folder on-the-fly
+# and runs the folder scanner against it
 
 set -e
 
@@ -14,11 +15,14 @@ RECURSIVE=true
 MAX_DEPTH=""
 CONCURRENT=5
 SAVE_REPORT=""
-PROCESSOR_URL=""
+PROCESSOR_URL="http://localhost:8001"
+CONTAINER_NAME="mep-folder-scanner-$(date +%s)"
 
 # Function to show usage
 show_usage() {
     echo "Usage: $0 <folder_path> [options]"
+    echo ""
+    echo "This script dynamically mounts any folder and scans it using a temporary Docker container."
     echo ""
     echo "Options:"
     echo "  --dry-run, -d          Show what would be processed without actually processing"
@@ -31,11 +35,12 @@ show_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 /path/to/folder"
-    echo "  $0 /path/to/folder --dry-run"
-    echo "  $0 /path/to/folder --max-depth 3"
-    echo "  $0 /path/to/folder --no-recursive"
+    echo "  $0 /media/user/external_drive/documents --dry-run"
+    echo "  $0 /home/user/documents --max-depth 3"
+    echo "  $0 /mnt/network_share/files --no-recursive"
     echo "  $0 /path/to/folder --concurrent 10 --save-report my_report.json"
-    echo "  $0 /path/to/folder --processor-url http://localhost:8001"
+    echo ""
+    echo "Note: The folder will be mounted read-only in the container for security."
 }
 
 # Parse command line arguments
@@ -101,38 +106,70 @@ if [[ ! -d "$FOLDER_PATH" ]]; then
     exit 1
 fi
 
-# Set environment variable if processor URL is provided
-if [[ -n "$PROCESSOR_URL" ]]; then
-    export CORE_PROCESSOR_URL="$PROCESSOR_URL"
-    echo "Using core processor URL: $PROCESSOR_URL"
+# Resolve absolute path
+FOLDER_PATH="$(cd "$FOLDER_PATH" && pwd)"
+echo "📁 Scanning folder: $FOLDER_PATH"
+
+# Check if Docker is running
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker is not running. Please start Docker first."
+    exit 1
 fi
 
-# Build the command
-CMD="python3 $SCRIPT_DIR/core/file_watcher/folder_scanner.py \"$FOLDER_PATH\""
+# Build the Docker run command
+DOCKER_CMD="docker run --rm --name $CONTAINER_NAME"
+
+# Add network if we need to connect to other services
+if [[ "$PROCESSOR_URL" == *"localhost"* ]]; then
+    # Use host network for localhost access
+    DOCKER_CMD="$DOCKER_CMD --network host"
+else
+    # Use bridge network and set processor URL
+    DOCKER_CMD="$DOCKER_CMD --network mep-ainabox_default"
+fi
+
+# Add volume mount for the folder
+DOCKER_CMD="$DOCKER_CMD -v \"$FOLDER_PATH:/app/scan_folder:ro\""
+
+# Add environment variables
+DOCKER_CMD="$DOCKER_CMD -e CORE_PROCESSOR_URL=$PROCESSOR_URL"
+
+# Add the image and command
+DOCKER_CMD="$DOCKER_CMD mep-file-watcher:latest"
+
+# Build the Python command
+PYTHON_CMD="python3 /app/folder_scanner.py /app/scan_folder"
 
 if [[ "$DRY_RUN" == true ]]; then
-    CMD="$CMD --dry-run"
+    PYTHON_CMD="$PYTHON_CMD --dry-run"
 fi
 
 if [[ "$RECURSIVE" == false ]]; then
-    CMD="$CMD --no-recursive"
+    PYTHON_CMD="$PYTHON_CMD --no-recursive"
 fi
 
 if [[ -n "$MAX_DEPTH" ]]; then
-    CMD="$CMD --max-depth $MAX_DEPTH"
+    PYTHON_CMD="$PYTHON_CMD --max-depth $MAX_DEPTH"
 fi
 
 if [[ -n "$CONCURRENT" ]]; then
-    CMD="$CMD --concurrent $CONCURRENT"
+    PYTHON_CMD="$PYTHON_CMD --concurrent $CONCURRENT"
 fi
 
 if [[ -n "$SAVE_REPORT" ]]; then
-    CMD="$CMD --save-report \"$SAVE_REPORT\""
+    PYTHON_CMD="$PYTHON_CMD --save-report /app/scan_folder/$SAVE_REPORT"
 fi
 
-# Print the command being executed
-echo "Executing: $CMD"
+# Complete Docker command
+FULL_CMD="$DOCKER_CMD $PYTHON_CMD"
+
+echo "🚀 Starting dynamic folder scanner..."
+echo "📋 Command: $FULL_CMD"
 echo ""
 
 # Execute the command
-eval $CMD 
+eval $FULL_CMD
+
+echo ""
+echo "✅ Dynamic folder scanning completed!"
+echo "📁 Scanned folder: $FOLDER_PATH" 

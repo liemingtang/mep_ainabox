@@ -122,10 +122,15 @@ class FolderScanner:
             if not mime_type:
                 mime_type, _ = mimetypes.guess_type(file_path)
             
+            # Handle file path for Docker container vs host
+            # If we're running inside a Docker container and the file is in /app/scan_folder,
+            # we need to send the container path to the processor
+            container_file_path = str(file_path)
+            
             # Create metadata
             metadata = {
                 "filename": file_path_obj.name,
-                "file_path": str(file_path),
+                "file_path": container_file_path,
                 "file_size": file_size,
                 "mime_type": mime_type,
                 "file_hash": file_hash,

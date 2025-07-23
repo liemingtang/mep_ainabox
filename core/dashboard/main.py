@@ -177,6 +177,28 @@ SERVICE_INFO = {
         "docker_container": "mep-processing-pipeline",
         "admin_ui": None
     },
+    "queue-worker": {
+        "name": "Queue Worker",
+        "description": "Background job processor for guaranteed document processing",
+        "port": None,
+        "url": "http://localhost:8003",
+        "endpoints": ["/process-queue-worker", "/queue/stats"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/queue-worker.log", "/app/logs/app.log"],
+        "docker_container": "mep-queue-worker",
+        "admin_ui": None
+    },
+    "status-worker": {
+        "name": "Status Worker",
+        "description": "Background status update processor for reliable status synchronization",
+        "port": None,
+        "url": "http://localhost:8003",
+        "endpoints": ["/process-status-update", "/queue/stats"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/status-worker.log", "/app/logs/app.log"],
+        "docker_container": "mep-status-worker",
+        "admin_ui": None
+    },
     "document-router": {
         "name": "Document Router",
         "description": "Intelligent document routing and analysis",
@@ -1139,7 +1161,8 @@ def check_core_services() -> bool:
         services_to_check = [
             ("api-gateway", 8011, "/health"),  # API Gateway runs on port 8011, not 8000
             ("core-processor", 8001, "/docs"),  # Core processor responds on /docs
-            ("file-watcher", 8009, "/health")
+            ("file-watcher", 8009, "/health"),
+            ("processing-pipeline", 8003, "/health")  # Processing pipeline for queue/status workers
         ]
         
         for service_name, port, endpoint in services_to_check:
@@ -1771,6 +1794,8 @@ async def get_service_status():
         {"name": "Embedding Processor", "port": 8007, "endpoint": "/health", "description": "Vector embedding generation using Ollama", "service_key": "embedding-processor", "admin_url": "http://localhost:8007/docs"},
         {"name": "Entity Processor", "port": 8008, "endpoint": "/health", "description": "Entity extraction and relationship mapping", "service_key": "entity-processor", "admin_url": "http://localhost:8008/docs"},
         {"name": "File Watcher", "port": 8009, "endpoint": "/health", "description": "Monitor local folders for new documents", "service_key": "file-watcher", "admin_url": "http://localhost:8009/docs"},
+        {"name": "Queue Worker", "port": None, "endpoint": "/queue-worker/health", "description": "Background job processor for guaranteed document processing", "service_key": "queue-worker", "admin_url": "http://localhost:8003/docs"},
+        {"name": "Status Worker", "port": None, "endpoint": "/status-worker/health", "description": "Background status update processor for reliable status synchronization", "service_key": "status-worker", "admin_url": "http://localhost:8003/docs"},
         {"name": "Ollama", "port": 11434, "endpoint": "/api/tags", "description": "Self-hosted LLM and embedding service", "service_key": "ollama", "admin_url": "http://localhost:11434/api/tags"}
     ]
     
@@ -1799,6 +1824,26 @@ async def get_service_status():
     def check_service_status(service):
         """Check if a service is running"""
         try:
+            # For services without ports (like queue/status workers), check via HTTP endpoint
+            if service["port"] is None:
+                if service["endpoint"]:
+                    try:
+                        import httpx
+                        with httpx.Client(timeout=3.0) as client:
+                            # Add API key header if service requires it
+                            headers = {}
+                            if "api_key" in service:
+                                headers["api-key"] = service["api_key"]
+                            
+                            # Use processing pipeline port for queue/status workers
+                            response = client.get(f"http://localhost:8003{service['endpoint']}", headers=headers)
+                            return "running" if response.status_code in [200, 302, 404] else "unhealthy"
+                    except:
+                        return "unknown"
+                else:
+                    return "unknown"
+            
+            # For services with ports, check port and HTTP endpoint
             import socket
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(2)

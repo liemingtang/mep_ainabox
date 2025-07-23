@@ -1,412 +1,385 @@
 # MEP AI NABOX - Admin Startup Guide
 
-This guide explains how to use the **Admin Startup Mode** for MEP AI NABOX, which provides a web-based interface to manage and monitor all services.
+## Quick Start
 
-## 🎯 Overview
-
-The Admin Startup Mode allows you to:
-1. **Start only the dashboard first** - Quick initial startup
-2. **Use a web interface** to start all other services
-3. **Monitor startup progress** in real-time with logs
-4. **Control service management** through a modern admin panel
-
-## 🛑 Stopping the System
-
-### Complete System Shutdown
-To completely shut down all services and clean up all processes:
-
+### 1. Start All Services
 ```bash
-cd mep_ainabox
+./start_admin.sh
+```
+
+### 2. Stop All Services
+```bash
 ./stop_admin.sh
 ```
 
-This script will:
-1. **Stop Dashboard Service** - Terminates the host-based dashboard
-2. **Stop Python Processes** - Kills all Python main.py processes
-3. **Stop Core Services** - Shuts down all core system Docker containers
-4. **Stop Infrastructure Services** - Shuts down all infrastructure Docker containers
-5. **Stop Development Services** - Shuts down development UIs (pgAdmin, Redis Commander, etc.)
-6. **Stop Monitoring Services** - Shuts down Prometheus and Grafana
-7. **Clean Up Containers** - Removes any remaining MEP containers
-8. **Final Cleanup** - Kills any remaining related processes
-9. **Verification** - Confirms all services are stopped
-
-### Manual Stop Commands (Alternative)
-If you prefer to stop services manually:
-
+### 3. Check Service Status
 ```bash
-# Stop core services
-cd mep_ainabox/core
-docker compose down
-
-# Stop infrastructure services
-cd ../services
-docker compose down
-docker compose --profile dev down
-docker compose --profile monitoring down
-
-# Stop dashboard
-cd ../core
-pkill -f "python.*dashboard.*main.py"
-
-# Stop all Python processes
-pkill -f "python.*main.py"
+docker ps
 ```
 
-## 🚀 Quick Start
+## Available Scripts
 
-### Step 1: Start Admin Mode
+### Core Management Scripts
+- `start_admin.sh` - Start all MEP AI NABOX services
+- `stop_admin.sh` - Stop all MEP AI NABOX services
+- `scan_folder.sh` - Scan and process files from any folder
+- `clean_all_data.sh` - Clean all database data (dry run by default)
+
+### Monitoring and Recovery Scripts
+- `fix_stuck_documents.py` - Detect and fix stuck documents
+- `monitor_and_fix_stuck_documents.sh` - Automated monitoring script (cron-ready)
+- `enhanced_monitor.py` - Advanced monitoring with queue and state management
+- `queue_worker.py` - Dedicated queue worker for processing jobs
+
+## Document Processing Modes
+
+### 1. **Asynchronous Processing** (Default)
+- **Endpoint**: `/process`
+- **Speed**: Fast
+- **Reliability**: Good (with retry logic)
+- **Use Case**: Batch processing, non-critical documents
+
+### 2. **Synchronous Processing** (Guaranteed)
+- **Endpoint**: `/process-sync`
+- **Speed**: Slower
+- **Reliability**: **100% - No stuck documents possible**
+- **Use Case**: Critical documents, production environments
+
+### 3. **Queue-Based Processing** (Scalable)
+- **Endpoint**: `/process-queue`
+- **Speed**: Variable (depends on queue size)
+- **Reliability**: **Excellent - Guaranteed message delivery**
+- **Use Case**: High-volume processing, distributed systems
+
+### 4. **Atomic Processing** (Database-Driven)
+- **Endpoint**: `/process-atomic`
+- **Speed**: Medium
+- **Reliability**: **Perfect - Atomic database transactions**
+- **Use Case**: Financial documents, audit trails
+
+## Queue Management
+
+### Queue Statistics
 ```bash
-cd mep_ainabox
-./start_admin.sh
+curl http://localhost:8003/queue/stats
 ```
 
-This will:
-- ✅ Start only the dashboard service on the host (not in Docker)
-- ✅ Set up the Docker network
-- ✅ Create necessary directories
-- ✅ Load environment variables
-- ✅ Verify dashboard is ready
-
-### Step 2: Access Admin Panel
-Open your browser and go to:
-- **Dashboard**: http://localhost:8010
-- **Admin Panel**: http://localhost:8010/admin
-
-### Step 3: Start All Services
-1. Click the **"Start All Services"** button in the admin panel
-2. Watch the real-time startup progress
-3. Monitor logs and status updates
-4. Wait for completion (typically 5-10 minutes)
-
-## 🎛️ Admin Panel Features
-
-### Status Overview
-- **Infrastructure Status**: PostgreSQL, Elasticsearch, Qdrant, Redis, MinIO
-- **Core System Status**: API Gateway, Core Processor, File Watcher, etc.
-- **Startup Status**: Current startup progress
-- **Last Update**: Real-time status updates
-
-### Service Control
-- **Start All Services**: One-click startup of infrastructure and core services
-- **Stop All Services**: One-click shutdown of all services with confirmation
-- **Real-time Progress**: Visual progress bar and detailed logs for both startup and shutdown
-- **Status Monitoring**: Live updates every 5 seconds
-
-### Log Monitoring
-- **Terminal-style logs**: Real-time startup logs with color coding
-- **Progress tracking**: Visual progress bar
-- **Error highlighting**: Automatic error detection and highlighting
-- **Auto-scroll**: Automatic scrolling to latest logs
-
-## 📊 Admin Panel Interface
-
-### Main Dashboard
-```
-┌─────────────────────────────────────────────────────────┐
-│                    MEP AI NABOX Admin Panel              │
-├─────────────────────────────────────────────────────────┤
-│  Infrastructure: ● Running    Core System: ● Running     │
-│  Startup Status: ○ Idle       Last Update: 14:30:25     │
-├─────────────────────────────────────────────────────────┤
-│  [🚀 Start All Services]  [🛑 Stop All Services]        │
-├─────────────────────────────────────────────────────────┤
-│  📦 Infrastructure Services: ● Running                   │
-│  🔧 Core System Services: ● Running                      │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Startup Progress View
-```
-┌─────────────────────────────────────────────────────────┐
-│  🔄 Startup Progress                                     │
-│  ████████████████████████████████████████████████████ 100% │
-├─────────────────────────────────────────────────────────┤
-│  [14:30:01] 🚀 Starting MEP AI NABOX services...        │
-│  [14:30:02] 📦 Starting infrastructure services...      │
-│  [14:30:15] ✅ Infrastructure services started           │
-│  [14:30:16] ⏳ Waiting for services to be ready...       │
-│  [14:30:45] 🔧 Starting core system services...         │
-│  [14:31:00] ✅ Core system services started              │
-│  [14:31:01] 🎉 MEP AI NABOX startup completed!          │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Shutdown Progress View
-```
-┌─────────────────────────────────────────────────────────┐
-│  🛑 Shutdown Progress                                    │
-│  ████████████████████████████████████████████████████ 100% │
-├─────────────────────────────────────────────────────────┤
-│  [14:35:01] 🛑 Stopping MEP AI NABOX services...        │
-│  [14:35:02] 🔧 Stopping core system services...          │
-│  [14:35:05] ✅ Core system services stopped              │
-│  [14:35:06] 📦 Stopping infrastructure services...       │
-│  [14:35:10] ✅ Infrastructure services stopped           │
-│  [14:35:11] 🔍 Performing final status checks...         │
-│  [14:35:12] 🎉 MEP AI NABOX shutdown completed!         │
-└─────────────────────────────────────────────────────────┘
-```
-
-## 🔧 Technical Details
-
-### Dashboard Architecture
-- **Host-based Dashboard**: Runs directly on the host (not in Docker)
-- **Python FastAPI**: Modern web framework for the dashboard
-- **Real-time Updates**: WebSocket-like polling for live status
-- **Template System**: Jinja2 templates for dynamic HTML generation
-
-### Startup Process
-1. **Infrastructure Services** (2-3 minutes)
-   - PostgreSQL, Elasticsearch, Qdrant, Neo4j, Redis, MinIO
-   - Management UIs: Kibana, pgAdmin, Redis Commander, MinIO Console
-   - Automation tools: n8n, Flowise
-
-2. **Core System Services** (2-3 minutes)
-   - API Gateway, Core Processor, Document Router
-   - Processing Pipeline, Storage Manager
-   - Text/Metadata/Embedding/Entity Processors
-   - File Watcher
-
-3. **Health Checks** (1-2 minutes)
-   - Verify all services are responding
-   - Check database connections
-   - Validate API endpoints
-
-### Admin API Endpoints
-- `GET /api/admin/status` - Get current admin status
-- `POST /api/admin/start-services` - Start all services
-- `POST /api/admin/stop-services` - Stop all services
-- `GET /api/admin/startup-logs` - Get startup logs
-- `GET /api/admin/shutdown-logs` - Get shutdown logs
-
-### Service Detection
-The admin panel automatically detects:
-- **Infrastructure services** by checking ports: 5432, 9200, 6333, 6379
-- **Core services** by checking ports: 8000, 8001, 8009
-- **Startup progress** by monitoring background processes
-
-## 🌐 Access URLs After Startup
-
-### Core Application
-- **Dashboard**: http://localhost:8010
-- **API Gateway**: http://localhost:8000
-- **Admin Panel**: http://localhost:8010/admin
-
-### Infrastructure Services
-- **Elasticsearch**: http://localhost:9200
-- **Kibana**: http://localhost:5601
-- **Qdrant**: http://localhost:6333
-- **Neo4j Browser**: http://localhost:7474
-- **MinIO Console**: http://localhost:9001
-- **Redis Commander**: http://localhost:8081
-- **pgAdmin**: http://localhost:8080
-- **n8n**: http://localhost:5678
-- **Flowise**: http://localhost:3001
-
-## 🛠️ Management Commands
-
-### Admin Mode Commands
+### Clear Queues
 ```bash
-# Start admin mode
-./start_admin.sh
-
-# Check dashboard status
-curl http://localhost:8010/api/health
-
-# Check admin status
-curl http://localhost:8010/api/admin/status
-
-# View dashboard logs
-tail -f core/logs/dashboard.log
-
-# Stop dashboard
-cd core && ./stop_dashboard_host.sh
+curl -X POST http://localhost:8003/queue/clear
 ```
 
-### Manual Dashboard Control
+### Process Queue Worker
 ```bash
-# Start dashboard manually (foreground)
-cd core && ./start_dashboard_host.sh
-
-# Start dashboard manually (background)
-cd core && ./start_dashboard_host.sh --background
-
-# Stop dashboard manually
-cd core && ./stop_dashboard_host.sh
+curl -X POST http://localhost:8003/process-queue-worker
 ```
 
-### Traditional Commands (Alternative)
+### Run Dedicated Queue Worker
 ```bash
-# Start all services traditionally
-cd services && ./scripts/start-services.sh
-cd ../core && ./start.sh
-
-# Stop all services
-cd core && docker compose down
-cd ../services && docker compose down
+python3 queue_worker.py
 ```
 
-## 🔍 Troubleshooting
+## Enhanced Monitoring
 
-### Common Issues
+### Single Analysis
+```bash
+# Dry run (recommended first)
+python3 enhanced_monitor.py --dry-run
 
-1. **Dashboard not starting**
-   ```bash
-   # Check if port 8010 is available
-   netstat -tulpn | grep 8010
-   
-   # Check if Python process is running
-   pgrep -f "python3.*main.py"
-   
-   # Restart dashboard
-   cd core && ./stop_dashboard_host.sh && ./start_dashboard_host.sh --background
-   ```
+# Real execution
+python3 enhanced_monitor.py
+```
 
-2. **Services directory not found**
-   - The dashboard now runs on the host and can access all directories
-   - Paths are automatically resolved to the correct project structure
-   - No more Docker container path issues
+### Continuous Monitoring
+```bash
+# Monitor every 30 seconds
+python3 enhanced_monitor.py --continuous --interval 30
 
-3. **Template not found errors**
-   - Ensure dashboard is running from the correct directory
-   - Check that templates exist in `core/dashboard/templates/`
-   - Restart the dashboard if needed
+# Monitor for 10 iterations
+python3 enhanced_monitor.py --continuous --iterations 10
+```
 
-4. **Permission errors**
-   ```bash
-   # Fix permissions
-   sudo chown -R $USER:$USER mep_ainabox/
-   chmod +x start_admin.sh
-   chmod +x core/start_dashboard_host.sh
-   chmod +x core/stop_dashboard_host.sh
-   ```
+### Queue Statistics Only
+```bash
+python3 enhanced_monitor.py --queue-stats
+```
 
-5. **Network issues**
-   ```bash
-   # Check Docker network
-   docker network ls | grep mep-services-network
-   
-   # Recreate network if needed
-   docker network create mep-services-network
-   ```
+### Cleanup Operations
+```bash
+# Clear all queues
+python3 enhanced_monitor.py --clear-queues
 
-6. **Environment variable issues**
-   - Check that `.env` files exist in both `core/` and `services/` directories
-   - Ensure proper environment variable loading in startup scripts
+# Clean up old jobs (older than 7 days)
+python3 enhanced_monitor.py --cleanup 7
+```
 
-## 📋 System Requirements
+## Stuck Documents Prevention
 
-### Prerequisites
-- **Python 3.8+**: Required for the dashboard
-- **Docker & Docker Compose**: For running services
-- **Git**: For cloning the repository
-- **Linux/macOS**: Tested on Ubuntu 20.04+
+### Root Causes Eliminated
+1. **Distributed Status Management** → Centralized status management
+2. **Asynchronous Fire-and-Forget** → Guaranteed message delivery
+3. **Multiple Status Update Points** → Single atomic updates
 
-### Disk Space
-- **Minimum**: 10GB free space
-- **Recommended**: 50GB+ for production use
+### Prevention Methods
+1. **Synchronous Processing**: Complete processing before returning
+2. **Queue-Based Processing**: Guaranteed message delivery with Redis
+3. **Atomic Database Updates**: Single transaction for all status changes
+4. **Enhanced Retry Logic**: Exponential backoff with verification
 
-### Memory
-- **Minimum**: 4GB RAM
-- **Recommended**: 8GB+ RAM for optimal performance
+### Monitoring and Recovery
+1. **Real-time Monitoring**: Continuous queue and state monitoring
+2. **Automatic Recovery**: Self-healing stuck documents
+3. **Manual Intervention**: Tools for manual status correction
+4. **Comprehensive Logging**: Detailed audit trails
 
-## 🔒 Security Considerations
+## Service Health Checks
+
+### Core Processor
+```bash
+curl http://localhost:8001/health
+```
+
+### Processing Pipeline
+```bash
+curl http://localhost:8003/health
+```
+
+### Text Processor
+```bash
+curl http://localhost:8004/health
+```
+
+### Embedding Processor
+```bash
+curl http://localhost:8005/health
+```
+
+## Database Management
+
+### View Documents
+```bash
+curl http://localhost:8001/documents
+```
+
+### Get Document Status
+```bash
+curl http://localhost:8001/documents/{document_id}/processing-status
+```
+
+### Get Document State (Enhanced)
+```bash
+curl http://localhost:8003/state/{document_id}
+```
+
+### Get Stuck Documents (Enhanced)
+```bash
+curl http://localhost:8003/state/stuck-documents
+```
+
+## File Processing
+
+### Scan Local Folder
+```bash
+./scan_folder.sh /path/to/folder
+```
+
+### Scan with Options
+```bash
+# Dry run
+./scan_folder.sh /path/to/folder --dry-run
+
+# Non-recursive
+./scan_folder.sh /path/to/folder --no-recursive
+
+# Max depth
+./scan_folder.sh /path/to/folder --max-depth 3
+
+# Concurrent processing
+./scan_folder.sh /path/to/folder --concurrent 10
+
+# Save report
+./scan_folder.sh /path/to/folder --save-report my_report.json
+```
+
+## Troubleshooting
+
+### Check Service Logs
+```bash
+# Core processor
+docker logs mep-core-processor
+
+# Processing pipeline
+docker logs mep-processing-pipeline
+
+# Text processor
+docker logs mep-text-processor
+
+# Embedding processor
+docker logs mep-embedding-processor
+```
+
+### Restart Services
+```bash
+# Restart specific service
+docker restart mep-processing-pipeline
+
+# Restart all services
+./stop_admin.sh && ./start_admin.sh
+```
+
+### Database Issues
+```bash
+# Check database connection
+docker exec -it mep-postgres psql -U postgres -d mep_ainabox
+
+# Reset database (WARNING: Deletes all data)
+./clean_all_data.sh --real
+```
+
+### Queue Issues
+```bash
+# Check queue status
+python3 enhanced_monitor.py --queue-stats
+
+# Clear queues
+python3 enhanced_monitor.py --clear-queues
+
+# Restart queue worker
+python3 queue_worker.py
+```
+
+## Performance Optimization
+
+### Processing Modes by Use Case
+- **Development/Testing**: Asynchronous processing
+- **Production/Critical**: Synchronous processing
+- **High Volume**: Queue-based processing
+- **Audit Requirements**: Atomic processing
+
+### Queue Worker Configuration
+```bash
+# Fast processing (1 second intervals)
+python3 queue_worker.py --poll-interval 1.0
+
+# Conservative processing (5 second intervals)
+python3 queue_worker.py --poll-interval 5.0
+
+# No statistics (reduced overhead)
+python3 queue_worker.py --no-stats
+```
+
+### Monitoring Configuration
+```bash
+# Frequent monitoring (30 seconds)
+python3 enhanced_monitor.py --continuous --interval 30
+
+# Conservative monitoring (5 minutes)
+python3 enhanced_monitor.py --continuous --interval 300
+```
+
+## Security Considerations
+
+### File Access
+- All file scanning uses read-only mounts
+- No files are copied to processing containers
+- Dynamic mounting for security isolation
+
+### Database Access
+- Environment variable-based authentication
+- Atomic transactions prevent data corruption
+- Comprehensive audit logging
 
 ### Network Security
-- Dashboard runs on localhost only (127.0.0.1)
-- No external network access by default
-- Use reverse proxy for external access if needed
+- Internal Docker networking
+- No external service dependencies
+- Secure inter-service communication
 
-### File Permissions
-- Dashboard runs as the current user
-- No root privileges required
-- Proper file permissions maintained
+## Backup and Recovery
+
+### Database Backup
+```bash
+# PostgreSQL backup
+docker exec mep-postgres pg_dump -U postgres mep_ainabox > backup.sql
+
+# Restore
+docker exec -i mep-postgres psql -U postgres mep_ainabox < backup.sql
+```
+
+### Configuration Backup
+```bash
+# Backup configuration
+cp -r services/config backup_config/
+
+# Restore configuration
+cp -r backup_config/* services/config/
+```
+
+### Data Recovery
+```bash
+# Recover from stuck documents
+python3 fix_stuck_documents.py --real
+
+# Enhanced recovery
+python3 enhanced_monitor.py --continuous --interval 60
+```
+
+## Advanced Configuration
 
 ### Environment Variables
-- Sensitive data stored in `.env` files
-- API keys and passwords masked in logs
-- Secure credential management
-
-## 📈 Performance Monitoring
-
-### Dashboard Metrics
-- **Response Time**: Real-time service health checks
-- **Service Status**: Live status of all components
-- **Resource Usage**: CPU and memory monitoring
-- **Error Tracking**: Automatic error detection and logging
-
-### Log Management
-- **Dashboard Logs**: `core/logs/dashboard.log`
-- **Service Logs**: Individual service logs in respective directories
-- **Startup Logs**: Real-time startup progress tracking
-- **Error Logs**: Detailed error reporting and debugging
-
-## 🛠️ Available Scripts
-
-### System Management Scripts
 ```bash
-# Start admin mode with web interface
-./start_admin.sh
+# Core processor URL
+export CORE_PROCESSOR_URL=http://localhost:8001
 
-# Stop all services and clean up
-./stop_admin.sh
+# Processing pipeline URL
+export PROCESSING_PIPELINE_URL=http://localhost:8003
 
-# Clean all data from databases (preserves local files)
-./clean_all_data.sh --real
-
-# Dry run to see what would be cleaned
-./clean_all_data.sh
+# Redis configuration
+export REDIS_URL=redis://redis:6379
 ```
 
-### File Management Scripts
+### Docker Compose Overrides
 ```bash
-# Monitor uploaded files and processing status
-./check_uploaded_files.sh [all|watch|status|recent|failed|watcher|count]
+# Development overrides
+docker compose -f core/docker-compose.yml -f core/docker-compose.dev.yml up
 
-# Scan and process files in any folder
-./scan_folder.sh /path/to/folder --dry-run
-./scan_folder.sh /path/to/folder
-./scan_folder.sh /path/to/folder --concurrent 10 --save-report report.json
+# Production overrides
+docker compose -f core/docker-compose.yml -f core/docker-compose.prod.yml up
 ```
 
-### Dashboard Management Scripts
+### Custom Processing Pipelines
 ```bash
-# Start dashboard only (host-based)
-cd core && ./start_dashboard_host.sh
+# Add custom processors
+# Edit core/processing_pipeline/main.py
 
-# Stop dashboard only
-cd core && ./stop_dashboard_host.sh
-
-# Start dashboard in background
-cd core && ./start_dashboard_host.sh --background
+# Rebuild and restart
+docker compose -f core/docker-compose.yml build processing-pipeline
+docker compose -f core/docker-compose.yml restart processing-pipeline
 ```
 
-## 🚀 Advanced Features
+## Support and Maintenance
 
-### Custom Configuration
-- Modify `core/dashboard/main.py` for custom dashboard features
-- Update templates in `core/dashboard/templates/` for UI changes
-- Configure service endpoints in environment variables
+### Regular Maintenance
+1. **Daily**: Check service health and logs
+2. **Weekly**: Run enhanced monitoring and cleanup
+3. **Monthly**: Review performance metrics and optimize
+4. **Quarterly**: Update dependencies and security patches
 
-### Integration Options
-- **API Integration**: Use dashboard APIs for external monitoring
-- **Webhook Support**: Configure webhooks for status updates
-- **Metrics Export**: Export metrics to external monitoring systems
+### Emergency Procedures
+1. **Service Down**: Restart with `./stop_admin.sh && ./start_admin.sh`
+2. **Database Issues**: Use `clean_all_data.sh` (WARNING: Data loss)
+3. **Stuck Documents**: Run `enhanced_monitor.py --continuous`
+4. **Queue Issues**: Clear queues and restart worker
 
-### Scaling Considerations
-- **Horizontal Scaling**: Run multiple dashboard instances
-- **Load Balancing**: Use reverse proxy for multiple instances
-- **Database Scaling**: Configure external databases for persistence
+### Performance Monitoring
+```bash
+# Monitor queue performance
+python3 enhanced_monitor.py --queue-stats
 
----
+# Monitor processing performance
+python3 queue_worker.py --stats-interval 30
 
-## 📞 Support
+# Monitor system resources
+docker stats
+```
 
-For issues and questions:
-1. Check the troubleshooting section above
-2. Review the logs in `core/logs/dashboard.log`
-3. Check service-specific logs in their respective directories
-4. Verify all prerequisites are met
-
-The Admin Startup Mode provides a modern, user-friendly way to manage your MEP AI NABOX deployment with real-time monitoring and control capabilities. 
+This guide provides comprehensive management capabilities for the MEP AI NABOX system with multiple processing modes, enhanced monitoring, and robust recovery mechanisms. 
