@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MDIS Dashboard - Scan Folder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/static/css/dashboard.css" rel="stylesheet">
+    <style>
+        .execution-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid #007bff;
+        }
+        .execution-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .execution-card.running {
+            border-left-color: #ffc107;
+        }
+        .execution-card.completed {
+            border-left-color: #28a745;
+        }
+        .execution-card.failed {
+            border-left-color: #dc3545;
+        }
+        .execution-card.stopped {
+            border-left-color: #6c757d;
+        }
+        .file-tree {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .file-item {
+            padding: 2px 0;
+            border-radius: 3px;
+        }
+        .file-item:hover {
+            background-color: #f8f9fa;
+        }
+        .file-status {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-pending { background-color: #6c757d; }
+        .status-processing { background-color: #ffc107; }
+        .status-completed { background-color: #28a745; }
+        .status-failed { background-color: #dc3545; }
+        .status-skipped { background-color: #17a2b8; }
+        .folder-input {
+            position: relative;
+        }
+        .folder-input input[type="file"] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        .folder-input .form-control {
+            cursor: pointer;
+        }
+        .progress-container {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .execution-details {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .log-entry {
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            padding: 2px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-info { color: #007bff; }
+        .log-success { color: #28a745; }
+        .log-warning { color: #ffc107; }
+        .log-error { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-chart-line me-2"></i>
+                MDIS Dashboard
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>
+                    Dashboard
+                </a>
+                <a class="nav-link active" href="/scan-folder">
+                    <i class="fas fa-folder-open me-1"></i>
+                    Scan Folder
+                </a>
+                <a class="nav-link" href="/admin">
+                    <i class="fas fa-cogs me-1"></i>
+                    Admin Panel
+                </a>
+                <a class="nav-link" href="/configuration">
+                    <i class="fas fa-cog me-1"></i>
+                    Configuration
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Left Panel: New Execution -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-plus-circle me-2"></i>
+                            New Folder Scan
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="scanForm">
+                            <div class="mb-3">
+                                <label for="folderPath" class="form-label">Folder Path</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="folderPath" 
+                                           placeholder="/media/lie/DATA2/ai_scan_folder" required>
+                                    <button class="btn btn-outline-secondary" type="button" id="browseBtn">
+                                        <i class="fas fa-folder-open"></i>
+                                    </button>
+                                </div>
+                                <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
+                                <div class="form-text">
+                                    <small>Enter the absolute path to the folder you want to scan. For external drives, use the full path (e.g., /media/lie/DATA2/ai_scan_folder)</small>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="processingMode" class="form-label">Processing Mode</label>
+                                <select class="form-select" id="processingMode" required>
+                                    <option value="enhanced">Enhanced (Recommended)</option>
+                                    <option value="queue">Queue-based</option>
+                                    <option value="sync">Synchronous</option>
+                                    <option value="atomic">Atomic</option>
+                                </select>
+                                <div class="form-text">
+                                    <small id="modeDescription">Enhanced asynchronous processing with good reliability</small>
+                                </div>
+                            </div>
+
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="concurrentLimit" class="form-label">Concurrent Limit</label>
+                                        <input type="number" class="form-control" id="concurrentLimit" 
+                                               value="5" min="1" max="20">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="maxDepth" class="form-label">Max Depth</label>
+                                        <input type="number" class="form-control" id="maxDepth" 
+                                               value="10" min="1" max="50">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="recursive" checked>
+                                    <label class="form-check-label" for="recursive">
+                                        Scan subdirectories recursively
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="saveReport">
+                                    <label class="form-check-label" for="saveReport">
+                                        Save processing report
+                                    </label>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-play me-2"></i>
+                                Start Scan
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Quick Stats -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-bar me-2"></i>
+                            Quick Stats
+                        </h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <h4 id="totalExecutions">0</h4>
+                                <small class="text-muted">Total Executions</small>
+                            </div>
+                            <div class="col-6">
+                                <h4 id="activeExecutions">0</h4>
+                                <small class="text-muted">Active</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Executions List -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Scan Executions
+                        </h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-secondary" id="refreshBtn">
+                                <i class="fas fa-sync-alt"></i>
+                                Refresh
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" id="clearCompletedBtn">
+                                <i class="fas fa-trash"></i>
+                                Clear Completed
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div id="executionsList">
+                            <!-- Executions will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Execution Details Modal -->
+    <div class="modal fade" id="executionModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-folder-open me-2"></i>
+                        Execution Details
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Execution Info</h6>
+                            <div id="executionInfo"></div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Progress</h6>
+                            <div id="executionProgress"></div>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>File Tree</h6>
+                            <div id="fileTree" class="file-tree"></div>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Logs</h6>
+                            <div id="executionLogs" class="execution-details"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-danger" id="stopExecutionBtn" style="display: none;">
+                        <i class="fas fa-stop"></i>
+                        Stop Execution
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentExecutions = [];
+        let selectedExecutionId = null;
+        let refreshInterval = null;
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadExecutions();
+            setupEventListeners();
+            startAutoRefresh();
+        });
+
+        function setupEventListeners() {
+            // Form submission
+            document.getElementById('scanForm').addEventListener('submit', startNewExecution);
+            
+            // Browse button
+            document.getElementById('browseBtn').addEventListener('click', () => {
+                document.getElementById('folderInput').click();
+            });
+            
+            // Folder input change
+            document.getElementById('folderInput').addEventListener('change', handleFolderSelect);
+            
+            // Processing mode change
+            document.getElementById('processingMode').addEventListener('change', updateModeDescription);
+            
+            // Refresh and clear buttons
+            document.getElementById('refreshBtn').addEventListener('click', loadExecutions);
+            document.getElementById('clearCompletedBtn').addEventListener('click', clearCompletedExecutions);
+            
+            // Stop execution button
+            document.getElementById('stopExecutionBtn').addEventListener('click', stopExecution);
+        }
+
+        function handleFolderSelect(event) {
+            const files = event.target.files;
+            if (files.length > 0) {
+                // Get the full path of the selected folder
+                // Note: Due to browser security restrictions, we can't get the full path
+                // from the file input. We'll use the folder name and let the user edit it
+                const folderName = files[0].webkitRelativePath.split('/')[0];
+                
+                // For common external folders, provide helpful suggestions
+                let suggestedPath = folderName;
+                if (folderName === 'ai_scan_folder') {
+                    suggestedPath = '/media/lie/DATA2/ai_scan_folder';
+                } else if (folderName === 'documents') {
+                    suggestedPath = '/home/lie/Documents';
+                } else if (folderName === 'downloads') {
+                    suggestedPath = '/home/lie/Downloads';
+                }
+                
+                document.getElementById('folderPath').value = suggestedPath;
+                
+                // Show a helpful message
+                if (suggestedPath !== folderName) {
+                    showAlert('info', `Suggested path: ${suggestedPath}. Please verify this is correct before starting the scan.`);
+                }
+            }
+        }
+
+        function updateModeDescription() {
+            const mode = document.getElementById('processingMode').value;
+            const descriptions = {
+                'enhanced': 'Enhanced asynchronous processing with good reliability',
+                'queue': 'Queue-based processing with excellent reliability and guaranteed delivery',
+                'sync': 'Synchronous processing with 100% reliability, no stuck documents',
+                'atomic': 'Atomic processing with perfect reliability and database transactions'
+            };
+            document.getElementById('modeDescription').textContent = descriptions[mode];
+        }
+
+        async function startNewExecution(event) {
+            event.preventDefault();
+            
+            const folderPath = document.getElementById('folderPath').value.trim();
+            
+            // Basic validation
+            if (!folderPath) {
+                showAlert('danger', 'Please enter a folder path');
+                return;
+            }
+            
+            // Check if it looks like a relative path and suggest absolute path
+            if (!folderPath.startsWith('/') && !folderPath.startsWith('C:\\') && !folderPath.startsWith('D:\\')) {
+                showAlert('warning', `The path "${folderPath}" appears to be relative. Please use an absolute path (e.g., /media/lie/DATA2/ai_scan_folder)`);
+                return;
+            }
+            
+            const formData = {
+                folder_path: folderPath,
+                processing_mode: document.getElementById('processingMode').value,
+                concurrent_limit: parseInt(document.getElementById('concurrentLimit').value),
+                max_depth: parseInt(document.getElementById('maxDepth').value),
+                recursive: document.getElementById('recursive').checked,
+                save_report: document.getElementById('saveReport').checked
+            };
+
+            try {
+                const response = await fetch('/api/scan-folder/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert('success', 'Scan execution started successfully!');
+                    document.getElementById('scanForm').reset();
+                    loadExecutions();
+                } else {
+                    const errorMessage = result.detail || `HTTP ${response.status}: ${response.statusText}`;
+                    showAlert('danger', `Failed to start execution: ${errorMessage}`);
+                }
+            } catch (error) {
+                console.error('Error starting execution:', error);
+                showAlert('danger', `Error: ${error.message}`);
+            }
+        }
+
+        async function loadExecutions() {
+            try {
+                const response = await fetch('/api/scan-folder/executions');
+                if (response.ok) {
+                    currentExecutions = await response.json();
+                    renderExecutions();
+                    updateStats();
+                }
+            } catch (error) {
+                console.error('Error loading executions:', error);
+            }
+        }
+
+        function renderExecutions() {
+            const container = document.getElementById('executionsList');
+            
+            if (currentExecutions.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-folder-open fa-3x mb-3"></i>
+                        <p>No scan executions found</p>
+                        <p>Start a new folder scan to see executions here</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = currentExecutions.map(execution => `
+                <div class="card execution-card ${execution.status} mb-3" data-execution-id="${execution.id}">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="card-title">
+                                    <i class="fas fa-folder me-2"></i>
+                                    ${execution.folder_path}
+                                </h6>
+                                <p class="card-text text-muted">
+                                    <small>
+                                        <i class="fas fa-clock me-1"></i>
+                                        Started: ${new Date(execution.started_at).toLocaleString()}
+                                        ${execution.completed_at ? `<br><i class="fas fa-check me-1"></i>Completed: ${new Date(execution.completed_at).toLocaleString()}` : ''}
+                                    </small>
+                                </p>
+                                <div class="progress mb-2" style="height: 6px;">
+                                    <div class="progress-bar" role="progressbar" 
+                                         style="width: ${execution.progress}%" 
+                                         aria-valuenow="${execution.progress}" 
+                                         aria-valuemin="0" aria-valuemax="100">
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="badge bg-${getStatusColor(execution.status)}">${execution.status}</span>
+                                    <small class="text-muted">
+                                        ${execution.processed_files}/${execution.total_files} files
+                                        (${execution.completed_files} completed, ${execution.failed_files} failed)
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="ms-3">
+                                <button class="btn btn-sm btn-outline-primary" onclick="viewExecutionDetails('${execution.id}')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                ${execution.status === 'running' ? `
+                                    <button class="btn btn-sm btn-outline-danger" onclick="stopExecution('${execution.id}')">
+                                        <i class="fas fa-stop"></i>
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getStatusColor(status) {
+            const colors = {
+                'pending': 'secondary',
+                'running': 'warning',
+                'completed': 'success',
+                'failed': 'danger',
+                'stopped': 'secondary'
+            };
+            return colors[status] || 'secondary';
+        }
+
+        function updateStats() {
+            const total = currentExecutions.length;
+            const active = currentExecutions.filter(e => e.status === 'running').length;
+            
+            document.getElementById('totalExecutions').textContent = total;
+            document.getElementById('activeExecutions').textContent = active;
+        }
+
+        async function viewExecutionDetails(executionId) {
+            selectedExecutionId = executionId;
+            
+            try {
+                const response = await fetch(`/api/scan-folder/executions/${executionId}`);
+                if (response.ok) {
+                    const execution = await response.json();
+                    populateExecutionModal(execution);
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('executionModal'));
+                    modal.show();
+                    
+                    // Show/hide stop button based on status
+                    document.getElementById('stopExecutionBtn').style.display = 
+                        execution.status === 'running' ? 'block' : 'none';
+                }
+            } catch (error) {
+                showAlert('danger', `Error loading execution details: ${error.message}`);
+            }
+        }
+
+        function populateExecutionModal(execution) {
+            // Execution info
+            document.getElementById('executionInfo').innerHTML = `
+                <table class="table table-sm">
+                    <tr><td><strong>Folder:</strong></td><td>${execution.folder_path}</td></tr>
+                    <tr><td><strong>Mode:</strong></td><td>${execution.processing_mode}</td></tr>
+                    <tr><td><strong>Status:</strong></td><td><span class="badge bg-${getStatusColor(execution.status)}">${execution.status}</span></td></tr>
+                    <tr><td><strong>Started:</strong></td><td>${new Date(execution.started_at).toLocaleString()}</td></tr>
+                    ${execution.completed_at ? `<tr><td><strong>Completed:</strong></td><td>${new Date(execution.completed_at).toLocaleString()}</td></tr>` : ''}
+                    <tr><td><strong>Duration:</strong></td><td>${formatDuration(execution.started_at, execution.completed_at)}</td></tr>
+                </table>
+            `;
+
+            // Progress
+            document.getElementById('executionProgress').innerHTML = `
+                <div class="progress mb-2">
+                    <div class="progress-bar" role="progressbar" 
+                         style="width: ${execution.progress}%" 
+                         aria-valuenow="${execution.progress}" 
+                         aria-valuemin="0" aria-valuemax="100">
+                        ${execution.progress}%
+                    </div>
+                </div>
+                <div class="row text-center">
+                    <div class="col-3">
+                        <h6>${execution.total_files}</h6>
+                        <small>Total</small>
+                    </div>
+                    <div class="col-3">
+                        <h6 class="text-warning">${execution.processed_files}</h6>
+                        <small>Processed</small>
+                    </div>
+                    <div class="col-3">
+                        <h6 class="text-success">${execution.completed_files}</h6>
+                        <small>Completed</small>
+                    </div>
+                    <div class="col-3">
+                        <h6 class="text-danger">${execution.failed_files}</h6>
+                        <small>Failed</small>
+                    </div>
+                </div>
+            `;
+
+            // File tree
+            renderFileTree(execution.files || []);
+
+            // Logs
+            renderLogs(execution.logs || []);
+        }
+
+        function renderFileTree(files) {
+            const container = document.getElementById('fileTree');
+            
+            if (files.length === 0) {
+                container.innerHTML = '<p class="text-muted">No files processed yet</p>';
+                return;
+            }
+
+            // Group files by directory
+            const fileTree = {};
+            files.forEach(file => {
+                const path = file.relative_path;
+                const parts = path.split('/');
+                const filename = parts.pop();
+                const dir = parts.join('/');
+                
+                if (!fileTree[dir]) fileTree[dir] = [];
+                fileTree[dir].push({ ...file, filename });
+            });
+
+            let html = '';
+            Object.keys(fileTree).sort().forEach(dir => {
+                if (dir) {
+                    html += `<div class="file-item"><i class="fas fa-folder me-2"></i>${dir}/</div>`;
+                }
+                fileTree[dir].forEach(file => {
+                    html += `
+                        <div class="file-item ms-3">
+                            <span class="file-status status-${file.status}"></span>
+                            <i class="fas fa-file me-2"></i>${file.filename}
+                            <small class="text-muted ms-2">(${file.status})</small>
+                        </div>
+                    `;
+                });
+            });
+
+            container.innerHTML = html;
+        }
+
+        function renderLogs(logs) {
+            const container = document.getElementById('executionLogs');
+            
+            if (logs.length === 0) {
+                container.innerHTML = '<p class="text-muted">No logs available</p>';
+                return;
+            }
+
+            container.innerHTML = logs.map(log => `
+                <div class="log-entry log-${log.level}">
+                    <small class="text-muted">${new Date(log.timestamp).toLocaleTimeString()}</small>
+                    <span class="ms-2">${log.message}</span>
+                </div>
+            `).join('');
+        }
+
+        async function stopExecution(executionId) {
+            if (!confirm('Are you sure you want to stop this execution?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/scan-folder/executions/${executionId}/stop`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    showAlert('success', 'Execution stopped successfully');
+                    loadExecutions();
+                    
+                    // Close modal if open
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('executionModal'));
+                    if (modal) {
+                        modal.hide();
+                    }
+                } else {
+                    const error = await response.json();
+                    showAlert('danger', `Failed to stop execution: ${error.detail}`);
+                }
+            } catch (error) {
+                showAlert('danger', `Error: ${error.message}`);
+            }
+        }
+
+        async function clearCompletedExecutions() {
+            if (!confirm('Are you sure you want to clear all completed executions?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/scan-folder/executions/clear-completed', {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    showAlert('success', 'Completed executions cleared');
+                    loadExecutions();
+                } else {
+                    const error = await response.json();
+                    showAlert('danger', `Failed to clear executions: ${error.detail}`);
+                }
+            } catch (error) {
+                showAlert('danger', `Error: ${error.message}`);
+            }
+        }
+
+        function formatDuration(startTime, endTime) {
+            const start = new Date(startTime);
+            const end = endTime ? new Date(endTime) : new Date();
+            const diff = end - start;
+            
+            const seconds = Math.floor(diff / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            
+            if (hours > 0) {
+                return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+            } else if (minutes > 0) {
+                return `${minutes}m ${seconds % 60}s`;
+            } else {
+                return `${seconds}s`;
+            }
+        }
+
+        function showAlert(type, message) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            // Find the container and insert at the top
+            const container = document.querySelector('.container-fluid');
+            if (container) {
+                container.insertBefore(alertDiv, container.firstChild);
+            }
+            
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+
+        function startAutoRefresh() {
+            refreshInterval = setInterval(() => {
+                loadExecutions();
+            }, 5000); // Refresh every 5 seconds
+        }
+
+        function stopAutoRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', stopAutoRefresh);
+    </script>
+</body>
+</html> 

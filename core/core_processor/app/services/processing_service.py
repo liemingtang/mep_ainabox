@@ -4,6 +4,7 @@ Processing service for managing document processing jobs and workflow
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from uuid import UUID
@@ -23,8 +24,8 @@ class ProcessingService(LoggerMixin):
     
     def __init__(self, document_service=None):
         self.postgres_pool = get_postgres_pool()
-        self.processing_pipeline_url = "http://processing-pipeline:8003"
-        self.document_router_url = "http://document-router:8002"
+        self.processing_pipeline_url = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
+        self.document_router_url = os.getenv("DOCUMENT_ROUTER_URL", "http://localhost:8002")
         self.document_service = document_service
     
     async def route_document(self, document_id: UUID, document: DocumentMetadata) -> ProcessingJob:

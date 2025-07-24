@@ -15,10 +15,10 @@ app.add_middleware(
 )
 
 # Service URLs
-CORE_SERVICE_URL = os.getenv("CORE_SERVICE_URL", "http://core-processor:8001")
-DOCUMENT_ROUTER_URL = os.getenv("DOCUMENT_ROUTER_URL", "http://document-router:8002")
-PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://processing-pipeline:8003")
-STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://storage-manager:8004")
+CORE_SERVICE_URL = os.getenv("CORE_SERVICE_URL", "http://localhost:8001")
+DOCUMENT_ROUTER_URL = os.getenv("DOCUMENT_ROUTER_URL", "http://localhost:8002")
+PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
+STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://localhost:8004")
 
 @app.get("/health")
 async def health_check():

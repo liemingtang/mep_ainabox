@@ -16,8 +16,14 @@ import json
 import subprocess
 import threading
 import time
+import uuid
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -420,7 +426,14 @@ app = FastAPI(title="MDIS Dashboard", version="1.0.0")
 # Determine the correct paths based on current working directory
 import os
 current_dir = os.getcwd()
-if current_dir.endswith('/dashboard'):
+print(f"Current working directory: {current_dir}")
+
+# Check if we're in the mep_ainabox root directory
+if current_dir.endswith('/mep_ainabox'):
+    # Running from mep_ainabox root directory
+    static_dir = "core/dashboard/static"
+    templates_dir = "core/dashboard/templates"
+elif current_dir.endswith('/dashboard'):
     # Running from dashboard directory
     static_dir = "static"
     templates_dir = "templates"
@@ -431,6 +444,12 @@ else:
 
 print(f"Static directory: {static_dir}")
 print(f"Templates directory: {templates_dir}")
+
+# Verify the directories exist
+if not os.path.exists(static_dir):
+    print(f"Warning: Static directory does not exist: {static_dir}")
+if not os.path.exists(templates_dir):
+    print(f"Warning: Templates directory does not exist: {templates_dir}")
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 templates = Jinja2Templates(directory=templates_dir)
@@ -500,6 +519,48 @@ class AdminStatus(BaseModel):
     shutdown_logs: List[str]
     last_update: datetime
 
+# Scan Folder Models
+class ScanFolderRequest(BaseModel):
+    folder_path: str
+    processing_mode: str = "enhanced"
+    concurrent_limit: int = 5
+    max_depth: int = 10
+    recursive: bool = True
+    save_report: bool = False
+
+class ScanFileStatus(BaseModel):
+    filename: str
+    relative_path: str
+    status: str  # pending, processing, completed, failed, skipped
+    file_size: int
+    error_message: Optional[str] = None
+    processed_at: Optional[datetime] = None
+
+class ScanLogEntry(BaseModel):
+    timestamp: datetime
+    level: str  # info, success, warning, error
+    message: str
+
+class ScanExecution(BaseModel):
+    id: str
+    folder_path: str
+    processing_mode: str
+    concurrent_limit: int
+    max_depth: int
+    recursive: bool
+    save_report: bool
+    status: str  # pending, running, completed, failed, stopped
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    total_files: int = 0
+    processed_files: int = 0
+    completed_files: int = 0
+    failed_files: int = 0
+    skipped_files: int = 0
+    progress: float = 0.0
+    files: List[ScanFileStatus] = []
+    logs: List[ScanLogEntry] = []
+
 # Global admin state
 admin_state = {
     "startup_in_progress": False,
@@ -509,6 +570,10 @@ admin_state = {
     "shutdown_logs": [],
     "shutdown_thread": None
 }
+
+# Scan folder execution storage
+scan_executions: Dict[str, ScanExecution] = {}
+scan_processes: Dict[str, subprocess.Popen] = {}
 
 async def check_service_health(service_name: str, url: str) -> ServiceHealth:
     """Check health of a single service"""
@@ -936,6 +1001,377 @@ async def get_dashboard_stats() -> DashboardStats:
         elasticsearch_docs=es_stats.get("total_documents", 0),
         qdrant_collections=qdrant_stats.get("total_collections", 0)
     )
+
+# Scan Folder Functions
+def add_scan_log(execution_id: str, level: str, message: str):
+    """Add a log entry to a scan execution"""
+    if execution_id in scan_executions:
+        log_entry = ScanLogEntry(
+            timestamp=datetime.now(),
+            level=level,
+            message=message
+        )
+        scan_executions[execution_id].logs.append(log_entry)
+
+def update_scan_progress(execution_id: str):
+    """Update progress percentage for a scan execution"""
+    if execution_id in scan_executions:
+        execution = scan_executions[execution_id]
+        if execution.total_files > 0:
+            execution.progress = (execution.processed_files / execution.total_files) * 100
+        else:
+            execution.progress = 0.0
+
+def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
+    """Background worker for scanning folders"""
+    # Store original directory - we'll restore this at the end
+    import os
+    original_dir = os.getcwd()
+    
+    try:
+        execution = scan_executions[execution_id]
+        execution.status = "running"
+        add_scan_log(execution_id, "info", f"Starting scan of folder: {request.folder_path}")
+        
+        # Change to project root for Docker operations
+        project_root = "/home/lie/repo_mep/mep_ainabox"
+        os.chdir(project_root)
+        
+        # Check if folder exists and is accessible
+        if not os.path.exists(request.folder_path):
+            raise Exception(f"Folder does not exist: {request.folder_path}")
+        
+        if not os.path.isdir(request.folder_path):
+            raise Exception(f"Path is not a directory: {request.folder_path}")
+        
+        # Resolve absolute path
+        folder_path = os.path.abspath(request.folder_path)
+        add_scan_log(execution_id, "info", f"Resolved folder path: {folder_path}")
+        
+        # Use dynamic Docker mounting approach for external folders
+        # This ensures the processing pipeline can access the files correctly
+        container_name = f"mep-folder-scanner-{execution_id[:8]}"
+        
+        # Check if Docker image exists, if not build it
+        try:
+            result = subprocess.run(
+                ["docker", "images", "-q", "mep-file-watcher:latest"],
+                capture_output=True,
+                text=True,
+                timeout=10.0
+            )
+            
+            if not result.stdout.strip():
+                add_scan_log(execution_id, "info", "Docker image not found, building mep-file-watcher:latest...")
+                build_result = subprocess.run(
+                    ["docker", "build", "-t", "mep-file-watcher:latest", "./core/file_watcher"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300.0  # 5 minutes timeout for build
+                )
+                
+                if build_result.returncode != 0:
+                    raise Exception(f"Failed to build Docker image: {build_result.stderr}")
+                
+                add_scan_log(execution_id, "info", "Docker image built successfully")
+        except Exception as e:
+            add_scan_log(execution_id, "warning", f"Docker not available, falling back to direct execution: {str(e)}")
+            # Fall back to direct Python execution
+            add_scan_log(execution_id, "info", "Using direct Python execution (files may not be accessible to processing pipeline)")
+            
+            # Build the scan command for direct execution
+            cmd = [
+                "python3", 
+                "./core/file_watcher/folder_scanner.py",
+                folder_path
+            ]
+            
+            # Add processing mode
+            if request.processing_mode == "queue":
+                cmd.append("--queue")
+            elif request.processing_mode == "sync":
+                cmd.append("--sync")
+            
+            # Add other options
+            if not request.recursive:
+                cmd.append("--no-recursive")
+            
+            if request.max_depth != 10:
+                cmd.extend(["--max-depth", str(request.max_depth)])
+            
+            if request.concurrent_limit != 5:
+                cmd.extend(["--concurrent", str(request.concurrent_limit)])
+            
+            if request.save_report:
+                # Generate a timestamped report filename
+                import time
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                report_filename = f"scan_report_{timestamp}.json"
+                cmd.extend(["--save-report", report_filename])
+            
+            add_scan_log(execution_id, "info", f"Executing direct command: {' '.join(cmd)}")
+            
+            # Start the process
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            add_scan_log(execution_id, "info", f"Process started with PID: {process.pid}")
+            scan_processes[execution_id] = process
+            
+            # Continue with monitoring (skip the Docker-specific code below)
+            import threading
+            
+            def monitor_stderr():
+                while True:
+                    error_output = process.stderr.readline()
+                    if error_output == '' and process.poll() is not None:
+                        break
+                    if error_output:
+                        line = error_output.strip()
+                        # Check if it's actually an error or just info output
+                        if "ERROR" in line:
+                            add_scan_log(execution_id, "error", f"STDERR: {line}")
+                        else:
+                            add_scan_log(execution_id, "info", f"STDERR: {line}")
+            
+            # Start stderr monitoring in a separate thread
+            stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
+            stderr_thread.start()
+            
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    line = output.strip()
+                    add_scan_log(execution_id, "info", line)
+                    
+                    # Parse progress from output
+                    if "Found" in line and "files to process" in line:
+                        try:
+                            total_files = int(line.split()[1])
+                            execution.total_files = total_files
+                            add_scan_log(execution_id, "info", f"Found {total_files} files to process")
+                        except:
+                            pass
+                    elif "Uploaded file" in line or "✅ Uploaded file" in line:
+                        execution.processed_files += 1
+                        update_scan_progress(execution_id)
+                    elif "Successfully processed" in line or "✅ Successfully processed" in line:
+                        execution.completed_files += 1
+                    elif "Failed to process" in line or "❌ Failed to process" in line:
+                        execution.failed_files += 1
+                    elif "Processing file" in line:
+                        # Extract file number from "Processing file X/Y: filename"
+                        try:
+                            parts = line.split("Processing file ")[1].split("/")[0]
+                            current_file = int(parts)
+                            if execution.total_files == 0:
+                                execution.total_files = current_file
+                        except:
+                            pass
+            
+            # Get return code
+            return_code = process.poll()
+            
+            if return_code == 0:
+                execution.status = "completed"
+                add_scan_log(execution_id, "success", "Scan completed successfully")
+            else:
+                execution.status = "failed"
+                add_scan_log(execution_id, "error", f"Scan failed with return code: {return_code}")
+            
+            execution.completed_at = datetime.now()
+            if execution_id in scan_processes:
+                del scan_processes[execution_id]
+            
+            # Restore original directory
+            try:
+                os.chdir(original_dir)
+            except:
+                pass
+            
+            return  # Exit early for fallback mode
+        
+        # Build the Docker command
+        docker_cmd = [
+            "docker", "run", "--rm",
+            "--name", container_name,
+            "--network", "host",  # Use host network for localhost access
+            "-v", f"{folder_path}:/app/scan_folder:ro",  # Mount folder read-only
+            "-e", "CORE_PROCESSOR_URL=http://localhost:8001",
+            "mep-file-watcher:latest"
+        ]
+        
+        # Build the Python command inside the container
+        python_cmd = [
+            "python3", 
+            "/app/folder_scanner.py",
+            "/app/scan_folder"  # Use the mounted path
+        ]
+        
+        # Add processing mode
+        if request.processing_mode == "queue":
+            python_cmd.append("--queue")
+        elif request.processing_mode == "sync":
+            python_cmd.append("--sync")
+        
+        # Add other options
+        if not request.recursive:
+            python_cmd.append("--no-recursive")
+        
+        if request.max_depth != 10:
+            python_cmd.extend(["--max-depth", str(request.max_depth)])
+        
+        if request.concurrent_limit != 5:
+            python_cmd.extend(["--concurrent", str(request.concurrent_limit)])
+        
+        if request.save_report:
+            # Generate a timestamped report filename
+            import time
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            report_filename = f"scan_report_{timestamp}.json"
+            python_cmd.extend(["--save-report", report_filename])
+        
+        # Combine Docker and Python commands
+        full_cmd = docker_cmd + python_cmd
+        
+        add_scan_log(execution_id, "info", f"Executing Docker command: {' '.join(full_cmd)}")
+        
+        # Start the process
+        process = subprocess.Popen(
+            full_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        add_scan_log(execution_id, "info", f"Process started with PID: {process.pid}")
+        scan_processes[execution_id] = process
+        
+        # Monitor the process
+        import threading
+        
+        def monitor_stderr():
+            while True:
+                error_output = process.stderr.readline()
+                if error_output == '' and process.poll() is not None:
+                    break
+                if error_output:
+                    line = error_output.strip()
+                    # Check if it's actually an error or just info output
+                    if "ERROR" in line:
+                        add_scan_log(execution_id, "error", f"STDERR: {line}")
+                    else:
+                        add_scan_log(execution_id, "info", f"STDERR: {line}")
+        
+        # Start stderr monitoring in a separate thread
+        stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
+        stderr_thread.start()
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                line = output.strip()
+                add_scan_log(execution_id, "info", line)
+                
+                # Parse progress from output
+                if "Found" in line and "files to process" in line:
+                    try:
+                        total_files = int(line.split()[1])
+                        execution.total_files = total_files
+                        add_scan_log(execution_id, "info", f"Found {total_files} files to process")
+                    except:
+                        pass
+                elif "Uploaded file" in line or "✅ Uploaded file" in line:
+                    execution.processed_files += 1
+                    update_scan_progress(execution_id)
+                elif "Successfully processed" in line or "✅ Successfully processed" in line:
+                    execution.completed_files += 1
+                elif "Failed to process" in line or "❌ Failed to process" in line:
+                    execution.failed_files += 1
+                elif "Processing file" in line:
+                    # Extract file number from "Processing file X/Y: filename"
+                    try:
+                        parts = line.split("Processing file ")[1].split("/")[0]
+                        current_file = int(parts)
+                        if execution.total_files == 0:
+                            execution.total_files = current_file
+                    except:
+                        pass
+        
+        # Get return code
+        return_code = process.poll()
+        
+        if return_code == 0:
+            execution.status = "completed"
+            add_scan_log(execution_id, "success", "Scan completed successfully")
+        else:
+            execution.status = "failed"
+            add_scan_log(execution_id, "error", f"Scan failed with return code: {return_code}")
+        
+        execution.completed_at = datetime.now()
+        if execution_id in scan_processes:
+            del scan_processes[execution_id]
+        
+        # Restore original directory
+        try:
+            os.chdir(original_dir)
+        except:
+            pass
+        
+    except Exception as e:
+        if execution_id in scan_executions:
+            scan_executions[execution_id].status = "failed"
+            add_scan_log(execution_id, "error", f"Scan worker error: {str(e)}")
+            scan_executions[execution_id].completed_at = datetime.now()
+            if execution_id in scan_processes:
+                del scan_processes[execution_id]
+        
+        # Restore original directory
+        try:
+            os.chdir(original_dir)
+        except:
+            pass
+
+def stop_scan_execution(execution_id: str):
+    """Stop a running scan execution"""
+    if execution_id in scan_executions and execution_id in scan_processes:
+        execution = scan_executions[execution_id]
+        process = scan_processes[execution_id]
+        if execution.status == "running":
+            process.terminate()
+            execution.status = "stopped"
+            execution.completed_at = datetime.now()
+            add_scan_log(execution_id, "warning", "Scan execution stopped by user")
+            del scan_processes[execution_id]
+            return True
+    return False
+
+def clear_completed_executions():
+    """Clear completed, failed, and stopped executions"""
+    global scan_executions, scan_processes
+    to_remove = []
+    for execution_id, execution in scan_executions.items():
+        if execution.status in ["completed", "failed", "stopped"]:
+            to_remove.append(execution_id)
+    
+    for execution_id in to_remove:
+        del scan_executions[execution_id]
+        if execution_id in scan_processes:
+            del scan_processes[execution_id]
+    
+    return len(to_remove)
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
@@ -2014,6 +2450,119 @@ async def stop_individual_service(service_key: str):
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error stopping service {service_key}: {str(e)}")
+
+# Scan Folder API Endpoints
+@app.get("/scan-folder", response_class=HTMLResponse)
+async def scan_folder_page(request: Request):
+    """Scan folder page"""
+    return templates.TemplateResponse("scan_folder.html", {"request": request})
+
+@app.post("/api/scan-folder/start")
+async def start_scan_folder(request: ScanFolderRequest):
+    """Start a new scan folder execution"""
+    try:
+        logger.info(f"Starting scan folder execution for: {request.folder_path}")
+        
+        # Validate folder path
+        if not os.path.exists(request.folder_path):
+            error_msg = f"Folder does not exist: {request.folder_path}"
+            logger.warning(f"Scan folder validation failed: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        if not os.path.isdir(request.folder_path):
+            error_msg = f"Path is not a directory: {request.folder_path}"
+            logger.warning(f"Scan folder validation failed: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        # Check if folder is readable
+        if not os.access(request.folder_path, os.R_OK):
+            error_msg = f"Folder is not readable: {request.folder_path}"
+            logger.warning(f"Scan folder validation failed: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+        
+        logger.info(f"Folder validation passed for: {request.folder_path}")
+        
+        # Create execution
+        execution_id = str(uuid.uuid4())
+        execution = ScanExecution(
+            id=execution_id,
+            folder_path=request.folder_path,
+            processing_mode=request.processing_mode,
+            concurrent_limit=request.concurrent_limit,
+            max_depth=request.max_depth,
+            recursive=request.recursive,
+            save_report=request.save_report,
+            status="pending",
+            started_at=datetime.now()
+        )
+        
+        scan_executions[execution_id] = execution
+        logger.info(f"Created scan execution {execution_id} for folder: {request.folder_path}")
+        
+        # Start background worker
+        worker_thread = threading.Thread(
+            target=scan_folder_worker,
+            args=(execution_id, request),
+            daemon=True
+        )
+        worker_thread.start()
+        
+        logger.info(f"Started background worker for execution {execution_id}")
+        
+        return {
+            "execution_id": execution_id,
+            "status": "started",
+            "message": f"Scan execution started for folder: {request.folder_path}"
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error starting scan folder: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
+
+@app.get("/api/scan-folder/executions")
+async def get_scan_executions():
+    """Get all scan executions"""
+    executions = []
+    for execution in scan_executions.values():
+        # Convert to dict
+        execution_dict = execution.dict()
+        executions.append(execution_dict)
+    
+    # Sort by started_at (newest first)
+    executions.sort(key=lambda x: x['started_at'], reverse=True)
+    return executions
+
+@app.get("/api/scan-folder/executions/{execution_id}")
+async def get_scan_execution(execution_id: str):
+    """Get a specific scan execution"""
+    if execution_id not in scan_executions:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    
+    execution = scan_executions[execution_id]
+    execution_dict = execution.dict()
+    return execution_dict
+
+@app.post("/api/scan-folder/executions/{execution_id}/stop")
+async def stop_scan_execution_api(execution_id: str):
+    """Stop a running scan execution"""
+    if execution_id not in scan_executions:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    
+    success = stop_scan_execution(execution_id)
+    if success:
+        return {"message": "Execution stopped successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Failed to stop execution")
+
+@app.post("/api/scan-folder/executions/clear-completed")
+async def clear_completed_executions_api():
+    """Clear completed, failed, and stopped executions"""
+    count = clear_completed_executions()
+    return {"message": f"Cleared {count} completed executions"}
 
 if __name__ == "__main__":
     import uvicorn
