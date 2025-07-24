@@ -2564,6 +2564,144 @@ async def clear_completed_executions_api():
     count = clear_completed_executions()
     return {"message": f"Cleared {count} completed executions"}
 
+class FolderPreviewRequest(BaseModel):
+    folder_path: str
+    recursive: bool = True
+    max_depth: Optional[int] = None
+
+class FileItem(BaseModel):
+    name: str
+    type: str  # file or directory
+    size: Optional[int] = None
+    supported: Optional[bool] = None
+    children: Optional[List['FileItem']] = None
+
+class FolderPreviewResponse(BaseModel):
+    folder_path: str
+    total_files: int
+    supported_files: int
+    unsupported_files: int
+    directories: int
+    total_size: int
+    recursive: bool
+    max_depth: Optional[int]
+    file_structure: List[FileItem]
+
+@app.post("/api/scan-folder/preview")
+async def preview_folder(request: FolderPreviewRequest):
+    """Preview folder structure without processing files"""
+    try:
+        # Validate folder path
+        if not request.folder_path:
+            raise HTTPException(status_code=400, detail="Folder path is required")
+        
+        if not os.path.exists(request.folder_path):
+            raise HTTPException(status_code=400, detail=f"Folder does not exist: {request.folder_path}")
+        
+        if not os.path.isdir(request.folder_path):
+            raise HTTPException(status_code=400, detail=f"Path is not a directory: {request.folder_path}")
+        
+        if not os.access(request.folder_path, os.R_OK):
+            raise HTTPException(status_code=400, detail=f"Folder is not readable: {request.folder_path}")
+        
+        logger.info(f"Starting folder preview for: {request.folder_path}")
+        
+        # Scan folder structure
+        total_files = 0
+        supported_files = 0
+        unsupported_files = 0
+        directories = 0
+        total_size = 0
+        file_structure = []
+        
+        # Supported file extensions (same as folder scanner)
+        SUPPORTED_EXTENSIONS = {
+            '.pdf', '.docx', '.doc', '.txt', '.html', '.htm', 
+            '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff',
+            '.csv', '.xlsx', '.xls'
+        }
+        
+        def scan_directory(path: str, depth: int = 0) -> List[FileItem]:
+            nonlocal total_files, supported_files, unsupported_files, directories, total_size
+            
+            items = []
+            
+            try:
+                for item in os.listdir(path):
+                    item_path = os.path.join(path, item)
+                    
+                    if os.path.isdir(item_path):
+                        directories += 1
+                        children = []
+                        
+                        if request.recursive and (request.max_depth is None or depth < request.max_depth):
+                            children = scan_directory(item_path, depth + 1)
+                        
+                        items.append(FileItem(
+                            name=item,
+                            type="directory",
+                            children=children
+                        ))
+                    else:
+                        total_files += 1
+                        file_size = os.path.getsize(item_path)
+                        total_size += file_size
+                        
+                        # Check if file is supported
+                        file_ext = os.path.splitext(item)[1].lower()
+                        is_supported = file_ext in SUPPORTED_EXTENSIONS
+                        
+                        if is_supported:
+                            supported_files += 1
+                        else:
+                            unsupported_files += 1
+                        
+                        items.append(FileItem(
+                            name=item,
+                            type="file",
+                            size=file_size,
+                            supported=is_supported
+                        ))
+            except PermissionError:
+                logger.warning(f"Permission denied accessing: {path}")
+            except Exception as e:
+                logger.error(f"Error scanning directory {path}: {e}")
+            
+            return items
+        
+        # Start scanning
+        file_structure = scan_directory(request.folder_path)
+        
+        # Sort items (directories first, then files alphabetically)
+        def sort_items(items: List[FileItem]) -> List[FileItem]:
+            for item in items:
+                if item.children:
+                    item.children = sort_items(item.children)
+            return sorted(items, key=lambda x: (x.type != "directory", x.name.lower()))
+        
+        file_structure = sort_items(file_structure)
+        
+        logger.info(f"Folder preview completed for {request.folder_path}: {total_files} files, {directories} directories")
+        
+        return FolderPreviewResponse(
+            folder_path=request.folder_path,
+            total_files=total_files,
+            supported_files=supported_files,
+            unsupported_files=unsupported_files,
+            directories=directories,
+            total_size=total_size,
+            recursive=request.recursive,
+            max_depth=request.max_depth,
+            file_structure=file_structure
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"Unexpected error previewing folder: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        raise HTTPException(status_code=500, detail=error_msg)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8010, log_level="info") 

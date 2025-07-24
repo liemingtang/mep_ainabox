@@ -39,6 +39,28 @@
         .file-item:hover {
             background-color: #f8f9fa;
         }
+        .directory-item:hover {
+            background-color: #e9ecef;
+        }
+        .directory-item .d-flex:hover {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .expand-icon {
+            transition: transform 0.2s ease;
+            cursor: pointer;
+        }
+        .expand-icon.expanded {
+            transform: rotate(90deg);
+        }
+        .directory-children {
+            border-left: 2px solid #dee2e6;
+            padding-left: 10px;
+            margin-top: 5px;
+        }
+        .file-item {
+            margin-bottom: 2px;
+        }
         .file-status {
             display: inline-block;
             width: 12px;
@@ -193,10 +215,16 @@
                                 </div>
                             </div>
 
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="fas fa-play me-2"></i>
-                                Start Scan
-                            </button>
+                            <div class="d-grid gap-2">
+                                <button type="button" class="btn btn-outline-primary" id="previewBtn">
+                                    <i class="fas fa-eye me-2"></i>
+                                    Preview Folder
+                                </button>
+                                <button type="submit" class="btn btn-primary" id="startScanBtn" style="display: none;">
+                                    <i class="fas fa-play me-2"></i>
+                                    Start Processing
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -224,8 +252,58 @@
                 </div>
             </div>
 
-            <!-- Right Panel: Executions List -->
+            <!-- Right Panel: Folder Preview and Executions -->
             <div class="col-md-8">
+                <!-- Folder Preview Panel -->
+                <div class="card mb-3" id="folderPreviewPanel" style="display: none;">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-folder-tree me-2"></i>
+                            Folder Preview
+                        </h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" id="startScanBtn" style="display: none;">
+                                <i class="fas fa-play me-2"></i>
+                                Start Processing
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" id="clearPreviewBtn">
+                                <i class="fas fa-times"></i>
+                                Clear Preview
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <h6>Folder Information</h6>
+                                <div id="folderInfo"></div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Scan Statistics</h6>
+                                <div id="scanStats"></div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="row">
+                                                    <div class="col-12">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">File Structure</h6>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="expandAllDirectories()">
+                                        <i class="fas fa-plus-square me-1"></i>Expand All
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="collapseAllDirectories()">
+                                        <i class="fas fa-minus-square me-1"></i>Collapse All
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="folderPreview" class="file-tree" style="max-height: 300px; overflow-y: auto; border: 1px solid #dee2e6; padding: 15px; background-color: #f8f9fa;"></div>
+                        </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Executions List Panel -->
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">
@@ -298,6 +376,8 @@
         </div>
     </div>
 
+
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let currentExecutions = [];
@@ -314,6 +394,15 @@
         function setupEventListeners() {
             // Form submission
             document.getElementById('scanForm').addEventListener('submit', startNewExecution);
+            
+            // Preview button
+            document.getElementById('previewBtn').addEventListener('click', previewFolder);
+            
+            // Start scan button (in preview panel)
+            document.getElementById('startScanBtn').addEventListener('click', startNewExecution);
+            
+            // Clear preview button
+            document.getElementById('clearPreviewBtn').addEventListener('click', clearPreview);
             
             // Browse button
             document.getElementById('browseBtn').addEventListener('click', () => {
@@ -375,28 +464,43 @@
         async function startNewExecution(event) {
             event.preventDefault();
             
-            const folderPath = document.getElementById('folderPath').value.trim();
+            let formData;
             
-            // Basic validation
-            if (!folderPath) {
-                showAlert('danger', 'Please enter a folder path');
-                return;
+            // If called from preview panel, use preview data
+            if (previewData) {
+                formData = {
+                    folder_path: previewData.folder_path,
+                    processing_mode: document.getElementById('processingMode').value,
+                    concurrent_limit: parseInt(document.getElementById('concurrentLimit').value),
+                    max_depth: parseInt(document.getElementById('maxDepth').value),
+                    recursive: document.getElementById('recursive').checked,
+                    save_report: document.getElementById('saveReport').checked
+                };
+            } else {
+                // Called from form submission
+                const folderPath = document.getElementById('folderPath').value.trim();
+                
+                // Basic validation
+                if (!folderPath) {
+                    showAlert('danger', 'Please enter a folder path');
+                    return;
+                }
+                
+                // Check if it looks like a relative path and suggest absolute path
+                if (!folderPath.startsWith('/') && !folderPath.startsWith('C:\\') && !folderPath.startsWith('D:\\')) {
+                    showAlert('warning', `The path "${folderPath}" appears to be relative. Please use an absolute path (e.g., /media/lie/DATA2/ai_scan_folder)`);
+                    return;
+                }
+                
+                formData = {
+                    folder_path: folderPath,
+                    processing_mode: document.getElementById('processingMode').value,
+                    concurrent_limit: parseInt(document.getElementById('concurrentLimit').value),
+                    max_depth: parseInt(document.getElementById('maxDepth').value),
+                    recursive: document.getElementById('recursive').checked,
+                    save_report: document.getElementById('saveReport').checked
+                };
             }
-            
-            // Check if it looks like a relative path and suggest absolute path
-            if (!folderPath.startsWith('/') && !folderPath.startsWith('C:\\') && !folderPath.startsWith('D:\\')) {
-                showAlert('warning', `The path "${folderPath}" appears to be relative. Please use an absolute path (e.g., /media/lie/DATA2/ai_scan_folder)`);
-                return;
-            }
-            
-            const formData = {
-                folder_path: folderPath,
-                processing_mode: document.getElementById('processingMode').value,
-                concurrent_limit: parseInt(document.getElementById('concurrentLimit').value),
-                max_depth: parseInt(document.getElementById('maxDepth').value),
-                recursive: document.getElementById('recursive').checked,
-                save_report: document.getElementById('saveReport').checked
-            };
 
             try {
                 const response = await fetch('/api/scan-folder/start', {
@@ -411,7 +515,14 @@
                 
                 if (response.ok) {
                     showAlert('success', 'Scan execution started successfully!');
-                    document.getElementById('scanForm').reset();
+                    
+                    // Clear preview panel if it was shown
+                    if (previewData) {
+                        clearPreview();
+                    } else {
+                        document.getElementById('scanForm').reset();
+                    }
+                    
                     loadExecutions();
                 } else {
                     const errorMessage = result.detail || `HTTP ${response.status}: ${response.statusText}`;
@@ -742,6 +853,225 @@
                 clearInterval(refreshInterval);
                 refreshInterval = null;
             }
+        }
+
+        // Preview functionality
+        let previewData = null;
+
+        async function previewFolder() {
+            const folderPath = document.getElementById('folderPath').value.trim();
+            
+            // Basic validation
+            if (!folderPath) {
+                showAlert('danger', 'Please enter a folder path');
+                return;
+            }
+            
+            // Check if it looks like a relative path and suggest absolute path
+            if (!folderPath.startsWith('/') && !folderPath.startsWith('C:\\') && !folderPath.startsWith('D:\\')) {
+                showAlert('warning', `The path "${folderPath}" appears to be relative. Please use an absolute path (e.g., /media/lie/DATA2/ai_scan_folder)`);
+                return;
+            }
+
+            // Show loading state
+            const previewBtn = document.getElementById('previewBtn');
+            const originalText = previewBtn.innerHTML;
+            previewBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Scanning...';
+            previewBtn.disabled = true;
+
+            try {
+                const response = await fetch('/api/scan-folder/preview', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        folder_path: folderPath,
+                        recursive: document.getElementById('recursive').checked,
+                        max_depth: parseInt(document.getElementById('maxDepth').value)
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    previewData = result;
+                    showPreviewPanel(result);
+                } else {
+                    const errorMessage = result.detail || `HTTP ${response.status}: ${response.statusText}`;
+                    showAlert('danger', `Failed to preview folder: ${errorMessage}`);
+                }
+            } catch (error) {
+                console.error('Error previewing folder:', error);
+                showAlert('danger', `Error: ${error.message}`);
+            } finally {
+                // Restore button state
+                previewBtn.innerHTML = originalText;
+                previewBtn.disabled = false;
+            }
+        }
+
+        function showPreviewPanel(data) {
+            // Update folder info
+            document.getElementById('folderInfo').innerHTML = `
+                <div class="mb-2">
+                    <strong>Path:</strong> ${data.folder_path}
+                </div>
+                <div class="mb-2">
+                    <strong>Total Size:</strong> ${formatFileSize(data.total_size)}
+                </div>
+                <div class="mb-2">
+                    <strong>Scan Mode:</strong> ${data.recursive ? 'Recursive' : 'Non-recursive'}
+                </div>
+                <div class="mb-2">
+                    <strong>Max Depth:</strong> ${data.max_depth || 'Unlimited'}
+                </div>
+            `;
+
+            // Update scan stats
+            document.getElementById('scanStats').innerHTML = `
+                <div class="mb-2">
+                    <strong>Total Files:</strong> ${data.total_files}
+                </div>
+                <div class="mb-2">
+                    <strong>Supported Files:</strong> ${data.supported_files}
+                </div>
+                <div class="mb-2">
+                    <strong>Unsupported Files:</strong> ${data.unsupported_files}
+                </div>
+                <div class="mb-2">
+                    <strong>Directories:</strong> ${data.directories}
+                </div>
+            `;
+
+            // Build file tree
+            const fileTree = buildFileTree(data.file_structure);
+            document.getElementById('folderPreview').innerHTML = fileTree;
+
+            // Show preview panel
+            document.getElementById('folderPreviewPanel').style.display = 'block';
+            
+            // Show start scan button
+            document.getElementById('startScanBtn').style.display = 'inline-block';
+            
+            // Hide preview button
+            document.getElementById('previewBtn').style.display = 'none';
+        }
+
+        function buildFileTree(structure, level = 0) {
+            if (!structure || structure.length === 0) {
+                return '<div class="text-muted">No files found</div>';
+            }
+
+            let html = '';
+
+            structure.forEach((item, index) => {
+                const itemId = `item-${level}-${index}`;
+                const hasChildren = item.children && item.children.length > 0;
+                const icon = item.type === 'directory' ? 'fas fa-folder' : 'fas fa-file';
+                const color = item.type === 'directory' ? 'text-warning' : 'text-primary';
+                const supported = item.supported !== undefined ? 
+                    (item.supported ? 'text-success' : 'text-muted') : '';
+                
+                if (item.type === 'directory') {
+                    // Directory with expand/collapse functionality
+                    html += `
+                        <div class="file-item directory-item" data-item-id="${itemId}">
+                            <div class="d-flex align-items-center" style="cursor: pointer;" onclick="toggleDirectory('${itemId}')">
+                                <i class="fas fa-chevron-right me-1 expand-icon" id="expand-${itemId}" style="width: 12px; color: #6c757d;"></i>
+                                <i class="${icon} ${color} me-2"></i>
+                                <span class="fw-bold">${item.name}</span>
+                                ${hasChildren ? `<small class="text-muted ms-2">(${item.children.length} items)</small>` : ''}
+                            </div>
+                            ${hasChildren ? `
+                                <div class="directory-children" id="children-${itemId}" style="display: none; margin-left: 20px;">
+                                    ${buildFileTree(item.children, level + 1)}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                } else {
+                    // File item
+                    html += `
+                        <div class="file-item">
+                            <div class="d-flex align-items-center" style="margin-left: 20px;">
+                                <i class="${icon} ${color} me-2"></i>
+                                <span class="${supported}">${item.name}</span>
+                                ${item.size ? `<small class="text-muted ms-2">(${formatFileSize(item.size)})</small>` : ''}
+                                ${item.supported === false ? '<small class="text-danger ms-2">(unsupported)</small>' : ''}
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+
+            return html;
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function toggleDirectory(itemId) {
+            const childrenDiv = document.getElementById(`children-${itemId}`);
+            const expandIcon = document.getElementById(`expand-${itemId}`);
+            
+            if (childrenDiv.style.display === 'none') {
+                // Expand
+                childrenDiv.style.display = 'block';
+                expandIcon.classList.add('expanded');
+            } else {
+                // Collapse
+                childrenDiv.style.display = 'none';
+                expandIcon.classList.remove('expanded');
+            }
+        }
+
+        function expandAllDirectories() {
+            const childrenDivs = document.querySelectorAll('.directory-children');
+            const expandIcons = document.querySelectorAll('.expand-icon');
+            
+            childrenDivs.forEach(div => {
+                div.style.display = 'block';
+            });
+            
+            expandIcons.forEach(icon => {
+                icon.classList.add('expanded');
+            });
+        }
+
+        function collapseAllDirectories() {
+            const childrenDivs = document.querySelectorAll('.directory-children');
+            const expandIcons = document.querySelectorAll('.expand-icon');
+            
+            childrenDivs.forEach(div => {
+                div.style.display = 'none';
+            });
+            
+            expandIcons.forEach(icon => {
+                icon.classList.remove('expanded');
+            });
+        }
+
+        function clearPreview() {
+            // Hide preview panel
+            document.getElementById('folderPreviewPanel').style.display = 'none';
+            
+            // Show preview button
+            document.getElementById('previewBtn').style.display = 'inline-block';
+            
+            // Hide start scan button
+            document.getElementById('startScanBtn').style.display = 'none';
+            
+            // Clear preview data
+            previewData = null;
+            
+            // Clear form
+            document.getElementById('scanForm').reset();
         }
 
         // Cleanup on page unload
