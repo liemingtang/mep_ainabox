@@ -6,6 +6,7 @@
     <title>LLM Search - MEP AI NABOX</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body {
             background-color: #f8f9fa;
@@ -96,6 +97,98 @@
         .message.assistant .message-content {
             background: #f1f3f4;
             color: #202124;
+        }
+        
+        /* Markdown styling for assistant messages */
+        .message.assistant .message-content {
+            line-height: 1.6;
+        }
+        
+        .message.assistant .message-content h1,
+        .message.assistant .message-content h2,
+        .message.assistant .message-content h3,
+        .message.assistant .message-content h4,
+        .message.assistant .message-content h5,
+        .message.assistant .message-content h6 {
+            margin-top: 16px;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #202124;
+        }
+        
+        .message.assistant .message-content h1 { font-size: 1.5em; }
+        .message.assistant .message-content h2 { font-size: 1.3em; }
+        .message.assistant .message-content h3 { font-size: 1.1em; }
+        
+        .message.assistant .message-content p {
+            margin-bottom: 12px;
+        }
+        
+        .message.assistant .message-content ul,
+        .message.assistant .message-content ol {
+            margin-bottom: 12px;
+            padding-left: 20px;
+        }
+        
+        .message.assistant .message-content li {
+            margin-bottom: 4px;
+        }
+        
+        .message.assistant .message-content code {
+            background-color: #f1f3f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9em;
+        }
+        
+        .message.assistant .message-content pre {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+        
+        .message.assistant .message-content pre code {
+            background: none;
+            padding: 0;
+            border-radius: 0;
+        }
+        
+        .message.assistant .message-content blockquote {
+            border-left: 4px solid #007bff;
+            margin: 12px 0;
+            padding-left: 16px;
+            color: #6c757d;
+            font-style: italic;
+        }
+        
+        .message.assistant .message-content strong {
+            font-weight: 600;
+        }
+        
+        .message.assistant .message-content em {
+            font-style: italic;
+        }
+        
+        .message.assistant .message-content table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 12px 0;
+        }
+        
+        .message.assistant .message-content th,
+        .message.assistant .message-content td {
+            border: 1px solid #e9ecef;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        .message.assistant .message-content th {
+            background-color: #f8f9fa;
+            font-weight: 600;
         }
         
         .message-avatar {
@@ -260,7 +353,15 @@
                         <i class="fas fa-robot"></i>
                     </div>
                     <div class="message-content">
-                        Hello! I'm your AI assistant. I can search through your documents and answer questions based on their content. What would you like to know?
+                        Hello! I'm your **AI assistant**. I can search through your documents and answer questions based on their content.
+
+**What I can help you with:**
+- Search and analyze your documents
+- Answer questions about your data  
+- Provide database statistics
+- Generate insights from your content
+
+What would you like to know?
                     </div>
                 </div>
             </div>
@@ -356,9 +457,9 @@
             const content = document.createElement('div');
             content.className = 'message-content';
             
-            // Add main response
+            // Add main response with markdown rendering
             const responseText = document.createElement('div');
-            responseText.textContent = text;
+            responseText.innerHTML = marked.parse(text);
             content.appendChild(responseText);
             
             // Add sources if available
@@ -428,6 +529,14 @@
         function scrollToBottom() {
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+
+        // Initialize welcome message with markdown
+        document.addEventListener('DOMContentLoaded', function() {
+            const welcomeMessage = document.querySelector('.message.assistant .message-content');
+            if (welcomeMessage) {
+                welcomeMessage.innerHTML = marked.parse(welcomeMessage.textContent);
+            }
+        });
 
         // Focus input on page load
         chatInput.focus();
