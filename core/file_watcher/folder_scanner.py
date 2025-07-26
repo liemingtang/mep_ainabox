@@ -320,13 +320,13 @@ class FolderScanner:
             logger.info(f"Processing file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
             
             try:
-                # Upload document first
+                # Upload document first - the core processor will automatically trigger processing
                 await self.process_document(file_path, folder_path)
                 logger.info(f"✅ Uploaded file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
                 
-                # Now trigger processing through the pipeline
-                await self._trigger_processing_pipeline(file_path, folder_path)
-                logger.info(f"✅ Triggered processing for file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
+                # Note: The core processor automatically triggers the processing pipeline
+                # No need to manually trigger it here
+                logger.info(f"✅ Processing automatically triggered by core processor for file {processed_count}/{len(files_to_process)}: {os.path.basename(file_path)}")
                 
                 # Small delay to ensure status updates are processed
                 await asyncio.sleep(0.5)
@@ -345,55 +345,6 @@ class FolderScanner:
         
         # Print summary
         self.print_summary()
-
-    async def _trigger_processing_pipeline(self, file_path: str, source_folder: str):
-        """Trigger processing pipeline for a document after upload"""
-        try:
-            # Get the document ID from the uploaded document
-            filename = os.path.basename(file_path)
-            
-            # Find the document in the database
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"{CORE_PROCESSOR_URL}/documents", timeout=10.0)
-                response.raise_for_status()
-                documents = response.json()
-                
-                # Find the document by filename and source
-                document_id = None
-                for doc in documents:
-                    if doc.get("filename") == filename and doc.get("source") == "folder_scanner":
-                        document_id = doc.get("id")
-                        break
-                
-                if not document_id:
-                    logger.error(f"Could not find document ID for {filename}")
-                    return False
-                
-                # Generate job ID
-                import uuid
-                job_id = str(uuid.uuid4())
-                
-                # Trigger processing pipeline
-                logger.info(f"Triggering processing pipeline for document {document_id}")
-                pipeline_response = await client.post(
-                    f"{PROCESSING_PIPELINE_URL}/process",
-                    json={
-                        "document_id": document_id,
-                        "job_id": job_id
-                    },
-                    timeout=30.0
-                )
-                
-                if pipeline_response.status_code == 200:
-                    logger.info(f"✅ Successfully triggered processing for document {document_id}")
-                    return True
-                else:
-                    logger.error(f"❌ Failed to trigger processing for document {document_id}: {pipeline_response.text}")
-                    return False
-                    
-        except Exception as e:
-            logger.error(f"Error triggering processing pipeline for {file_path}: {e}")
-            return False
 
     async def process_folder_concurrent(self, folder_path: str, recursive: bool = True, max_depth: int = None, 
                                        concurrent_limit: int = 5):
@@ -475,7 +426,9 @@ class FolderScanner:
                 logger.info(f"Successfully processed: {file_path}")
                 
                 # Trigger processing pipeline for concurrent mode
-                await self._trigger_processing_pipeline(file_path, source_folder)
+                # Note: The core processor automatically triggers the processing pipeline
+                # No need to manually trigger it here
+                logger.info(f"✅ Processing automatically triggered by core processor for {file_path}")
                 
                 return True
             else:

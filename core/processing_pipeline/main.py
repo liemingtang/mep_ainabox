@@ -20,6 +20,12 @@ async def atomic_status_update(document_id: str, job_id: str, status: str, resul
     """Perform atomic status update for both job and document to prevent race conditions"""
     logger.info(f"🔒 ATOMIC UPDATE: Starting atomic status update for document {document_id}, job {job_id} to {status}")
     
+    # Map job status to document status
+    # Job status can be "running", but document status must be "processing"
+    document_status = status
+    if status == "running":
+        document_status = "processing"
+    
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -36,9 +42,9 @@ async def atomic_status_update(document_id: str, job_id: str, status: str, resul
                     logger.error(f"❌ ATOMIC UPDATE: Job status update failed after {max_retries} attempts")
                     return False
             
-            # Step 2: Update document status
-            logger.info(f"🔒 ATOMIC UPDATE: Updating document status")
-            doc_success = await update_document_status(document_id, status, max_retries=1)
+            # Step 2: Update document status (using mapped status)
+            logger.info(f"🔒 ATOMIC UPDATE: Updating document status to {document_status}")
+            doc_success = await update_document_status(document_id, document_status, max_retries=1)
             
             if not doc_success:
                 logger.warning(f"❌ ATOMIC UPDATE: Document status update failed (attempt {attempt + 1})")
@@ -50,7 +56,7 @@ async def atomic_status_update(document_id: str, job_id: str, status: str, resul
                     return False
             
             # Step 3: Update cache immediately
-            await update_document_status_cache(document_id, status)
+            await update_document_status_cache(document_id, document_status)
             
             # Step 4: Verify both updates were successful
             logger.info(f"🔒 ATOMIC UPDATE: Verifying status updates")
@@ -69,6 +75,16 @@ async def atomic_status_update(document_id: str, job_id: str, status: str, resul
                             logger.info(f"✅ ATOMIC UPDATE: Job status verified as {status}")
                         else:
                             logger.warning(f"❌ ATOMIC UPDATE: Job status verification failed - expected {status}, got {job_data.get('status')}")
+                            # For job status, we need to handle the mapping between "running" and "processing"
+                            if status == "running" and job_data.get("status") == "processing":
+                                logger.info(f"✅ ATOMIC UPDATE: Job status verified (running maps to processing)")
+                            elif status == "processing" and job_data.get("status") == "running":
+                                logger.info(f"✅ ATOMIC UPDATE: Job status verified (processing maps to running)")
+                            else:
+                                if attempt < max_retries - 1:
+                                    continue
+                                else:
+                                    return False
                             if attempt < max_retries - 1:
                                 continue
                             else:
@@ -78,10 +94,10 @@ async def atomic_status_update(document_id: str, job_id: str, status: str, resul
             
             # Verify document status using cache
             cached_status = await get_document_status_cache(document_id)
-            if cached_status == status:
-                logger.info(f"✅ ATOMIC UPDATE: Document status verified as {status}")
+            if cached_status == document_status:
+                logger.info(f"✅ ATOMIC UPDATE: Document status verified as {document_status}")
             else:
-                logger.warning(f"❌ ATOMIC UPDATE: Document status verification failed - expected {status}, got {cached_status}")
+                logger.warning(f"❌ ATOMIC UPDATE: Document status verification failed - expected {document_status}, got {cached_status}")
                 if attempt < max_retries - 1:
                     continue
                 else:
@@ -287,26 +303,165 @@ async def extract_text_from_document(document_id: str, file_path: str) -> Dict[s
                 "--name", container_name,
                 "--network", "host",
                 "-v", f"{file_dir}:/app/input_dir:ro",
-                "mep-file-watcher:latest",
+                "core-text-processor:latest",
                 "python3", "-c",
                 f"""
 import sys
 import os
 sys.path.append('/app')
-sys.path.append('/app/core')
 
-# Simple text extraction function
+# Enhanced text extraction function with PDF support
 def extract_text_from_file(file_path):
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return {{
-            "success": True,
-            "text_content": content,
-            "text_length": len(content),
-            "quality_score": min(1.0, len(content) / 1000.0),
-            "file_path": str(file_path)
-        }}
+        from pathlib import Path
+        import logging
+        
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger(__name__)
+        
+        file_path = Path(file_path)
+        file_extension = file_path.suffix.lower()
+        
+        logger.info(f"Processing file: {{file_path}} with extension: {{file_extension}}")
+        
+        # Handle PDF files
+        if file_extension == '.pdf':
+            try:
+                import PyPDF2
+                text_content = ""
+                
+                with open(file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    logger.info(f"PDF has {{len(pdf_reader.pages)}} pages")
+                    
+                    for page_num, page in enumerate(pdf_reader.pages):
+                        try:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text_content += f"\\n--- Page {{page_num + 1}} ---\\n{{page_text}}\\n"
+                                logger.info(f"Extracted {{len(page_text)}} characters from page {{page_num + 1}}")
+                            else:
+                                logger.warning(f"No text extracted from page {{page_num + 1}}")
+                        except Exception as e:
+                            logger.warning(f"Error extracting text from page {{page_num + 1}}: {{e}}")
+                            text_content += f"\\n--- Page {{page_num + 1}} ---\\n[Error extracting text: {{e}}]\\n"
+                
+                if not text_content.strip():
+                    logger.warning("No text content extracted from PDF")
+                    return {{
+                        "success": False,
+                        "error": "No extractable text content found in PDF",
+                        "file_path": str(file_path)
+                    }}
+                
+                logger.info(f"Successfully extracted {{len(text_content)}} characters from PDF")
+                return {{
+                    "success": True,
+                    "text_content": text_content,
+                    "text_length": len(text_content),
+                    "quality_score": min(1.0, len(text_content) / 1000.0),
+                    "file_path": str(file_path)
+                }}
+                
+            except ImportError:
+                return {{
+                    "success": False,
+                    "error": "PyPDF2 not available for PDF processing",
+                    "file_path": str(file_path)
+                }}
+            except Exception as e:
+                return {{
+                    "success": False,
+                    "error": f"Error processing PDF: {{e}}",
+                    "file_path": str(file_path)
+                }}
+        
+        # Handle Word documents
+        elif file_extension in ['.docx', '.doc']:
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                text_content = ""
+                
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():
+                        text_content += paragraph.text + "\\n"
+                
+                return {{
+                    "success": True,
+                    "text_content": text_content,
+                    "text_length": len(text_content),
+                    "quality_score": min(1.0, len(text_content) / 1000.0),
+                    "file_path": str(file_path)
+                }}
+                
+            except ImportError:
+                return {{
+                    "success": False,
+                    "error": "python-docx not available for Word document processing",
+                    "file_path": str(file_path)
+                }}
+            except Exception as e:
+                return {{
+                    "success": False,
+                    "error": f"Error processing Word document: {{e}}",
+                    "file_path": str(file_path)
+                }}
+        
+        # Handle text files
+        elif file_extension in ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm']:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                return {{
+                    "success": True,
+                    "text_content": content,
+                    "text_length": len(content),
+                    "quality_score": min(1.0, len(content) / 1000.0),
+                    "file_path": str(file_path)
+                }}
+            except UnicodeDecodeError:
+                # Try other encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        with open(file_path, 'r', encoding=encoding) as f:
+                            content = f.read()
+                        return {{
+                            "success": True,
+                            "text_content": content,
+                            "text_length": len(content),
+                            "quality_score": min(1.0, len(content) / 1000.0),
+                            "file_path": str(file_path)
+                        }}
+                    except UnicodeDecodeError:
+                        continue
+                
+                return {{
+                    "success": False,
+                    "error": f"Could not decode file with any supported encoding",
+                    "file_path": str(file_path)
+                }}
+        
+        # For other file types, try to read as text
+        else:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                return {{
+                    "success": True,
+                    "text_content": content,
+                    "text_length": len(content),
+                    "quality_score": min(1.0, len(content) / 1000.0),
+                    "file_path": str(file_path)
+                }}
+            except UnicodeDecodeError:
+                return {{
+                    "success": False,
+                    "error": f"Binary or unsupported file type: {{file_extension}}",
+                    "file_path": str(file_path)
+                }}
+                
     except Exception as e:
         return {{
             "success": False,
@@ -596,7 +751,7 @@ async def process_document(request: ProcessingRequest):
                 if existing_jobs:
                     # Use the first job ID from the database
                     job_id = existing_jobs[0]["id"]
-                    logger.info(f"Using existing job ID from database: {job_id}")
+                    logger.info(f"Using existing job ID from database: {job_id} (request job_id was: {request.job_id})")
                 else:
                     # Fallback to the provided job_id if no jobs exist
                     job_id = request.job_id
@@ -608,7 +763,7 @@ async def process_document(request: ProcessingRequest):
             processing_jobs[job_id] = {
                 "job_id": job_id,
                 "document_id": document_id,
-                "status": "processing",
+                "status": "running",
                 "progress": 0,
                 "current_step": "initialized",
                 "started_at": datetime.utcnow(),
@@ -621,7 +776,7 @@ async def process_document(request: ProcessingRequest):
             init_success = await atomic_status_update(
                 document_id, 
                 job_id, 
-                "processing", 
+                "running", 
                 {
                     "current_step": "initialized",
                     "progress": 10,
@@ -634,7 +789,7 @@ async def process_document(request: ProcessingRequest):
             
             # STEP 2: Get document information
             logger.info(f"Step 2/5: Getting document information for {document_id}")
-            await update_job_status(job_id, "processing", {
+            await update_job_status(job_id, "running", {
                 "current_step": "document_info_retrieval",
                 "progress": 20,
                 "message": "Retrieving document information"
@@ -656,7 +811,7 @@ async def process_document(request: ProcessingRequest):
             
             # STEP 3: Extract text from document
             logger.info(f"Step 3/5: Extracting text from {file_path}")
-            await update_job_status(job_id, "processing", {
+            await update_job_status(job_id, "running", {
                 "current_step": "text_extraction",
                 "progress": 40,
                 "message": f"Extracting text from {os.path.basename(file_path)}"
@@ -687,7 +842,7 @@ async def process_document(request: ProcessingRequest):
             
             # STEP 4: Generate embeddings
             logger.info(f"Step 4/5: Generating embeddings for {len(text_content)} characters of text")
-            await update_job_status(job_id, "processing", {
+            await update_job_status(job_id, "running", {
                 "current_step": "embedding_generation",
                 "progress": 70,
                 "message": f"Generating embeddings for {len(text_content)} characters of text"
@@ -871,11 +1026,11 @@ async def update_job_status(job_id: str, status: str, result_data: Dict[str, Any
                     "status": status,
                     "result_data": result_data or {}
                 }
-                logger.info(f"🔧 JOB STATUS UPDATE: Sending POST request to {PROCESSING_PIPELINE_URL}/jobs/{document_id}/status")
+                logger.info(f"🔧 JOB STATUS UPDATE: Sending POST request to {CORE_PROCESSOR_URL}/processing/jobs/{job_id}/status")
                 logger.info(f"🔧 JOB STATUS UPDATE: Request payload: {payload}")
                 
                 response = await client.post(
-                    f"{PROCESSING_PIPELINE_URL}/jobs/{document_id}/status",
+                    f"{CORE_PROCESSOR_URL}/processing/jobs/{job_id}/status",
                     json=payload,
                     timeout=10.0
                 )
@@ -1321,7 +1476,7 @@ async def process_document_sync(request: ProcessingRequest):
         
         # STEP 5: Finalize processing
         logger.info(f"Step 5/5: Finalizing SYNC processing for {document_id}")
-        await update_job_status(job_id, "processing", {
+        await update_job_status(job_id, "running", {
             "current_step": "finalizing",
             "progress": 90,
             "message": "Finalizing processing and storing results"

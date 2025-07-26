@@ -139,6 +139,65 @@ def extract_text_from_file(file_path: str) -> str:
                 content = f.read()
             return content
             
+        elif file_extension == '.pdf':
+            # PDF files - use PyPDF2 for text extraction
+            logger.info(f"Processing PDF file: {file_path}")
+            try:
+                import PyPDF2
+                text_content = ""
+                
+                with open(file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    logger.info(f"PDF has {len(pdf_reader.pages)} pages")
+                    
+                    for page_num, page in enumerate(pdf_reader.pages):
+                        try:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text_content += f"\n--- Page {page_num + 1} ---\n{page_text}\n"
+                                logger.info(f"Extracted {len(page_text)} characters from page {page_num + 1}")
+                            else:
+                                logger.warning(f"No text extracted from page {page_num + 1}")
+                        except Exception as e:
+                            logger.warning(f"Error extracting text from page {page_num + 1}: {e}")
+                            text_content += f"\n--- Page {page_num + 1} ---\n[Error extracting text: {e}]\n"
+                
+                if not text_content.strip():
+                    logger.warning("No text content extracted from PDF")
+                    return "[PDF file with no extractable text content]"
+                
+                logger.info(f"Successfully extracted {len(text_content)} characters from PDF")
+                return text_content
+                
+            except ImportError:
+                logger.error("PyPDF2 not available for PDF processing")
+                return "[PDF processing not available - PyPDF2 not installed]"
+            except Exception as e:
+                logger.error(f"Error processing PDF {file_path}: {e}")
+                return f"[Error processing PDF: {e}]"
+            
+        elif file_extension in ['.docx', '.doc']:
+            # Word documents - use python-docx
+            logger.info(f"Processing Word document: {file_path}")
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                text_content = ""
+                
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():
+                        text_content += paragraph.text + "\n"
+                
+                logger.info(f"Successfully extracted {len(text_content)} characters from Word document")
+                return text_content
+                
+            except ImportError:
+                logger.error("python-docx not available for Word document processing")
+                return "[Word document processing not available - python-docx not installed]"
+            except Exception as e:
+                logger.error(f"Error processing Word document {file_path}: {e}")
+                return f"[Error processing Word document: {e}]"
+            
         else:
             # For other file types, try to read as text
             try:
