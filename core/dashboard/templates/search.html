@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Search - MEP AI NABOX</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        .search-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px 0;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+        
+        .chat-container {
+            flex: 1;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .chat-header h3 {
+            margin: 0;
+            font-weight: 500;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 60vh;
+        }
+        
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            align-items: flex-start;
+        }
+        
+        .message.user {
+            justify-content: flex-end;
+        }
+        
+        .message.assistant {
+            justify-content: flex-start;
+        }
+        
+        .message-content {
+            max-width: 80%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+        
+        .message.user .message-content {
+            background: #007bff;
+            color: white;
+        }
+        
+        .message.assistant .message-content {
+            background: #f1f3f4;
+            color: #202124;
+        }
+        
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 8px;
+            font-size: 14px;
+        }
+        
+        .message.user .message-avatar {
+            background: #007bff;
+            color: white;
+        }
+        
+        .message.assistant .message-avatar {
+            background: #34a853;
+            color: white;
+        }
+        
+        .chat-input-container {
+            padding: 20px;
+            border-top: 1px solid #e9ecef;
+            background: white;
+        }
+        
+        .chat-input-form {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .chat-input {
+            flex: 1;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            padding: 12px 20px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .chat-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        
+        .send-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .send-button:hover {
+            background: #0056b3;
+        }
+        
+        .send-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #6c757d;
+        }
+        
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .sources-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .sources-title {
+            font-size: 14px;
+            color: #6c757d;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+        
+        .source-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .source-score {
+            color: #007bff;
+            font-weight: 500;
+        }
+        
+        .source-text {
+            margin-top: 5px;
+            color: #495057;
+            font-style: italic;
+        }
+        
+        .back-link {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #6c757d;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .back-link:hover {
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">
+        <i class="fas fa-arrow-left"></i>
+        Back to Dashboard
+    </a>
+    
+    <div class="search-container">
+        <div class="header">
+            <h1><i class="fas fa-search me-2"></i>LLM Search</h1>
+            <p>Ask questions about your documents using AI-powered search</p>
+        </div>
+        
+        <div class="chat-container">
+            <div class="chat-header">
+                <h3><i class="fas fa-robot me-2"></i>AI Assistant</h3>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                <div class="message assistant">
+                    <div class="message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        Hello! I'm your AI assistant. I can search through your documents and answer questions based on their content. What would you like to know?
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-input-container">
+                <form id="chat-form" class="chat-input-form">
+                    <input type="text" id="chat-input" class="chat-input" 
+                           placeholder="Type your question here..." autocomplete="off">
+                    <button type="submit" id="send-button" class="send-button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const chatMessages = document.getElementById('chat-messages');
+        const chatForm = document.getElementById('chat-form');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-button');
+
+        chatForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const message = chatInput.value.trim();
+            if (!message) return;
+            
+            // Add user message
+            addMessage(message, 'user');
+            chatInput.value = '';
+            
+            // Show loading message
+            const loadingId = addLoadingMessage();
+            
+            try {
+                // Send request to API
+                const response = await fetch('/api/llm-search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: message })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Search failed');
+                }
+                
+                const data = await response.json();
+                
+                // Remove loading message
+                removeMessage(loadingId);
+                
+                // Add assistant response
+                addAssistantMessage(data.llm_response || 'No response generated', data.results || []);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                removeMessage(loadingId);
+                addMessage('Sorry, I encountered an error while processing your request. Please try again.', 'assistant');
+            }
+        });
+
+        function addMessage(text, sender) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.innerHTML = sender === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.textContent = text;
+            
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        function addAssistantMessage(text, sources) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.innerHTML = '<i class="fas fa-robot"></i>';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            
+            // Add main response
+            const responseText = document.createElement('div');
+            responseText.textContent = text;
+            content.appendChild(responseText);
+            
+            // Add sources if available
+            if (sources && sources.length > 0) {
+                const sourcesSection = document.createElement('div');
+                sourcesSection.className = 'sources-section';
+                
+                const sourcesTitle = document.createElement('div');
+                sourcesTitle.className = 'sources-title';
+                sourcesTitle.textContent = 'Sources:';
+                sourcesSection.appendChild(sourcesTitle);
+                
+                sources.forEach((source, index) => {
+                    const sourceItem = document.createElement('div');
+                    sourceItem.className = 'source-item';
+                    sourceItem.innerHTML = `
+                        <div><strong>Source ${index + 1}</strong> <span class="source-score">(Score: ${source.score?.toFixed(3) || 'N/A'})</span></div>
+                        <div class="source-text">${source.text || 'No text available'}</div>
+                    `;
+                    sourcesSection.appendChild(sourceItem);
+                });
+                
+                content.appendChild(sourcesSection);
+            }
+            
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+        }
+
+        function addLoadingMessage() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message assistant';
+            messageDiv.id = 'loading-message';
+            
+            const avatar = document.createElement('div');
+            avatar.className = 'message-avatar';
+            avatar.innerHTML = '<i class="fas fa-robot"></i>';
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <span>Searching and analyzing...</span>
+                </div>
+            `;
+            
+            messageDiv.appendChild(avatar);
+            messageDiv.appendChild(content);
+            
+            chatMessages.appendChild(messageDiv);
+            scrollToBottom();
+            
+            return 'loading-message';
+        }
+
+        function removeMessage(messageId) {
+            const message = document.getElementById(messageId);
+            if (message) {
+                message.remove();
+            }
+        }
+
+        function scrollToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Focus input on page load
+        chatInput.focus();
+    </script>
+</body>
+</html> 

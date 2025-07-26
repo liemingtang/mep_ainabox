@@ -57,6 +57,21 @@ fi
 pip install --upgrade pip > /dev/null 2>&1
 pip install -r "$DASHBOARD_DIR/requirements.txt" > /dev/null 2>&1
 
+# Load environment variables from .env file if it exists
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    if [ "$BACKGROUND_MODE" = false ]; then
+        echo "📄 Loading environment variables from .env file..."
+    fi
+    # Load .env file line by line to handle special characters
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and empty lines
+        if [[ ! "$line" =~ ^[[:space:]]*# ]] && [[ -n "$line" ]]; then
+            # Export the variable
+            export "$line"
+        fi
+    done < "$SCRIPT_DIR/.env"
+fi
+
 # Set environment variables
 export CORE_PROCESSOR_URL=http://localhost:8001
 export FILE_WATCHER_URL=http://localhost:8009
@@ -67,6 +82,8 @@ export NEO4J_URL=http://localhost:7474
 export QDRANT_API_KEY=qdrant_api_key
 export NEO4J_USER=neo4j
 export NEO4J_PASSWORD=neo4j_password
+export DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-your-deepseek-api-key}
+export DEEPSEEK_API_URL=${DEEPSEEK_API_URL:-https://api.deepseek.com/v1/chat/completions}
 
 # Create logs directory if it doesn't exist
 mkdir -p "$SCRIPT_DIR/logs"

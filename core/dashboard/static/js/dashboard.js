@@ -476,6 +476,78 @@ function showError(message) {
     }, 5000);
 }
 
+// --- LLM Search Page Logic ---
+function showLLMSearchSection() {
+    document.querySelectorAll('.container-fluid > .row').forEach(row => {
+        if (row.id !== 'llm-search-section') row.style.display = 'none';
+    });
+    document.getElementById('llm-search-section').style.display = '';
+}
+
+function showDashboardSections() {
+    document.querySelectorAll('.container-fluid > .row').forEach(row => {
+        if (row.id !== 'llm-search-section') row.style.display = '';
+    });
+    document.getElementById('llm-search-section').style.display = 'none';
+}
+
+function handleRouting() {
+    if (window.location.pathname === '/llm-search') {
+        showLLMSearchSection();
+    } else {
+        showDashboardSections();
+    }
+}
+
+window.addEventListener('popstate', handleRouting);
+document.addEventListener('DOMContentLoaded', () => {
+    handleRouting();
+    const llmSearchForm = document.getElementById('llm-search-form');
+    if (llmSearchForm) {
+        llmSearchForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const query = document.getElementById('llm-search-query').value.trim();
+            if (!query) return;
+            const resultsDiv = document.getElementById('llm-search-results');
+            resultsDiv.innerHTML = '<div class="spinner-border text-primary" role="status"><span class="visually-hidden">Searching...</span></div>';
+            try {
+                const resp = await fetch('/api/llm-search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                if (!resp.ok) throw new Error('Search failed');
+                const data = await resp.json();
+                renderLLMSearchResults(data, resultsDiv);
+            } catch (err) {
+                resultsDiv.innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+            }
+        });
+    }
+});
+
+function renderLLMSearchResults(data, container) {
+    let html = '';
+    if (data.llm_response) {
+        html += `<div class="alert alert-info"><strong>LLM Answer:</strong><br>${data.llm_response}</div>`;
+    }
+    if (!data || !data.results || data.results.length === 0) {
+        html += '<div class="alert alert-warning">No results found.</div>';
+        container.innerHTML = html;
+        return;
+    }
+    html += '<ul class="list-group">';
+    data.results.forEach((item, idx) => {
+        html += `<li class="list-group-item">
+            <strong>Score:</strong> ${item.score?.toFixed(3) ?? '-'}<br>
+            <strong>Text:</strong> <pre>${item.text ?? ''}</pre>
+            <strong>Metadata:</strong> <code>${JSON.stringify(item.metadata ?? {}, null, 2)}</code>
+        </li>`;
+    });
+    html += '</ul>';
+    container.innerHTML = html;
+}
+
 // Export functions for global access
 window.refreshData = refreshData;
 window.viewDocumentDetails = viewDocumentDetails; 

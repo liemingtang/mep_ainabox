@@ -2702,6 +2702,234 @@ async def preview_folder(request: FolderPreviewRequest):
         logger.error(error_msg, exc_info=True)
         raise HTTPException(status_code=500, detail=error_msg)
 
+DEESEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "your-deepseek-api-key")
+DEESEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
+
+@app.post("/api/llm-search")
+async def llm_search(request: Request):
+    data = await request.json()
+    query = data.get("query", "")
+    if not query:
+        return {"results": [], "llm_response": "No query provided."}
+
+    # 1. Generate embedding for the query (reuse embedding_processor logic)
+    # 2. Search Qdrant for similar vectors
+    # 3. Send top results as context to DeepSeek API
+    # 4. Return results
+    try:
+        # --- Step 1: Generate embedding using HuggingFace (or your embedding provider) ---
+        # Call the embedding_processor API to get the embedding
+        embedding_resp = await httpx.AsyncClient().post(
+            f"http://localhost:8007/embed?text={query}&provider=huggingface"
+        )
+        embedding_data = embedding_resp.json()
+        embedding = embedding_data.get("embedding")
+        if not embedding:
+            return {"results": [], "llm_response": "Failed to generate embedding."}
+
+        # --- Step 2: Search Qdrant ---
+        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
+        search_payload = {
+            "vector": embedding,
+            "top": 5,
+            "with_payload": True
+        }
+        qdrant_resp = await httpx.AsyncClient().post(
+            f"{qdrant_url}/collections/documents/points/search",
+            headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+            json=search_payload
+        )
+        qdrant_results = qdrant_resp.json().get("result", [])
+        # Get Qdrant database statistics
+        try:
+            qdrant_stats_resp = await httpx.AsyncClient().get(
+                f"{qdrant_url}/collections/documents",
+                headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+                timeout=10.0
+            )
+            qdrant_stats = qdrant_stats_resp.json()
+            collection_info = qdrant_stats.get("result", {})
+            total_points = collection_info.get("points_count", 0)
+            total_vectors = collection_info.get("vectors_count", 0)
+        except:
+            total_points = len(qdrant_results)
+            total_vectors = len(qdrant_results)
+
+        # Prepare enhanced context for LLM
+        context_texts = [r["payload"].get("text", "") for r in qdrant_results]
+        context = "\n---\n".join(context_texts)
+        
+        # Add database metadata to context
+        db_metadata = f"""
+DATABASE INFORMATION:
+- Total documents in vector database: {total_points}
+- Total vector embeddings: {total_vectors}
+- Search results found: {len(qdrant_results)}
+
+DOCUMENT CONTENT:
+{context}
+"""
+        # --- Step 3: Call DeepSeek API ---
+        if DEESEEK_API_KEY == "your-deepseek-api-key":
+            llm_answer = "DeepSeek API key not configured. Please set the DEEPSEEK_API_KEY environment variable."
+        else:
+            # Debug: Print the API key (first 10 characters) and URL
+            print(f"Using DeepSeek API key: {DEESEEK_API_KEY[:10]}...")
+            print(f"Using DeepSeek API URL: {DEESEEK_API_URL}")
+            deepseek_payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": """You are a helpful assistant with access to a vector database containing document embeddings. 
+
+You can:
+1. Answer questions about the documents in the database
+2. Provide statistics about the database (number of documents, types, etc.)
+3. Analyze the content and patterns in the documents
+4. Help users understand what information is available
+
+When asked about database statistics, provide accurate information from the database metadata provided.
+When asked about document content, use the provided document excerpts to answer.
+Always be helpful and informative."""},
+                    {"role": "user", "content": f"Database Information and Document Content:\n{db_metadata}\n\nUser Query: {query}"}
+                ],
+                "stream": False
+            }
+            deepseek_headers = {
+                "Authorization": f"Bearer {DEESEEK_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            try:
+                print(f"Sending request to DeepSeek API...")
+                llm_resp = await httpx.AsyncClient().post(
+                    DEESEEK_API_URL,
+                    headers=deepseek_headers,
+                    json=deepseek_payload,
+                    timeout=60.0  # Increase timeout to 60 seconds
+                )
+                print(f"DeepSeek API response status: {llm_resp.status_code}")
+                llm_resp.raise_for_status()  # This will raise an exception for HTTP errors
+                llm_data = llm_resp.json()
+                print(f"DeepSeek API response: {llm_data}")
+                llm_answer = llm_data.get("choices", [{}])[0].get("message", {}).get("content", "No answer.")
+                print(f"Extracted answer: {llm_answer}")
+            except httpx.HTTPStatusError as e:
+                error_detail = f"HTTP {e.response.status_code}: {e.response.text}"
+                print(f"HTTP Error: {error_detail}")
+                llm_answer = f"Error calling DeepSeek API: {error_detail}"
+            except Exception as e:
+                print(f"Exception: {str(e)}")
+                import traceback
+                print(f"Traceback: {traceback.format_exc()}")
+                llm_answer = f"Error calling DeepSeek API: {str(e)}"
+        # --- Step 4: Return results ---
+        results = [
+            {
+                "score": r.get("score"),
+                "text": r["payload"].get("text", ""),
+                "metadata": r["payload"].get("metadata", {})
+            }
+            for r in qdrant_results
+        ]
+        return {"results": results, "llm_response": llm_answer}
+    except Exception as e:
+        return {"results": [], "llm_response": f"Error: {str(e)}"}
+
+@app.get("/llm-search", response_class=HTMLResponse)
+async def llm_search_page(request: Request):
+    return templates.TemplateResponse("search.html", {"request": request})
+
+@app.post("/api/db-query")
+async def database_query(request: Request):
+    """Direct database query endpoint for asking about the vector database"""
+    data = await request.json()
+    query = data.get("query", "")
+    if not query:
+        return {"answer": "No query provided."}
+
+    try:
+        # Get Qdrant database statistics
+        qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
+        
+        # Get collection statistics
+        qdrant_stats_resp = await httpx.AsyncClient().get(
+            f"{qdrant_url}/collections/documents",
+            headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+            timeout=10.0
+        )
+        qdrant_stats = qdrant_stats_resp.json()
+        collection_info = qdrant_stats.get("result", {})
+        total_points = collection_info.get("points_count", 0)
+        total_vectors = collection_info.get("vectors_count", 0)
+        
+        # Get sample documents for context
+        sample_resp = await httpx.AsyncClient().post(
+            f"{qdrant_url}/collections/documents/points/scroll",
+            headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+            json={"limit": 10, "with_payload": True},
+            timeout=10.0
+        )
+        sample_data = sample_resp.json()
+        sample_docs = sample_data.get("result", {}).get("points", [])
+        
+        # Prepare context
+        sample_texts = [doc["payload"].get("text", "")[:200] for doc in sample_docs]
+        sample_context = "\n---\n".join(sample_texts)
+        
+        # Create database context
+        db_context = f"""
+VECTOR DATABASE INFORMATION:
+- Total documents: {total_points}
+- Total vector embeddings: {total_vectors}
+- Collection name: documents
+
+SAMPLE DOCUMENTS (first 10):
+{sample_context}
+
+USER QUERY: {query}
+"""
+        
+        # Call DeepSeek API
+        if DEESEEK_API_KEY == "your-deepseek-api-key":
+            answer = "DeepSeek API key not configured."
+        else:
+            deepseek_payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": """You are a database assistant with access to a vector database. 
+Answer questions about the database content, statistics, and documents. Be informative and helpful."""},
+                    {"role": "user", "content": db_context}
+                ],
+                "stream": False
+            }
+            deepseek_headers = {
+                "Authorization": f"Bearer {DEESEEK_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            
+            llm_resp = await httpx.AsyncClient().post(
+                DEESEEK_API_URL,
+                headers=deepseek_headers,
+                json=deepseek_payload,
+                timeout=60.0
+            )
+            llm_resp.raise_for_status()
+            llm_data = llm_resp.json()
+            answer = llm_data.get("choices", [{}])[0].get("message", {}).get("content", "No answer.")
+        
+        return {
+            "answer": answer,
+            "database_stats": {
+                "total_documents": total_points,
+                "total_vectors": total_vectors,
+                "sample_documents": len(sample_docs)
+            }
+        }
+        
+    except Exception as e:
+        return {"answer": f"Error querying database: {str(e)}"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8010, log_level="info") 
