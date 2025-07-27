@@ -31,28 +31,43 @@ async def init_database():
     logger.info("Initializing database connections...")
     
     try:
-        # Initialize PostgreSQL
+        # Initialize PostgreSQL (required)
         await init_postgresql()
         
-        # Initialize Elasticsearch
-        await init_elasticsearch()
+        # Initialize Elasticsearch (optional)
+        try:
+            await init_elasticsearch()
+        except Exception as e:
+            logger.warning(f"Elasticsearch initialization failed (optional): {e}")
         
-        # Initialize Qdrant
-        await init_qdrant()
+        # Initialize Qdrant (optional)
+        try:
+            await init_qdrant()
+        except Exception as e:
+            logger.warning(f"Qdrant initialization failed (optional): {e}")
         
-        # Initialize Neo4j
-        await init_neo4j()
+        # Initialize Neo4j (optional)
+        try:
+            await init_neo4j()
+        except Exception as e:
+            logger.warning(f"Neo4j initialization failed (optional): {e}")
         
-        # Initialize Redis
-        await init_redis()
+        # Initialize Redis (optional)
+        try:
+            await init_redis()
+        except Exception as e:
+            logger.warning(f"Redis initialization failed (optional): {e}")
         
-        # Initialize MinIO
-        await init_minio()
+        # Initialize MinIO (optional)
+        try:
+            await init_minio()
+        except Exception as e:
+            logger.warning(f"MinIO initialization failed (optional): {e}")
         
-        logger.info("All database connections initialized successfully")
+        logger.info("Database connections initialized successfully")
         
     except Exception as e:
-        logger.error(f"Failed to initialize database connections: {e}")
+        logger.error(f"Failed to initialize required database connections: {e}")
         raise
 
 

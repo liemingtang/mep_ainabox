@@ -221,9 +221,11 @@ function updateDocumentsTable(documents) {
                         <td>
                             <div class="fw-medium">${doc.filename || 'Unknown'}</div>
                             <div class="text-muted small">${doc.document_type || 'Unknown'}</div>
+                            ${doc.data_source_type ? `<div class="text-muted small"><span class="badge bg-info">${doc.data_source_type}</span></div>` : ''}
                         </td>
                         <td>
                             <span class="source-badge">${doc.source || 'Unknown'}</span>
+                            ${doc.original_file_path ? `<div class="text-muted small"><code>${doc.original_file_path.substring(0, 30)}${doc.original_file_path.length > 30 ? '...' : ''}</code></div>` : ''}
                         </td>
                         <td>
                             <span class="status-badge ${statusClass}">${statusBadge}</span>
@@ -331,6 +333,9 @@ async function viewDocumentDetails(documentId) {
                         <p><strong>Size:</strong> ${formatFileSize(data.document.file_size)}</p>
                         <p><strong>Source:</strong> ${data.document.source}</p>
                         <p><strong>Status:</strong> ${data.document.processing_status}</p>
+                        ${data.document.original_file_path ? `<p><strong>Original Path:</strong> <code class="text-muted">${data.document.original_file_path}</code></p>` : ''}
+                        ${data.document.data_source_type ? `<p><strong>Data Source Type:</strong> <span class="badge bg-info">${data.document.data_source_type}</span></p>` : ''}
+                        ${data.document.data_source_uri ? `<p><strong>Data Source URI:</strong> <code class="text-muted">${data.document.data_source_uri}</code></p>` : ''}
                     </div>
                     
                     <div class="document-detail">

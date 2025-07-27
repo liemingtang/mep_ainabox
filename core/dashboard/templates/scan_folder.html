@@ -109,6 +109,21 @@
         .log-success { color: #28a745; }
         .log-warning { color: #ffc107; }
         .log-error { color: #dc3545; }
+        
+        /* Folder suggestions styling */
+        #folderSuggestions .btn {
+            font-size: 0.85rem;
+            padding: 0.25rem 0.5rem;
+            margin: 0.125rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+        
+        #folderSuggestions .alert {
+            border-left: 4px solid #007bff;
+        }
     </style>
 </head>
 <body>
@@ -163,8 +178,16 @@
                                 </div>
                                 <input type="file" id="folderInput" webkitdirectory directory multiple style="display: none;">
                                 <div class="form-text">
-                                    <small>Enter the absolute path to the folder you want to scan. For external drives, use the full path (e.g., /media/lie/DATA2/ai_scan_folder)</small>
+                                    <small>
+                                        <i class="fas fa-info-circle text-info"></i>
+                                        <strong>How to select a folder:</strong><br>
+                                        1. Click the folder icon to browse and select a folder (recommended)<br>
+                                        2. Or manually enter the absolute path (e.g., /media/lie/DATA2/ai_scan_folder)<br>
+                                        3. For external drives, make sure they are mounted first
+                                    </small>
                                 </div>
+                                <!-- Folder path suggestions container -->
+                                <div id="folderSuggestions" style="display: none;"></div>
                             </div>
 
                             <div class="mb-3">
@@ -412,6 +435,14 @@
             // Folder input change
             document.getElementById('folderInput').addEventListener('change', handleFolderSelect);
             
+            // Clear suggestions when user manually types in the path field
+            document.getElementById('folderPath').addEventListener('input', function() {
+                const suggestionsContainer = document.getElementById('folderSuggestions');
+                if (suggestionsContainer && suggestionsContainer.style.display !== 'none') {
+                    suggestionsContainer.style.display = 'none';
+                }
+            });
+            
             // Processing mode change
             document.getElementById('processingMode').addEventListener('change', updateModeDescription);
             
@@ -426,28 +457,110 @@
         function handleFolderSelect(event) {
             const files = event.target.files;
             if (files.length > 0) {
-                // Get the full path of the selected folder
-                // Note: Due to browser security restrictions, we can't get the full path
-                // from the file input. We'll use the folder name and let the user edit it
+                // Get the folder name from the selected files
                 const folderName = files[0].webkitRelativePath.split('/')[0];
                 
-                // For common external folders, provide helpful suggestions
-                let suggestedPath = folderName;
-                if (folderName === 'ai_scan_folder') {
-                    suggestedPath = '/media/lie/DATA2/ai_scan_folder';
-                } else if (folderName === 'documents') {
-                    suggestedPath = '/home/lie/Documents';
-                } else if (folderName === 'downloads') {
-                    suggestedPath = '/home/lie/Downloads';
+                // Create a comprehensive list of common paths to suggest
+                const commonPaths = [
+                    // External drive paths
+                    `/media/lie/DATA2/${folderName}`,
+                    `/media/lie/DATA1/${folderName}`,
+                    `/media/lie/EXTERNAL/${folderName}`,
+                    `/mnt/external/${folderName}`,
+                    
+                    // Home directory paths
+                    `/home/lie/${folderName}`,
+                    `/home/lie/Documents/${folderName}`,
+                    `/home/lie/Downloads/${folderName}`,
+                    `/home/lie/Desktop/${folderName}`,
+                    
+                    // Common system paths
+                    `/var/www/${folderName}`,
+                    `/opt/${folderName}`,
+                    `/usr/local/${folderName}`,
+                    
+                    // Network paths
+                    `/mnt/network/${folderName}`,
+                    `/mnt/share/${folderName}`,
+                    
+                    // Just the folder name (for manual editing)
+                    folderName
+                ];
+                
+                // Create a dropdown or suggestion list
+                let suggestionHtml = `
+                    <div class="alert alert-info mt-2">
+                        <strong>Selected folder:</strong> ${folderName}<br>
+                        <strong>Please select or enter the correct full path:</strong>
+                        <div class="mt-2">
+                `;
+                
+                commonPaths.forEach((path, index) => {
+                    suggestionHtml += `
+                        <button type="button" class="btn btn-sm btn-outline-primary me-2 mb-1" 
+                                onclick="setFolderPath('${path}')">
+                            ${path}
+                        </button>
+                    `;
+                });
+                
+                suggestionHtml += `
+                        </div>
+                        <div class="mt-2">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle"></i>
+                                Due to browser security restrictions, we can't automatically detect the full path. 
+                                Please select the correct path from the suggestions above, or manually enter the full path.
+                            </small>
+                        </div>
+                    </div>
+                `;
+                
+                // Show the suggestions
+                const suggestionsContainer = document.getElementById('folderSuggestions');
+                if (suggestionsContainer) {
+                    suggestionsContainer.innerHTML = suggestionHtml;
+                    suggestionsContainer.style.display = 'block';
+                } else {
+                    // If no suggestions container exists, show as alert
+                    showAlert('info', `Selected folder: ${folderName}. Please enter the full path manually.`);
                 }
                 
-                document.getElementById('folderPath').value = suggestedPath;
+                // Set a default suggestion (first one)
+                document.getElementById('folderPath').value = commonPaths[0];
                 
-                // Show a helpful message
-                if (suggestedPath !== folderName) {
-                    showAlert('info', `Suggested path: ${suggestedPath}. Please verify this is correct before starting the scan.`);
-                }
+                // Focus on the input field for easy editing
+                document.getElementById('folderPath').focus();
+                document.getElementById('folderPath').select();
             }
+        }
+        
+        function setFolderPath(path) {
+            document.getElementById('folderPath').value = path;
+            // Hide suggestions after selection
+            const suggestionsContainer = document.getElementById('folderSuggestions');
+            if (suggestionsContainer) {
+                suggestionsContainer.style.display = 'none';
+            }
+        }
+        
+        function isValidPath(path) {
+            // Check for absolute paths
+            const absolutePathPatterns = [
+                /^\/[^\/]+/,           // Unix/Linux absolute paths starting with /
+                /^[A-Za-z]:\\/,        // Windows drive paths like C:\
+                /^\\\\[^\\]+\\/,       // Windows network paths like \\server\
+                /^\/mnt\//,            // Linux mount points
+                /^\/media\//,          // Linux media mount points
+                /^\/home\//,           // Linux home directories
+                /^\/var\//,            // Linux var directories
+                /^\/opt\//,            // Linux opt directories
+                /^\/usr\//,            // Linux usr directories
+                /^\/tmp\//,            // Linux temp directories
+                /^\/root\//            // Linux root home
+            ];
+            
+            return absolutePathPatterns.some(pattern => pattern.test(path));
         }
 
         function updateModeDescription() {
@@ -486,9 +599,13 @@
                     return;
                 }
                 
-                // Check if it looks like a relative path and suggest absolute path
-                if (!folderPath.startsWith('/') && !folderPath.startsWith('C:\\') && !folderPath.startsWith('D:\\')) {
-                    showAlert('warning', `The path "${folderPath}" appears to be relative. Please use an absolute path (e.g., /media/lie/DATA2/ai_scan_folder)`);
+                // Enhanced path validation
+                if (!isValidPath(folderPath)) {
+                    showAlert('warning', `The path "${folderPath}" appears to be invalid or relative.<br><br>
+                        <strong>Please use an absolute path:</strong><br>
+                        • Linux/Mac: /home/user/folder or /media/user/drive/folder<br>
+                        • Windows: C:\\Users\\user\\folder or D:\\folder<br>
+                        • Network: /mnt/network/folder or \\\\server\\share\\folder`);
                     return;
                 }
                 
@@ -867,9 +984,13 @@
                 return;
             }
             
-            // Check if it looks like a relative path and suggest absolute path
-            if (!folderPath.startsWith('/') && !folderPath.startsWith('C:\\') && !folderPath.startsWith('D:\\')) {
-                showAlert('warning', `The path "${folderPath}" appears to be relative. Please use an absolute path (e.g., /media/lie/DATA2/ai_scan_folder)`);
+            // Enhanced path validation
+            if (!isValidPath(folderPath)) {
+                showAlert('warning', `The path "${folderPath}" appears to be invalid or relative.<br><br>
+                    <strong>Please use an absolute path:</strong><br>
+                    • Linux/Mac: /home/user/folder or /media/user/drive/folder<br>
+                    • Windows: C:\\Users\\user\\folder or D:\\folder<br>
+                    • Network: /mnt/network/folder or \\\\server\\share\\folder`);
                 return;
             }
 
@@ -899,11 +1020,32 @@
                     showPreviewPanel(result);
                 } else {
                     const errorMessage = result.detail || `HTTP ${response.status}: ${response.statusText}`;
-                    showAlert('danger', `Failed to preview folder: ${errorMessage}`);
+                    
+                    // Provide more helpful error messages
+                    if (errorMessage.includes('does not exist') || errorMessage.includes('not found')) {
+                        showAlert('danger', `Folder not found: ${folderPath}<br><br>
+                            <strong>Common solutions:</strong><br>
+                            • Check if the path is correct<br>
+                            • Ensure the folder exists<br>
+                            • Try using the browse button to select the folder<br>
+                            • For external drives, make sure they are mounted`);
+                    } else if (errorMessage.includes('not readable') || errorMessage.includes('permission')) {
+                        showAlert('danger', `Permission denied: ${folderPath}<br><br>
+                            <strong>Common solutions:</strong><br>
+                            • Check folder permissions<br>
+                            • Ensure the application has read access<br>
+                            • Try running with appropriate permissions`);
+                    } else {
+                        showAlert('danger', `Failed to preview folder: ${errorMessage}`);
+                    }
                 }
             } catch (error) {
                 console.error('Error previewing folder:', error);
-                showAlert('danger', `Error: ${error.message}`);
+                showAlert('danger', `Network error: ${error.message}<br><br>
+                    <strong>Common solutions:</strong><br>
+                    • Check your internet connection<br>
+                    • Ensure the server is running<br>
+                    • Try refreshing the page`);
             } finally {
                 // Restore button state
                 previewBtn.innerHTML = originalText;
@@ -1072,6 +1214,13 @@
             
             // Clear form
             document.getElementById('scanForm').reset();
+            
+            // Clear folder suggestions
+            const suggestionsContainer = document.getElementById('folderSuggestions');
+            if (suggestionsContainer) {
+                suggestionsContainer.style.display = 'none';
+                suggestionsContainer.innerHTML = '';
+            }
         }
 
         // Cleanup on page unload

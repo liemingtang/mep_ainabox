@@ -72,6 +72,8 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_DB=${REDIS_DB}
+      - DOCUMENT_ROUTER_URL=http://document-router:8002
+      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs

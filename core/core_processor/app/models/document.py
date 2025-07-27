@@ -70,6 +70,10 @@ class DocumentMetadata(BaseModel):
     company: Optional[str] = None
     year: Optional[int] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # New fields for data source tracking
+    original_file_path: Optional[str] = None  # Original local file system path
+    data_source_type: Optional[str] = None  # Type of data source (file_system, api, database, etc.)
+    data_source_uri: Optional[str] = None  # URI/URL of the data source
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     processed_at: Optional[datetime] = None

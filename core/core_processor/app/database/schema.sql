@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS documents (
     company VARCHAR(255),
     year INTEGER,
     metadata JSONB DEFAULT '{}',
+    -- New fields for data source tracking
+    original_file_path VARCHAR(500),  -- Original local file system path
+    data_source_type VARCHAR(100),    -- Type of data source (file_system, api, database, etc.)
+    data_source_uri VARCHAR(500),     -- URI/URL of the data source
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP,

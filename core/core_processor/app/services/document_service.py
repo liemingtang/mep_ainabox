@@ -249,8 +249,9 @@ class DocumentService(LoggerMixin):
                     INSERT INTO documents (
                         id, filename, file_path, file_size, mime_type, file_hash,
                         source, processing_status, document_type, company, year,
-                        metadata, created_at, updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                        metadata, original_file_path, data_source_type, data_source_uri,
+                        created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                     RETURNING id
                     """,
                     str(document.id),
@@ -265,6 +266,9 @@ class DocumentService(LoggerMixin):
                     str(document.company) if document.company is not None else None,
                     int(document.year) if document.year is not None else None,
                     json.dumps(document.metadata if isinstance(document.metadata, dict) else {}),
+                    str(document.original_file_path) if document.original_file_path is not None else None,
+                    str(document.data_source_type) if document.data_source_type is not None else None,
+                    str(document.data_source_uri) if document.data_source_uri is not None else None,
                     document.created_at,
                     document.updated_at
                 )
@@ -300,6 +304,9 @@ class DocumentService(LoggerMixin):
                     "year": document.year,
                     "processing_status": document.processing_status.value,
                     "metadata": document.metadata if isinstance(document.metadata, dict) else {},
+                    "original_file_path": document.original_file_path,
+                    "data_source_type": document.data_source_type,
+                    "data_source_uri": document.data_source_uri,
                     "created_at": document.created_at.isoformat(),
                     "updated_at": document.updated_at.isoformat()
                 }

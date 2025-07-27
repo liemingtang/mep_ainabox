@@ -64,6 +64,40 @@ class FolderScanner:
         self.skipped_files = []
         self.processing_files = set()
         
+    def _convert_container_path_to_host_path(self, container_path: str) -> str:
+        """Convert container path back to host path"""
+        try:
+            # If we're running in a container, the path is /app/scan_folder/filename
+            # We need to convert this back to the actual host path
+            if container_path.startswith('/app/scan_folder/'):
+                # Get the filename from the container path
+                filename = Path(container_path).name
+                
+                # Try to get the host path from environment variables or Docker mount info
+                # For now, we'll use a simple approach: get the current working directory
+                # and construct the host path based on the mounted volume
+                
+                # Check if we can get the host path from environment
+                host_base_path = os.environ.get('HOST_SCAN_FOLDER_PATH')
+                if host_base_path:
+                    return str(Path(host_base_path) / filename)
+                
+                # Fallback: try to get from Docker mount info
+                # This is a simplified approach - in production, you might want to use
+                # Docker API or other methods to get the actual mount information
+                
+                # For now, we'll use the container path as fallback
+                # The processing pipeline will handle the path resolution
+                logger.warning(f"Could not determine host path for {container_path}, using container path as fallback")
+                return container_path
+            else:
+                # If it's not a container path, return as is
+                return container_path
+                
+        except Exception as e:
+            logger.error(f"Error converting container path {container_path} to host path: {e}")
+            return container_path
+
     def _is_valid_file(self, file_path: str) -> bool:
         """Check if file is valid for processing"""
         try:
@@ -124,6 +158,9 @@ class FolderScanner:
             if not mime_type:
                 mime_type, _ = mimetypes.guess_type(file_path)
             
+            # Store the original file path before any container path conversion
+            original_file_path = file_path  # Keep the original host path
+            
             # Always use container path format for external folders
             # This ensures the processing pipeline's dynamic mounting logic works correctly
             if '/media/lie/DATA2/ai_scan_folder' in file_path:
@@ -137,18 +174,46 @@ class FolderScanner:
                 container_file_path = f"/app/scan_folder/{os.path.basename(file_path)}"
                 logger.info(f"Converting external path to container path: {file_path} -> {container_file_path}")
                 file_path = container_file_path
+            else:
+                # If the path is already in container format, we need to reconstruct the original host path
+                # This happens when the folder scanner is run from within a container
+                if file_path.startswith('/app/scan_folder/'):
+                    # We're in a container, so we need to convert the container path back to the host path
+                    # For now, we'll use a simple approach: get the host path from environment variables
+                    host_base_path = os.environ.get('HOST_SCAN_FOLDER_PATH')
+                    if host_base_path:
+                        # Convert container path to host path
+                        filename = os.path.basename(file_path)
+                        original_file_path = os.path.join(host_base_path, filename)
+                        logger.info(f"Converting container path to host path: {file_path} -> {original_file_path}")
+                    else:
+                        # Fallback: use the container path as the original path
+                        # The processing pipeline will handle the mounting
+                        original_file_path = file_path
+                        logger.warning(f"Could not determine host path for {file_path}, using container path as fallback")
             
-            return {
+            # Prepare metadata with original file path
+            metadata = {
                 "filename": file_path_obj.name,
-                "file_path": file_path,  # Use container path
+                "file_path": file_path,  # Use container path for processing
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "mime_type": mime_type,
                 "source": "folder_scanner",
                 "source_folder": source_folder,
                 "uploaded_at": datetime.utcnow().isoformat(),
-                "processing_status": "pending"
+                "processing_status": "pending",
+                "original_file_path": original_file_path,  # Store original local path
+                "data_source_type": "file_system",
+                "data_source_uri": original_file_path,
+                "metadata": {
+                    "original_file_path": original_file_path,  # Also store in metadata for backward compatibility
+                    "data_source_type": "file_system",
+                    "data_source_uri": original_file_path
+                }
             }
+            
+            return metadata
         except Exception as e:
             logger.error(f"Error creating document metadata for {file_path}: {e}")
             raise

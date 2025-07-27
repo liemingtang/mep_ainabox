@@ -276,6 +276,8 @@ async def get_document_processing_status(document_id: str) -> Dict[str, Any]:
 
 async def extract_text_from_document(document_id: str, file_path: str) -> Dict[str, Any]:
     """Extract text from document using text processor service"""
+    import os  # Move import to top of function
+    
     try:
         logger.info(f"=== EXTRACT_TEXT_FUNCTION_CALLED ===")
         logger.info(f"Extracting text from document {document_id} at {file_path}")
@@ -288,24 +290,42 @@ async def extract_text_from_document(document_id: str, file_path: str) -> Dict[s
             # Create a temporary container to extract text from the file
             container_name = f"mep-dynamic-text-extractor-{document_id[:8]}"
             
-            # Convert container path to host path
-            # The file path is /app/scan_folder/filename, which corresponds to /media/lie/DATA2/ai_scan_folder/filename
-            host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
+            # Get the original file path from metadata to determine the correct host path
+            # We need to get the document metadata to find the original_file_path
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    doc_response = await client.get(f"{CORE_PROCESSOR_URL}/documents/{document_id}")
+                    if doc_response.status_code == 200:
+                        doc_data = doc_response.json()
+                        original_file_path = doc_data.get('original_file_path')
+                        if original_file_path:
+                            # Use the original file path to determine the host directory
+                            host_file_dir = os.path.dirname(original_file_path)
+                            host_file_name = os.path.basename(original_file_path)
+                            logger.info(f"Using original file path: {original_file_path}")
+                            logger.info(f"Host directory: {host_file_dir}")
+                        else:
+                            # Fallback to the old hardcoded path
+                            host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
+                            host_file_dir = os.path.dirname(host_file_path)
+                            host_file_name = os.path.basename(host_file_path)
+                            logger.warning(f"Original file path not found, using fallback: {host_file_path}")
+                    else:
+                        # Fallback to the old hardcoded path
+                        host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
+                        host_file_dir = os.path.dirname(host_file_path)
+                        host_file_name = os.path.basename(host_file_path)
+                        logger.warning(f"Could not fetch document metadata, using fallback: {host_file_path}")
+            except Exception as e:
+                # Fallback to the old hardcoded path
+                host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
+                host_file_dir = os.path.dirname(host_file_path)
+                host_file_name = os.path.basename(host_file_path)
+                logger.warning(f"Error fetching document metadata: {e}, using fallback: {host_file_path}")
             
             # Build the Docker command to run text extraction
-            # Extract the directory and filename from the host file path
-            import os
-            file_dir = os.path.dirname(host_file_path)
-            file_name = os.path.basename(host_file_path)
-            
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "--name", container_name,
-                "--network", "host",
-                "-v", f"{file_dir}:/app/input_dir:ro",
-                "core-text-processor:latest",
-                "python3", "-c",
-                f"""
+            # Create the Python script with the correct filename
+            python_script = f"""
 import sys
 import os
 sys.path.append('/app')
@@ -320,7 +340,19 @@ def extract_text_from_file(file_path):
         logging.basicConfig(level=logging.INFO)
         logger = logging.getLogger(__name__)
         
-        file_path = Path(file_path)
+        # The file is mounted at /app/input_dir/filename
+        input_file_path = f"/app/input_dir/{host_file_name}"
+        logger.info(f"Looking for file at: {{input_file_path}}")
+        
+        if not os.path.exists(input_file_path):
+            logger.error(f"File not found at: {{input_file_path}}")
+            return {{
+                "success": False,
+                "error": f"File not found: {{input_file_path}}",
+                "file_path": str(input_file_path)
+            }}
+        
+        file_path = Path(input_file_path)
         file_extension = file_path.suffix.lower()
         
         logger.info(f"Processing file: {{file_path}} with extension: {{file_extension}}")
@@ -469,14 +501,26 @@ def extract_text_from_file(file_path):
             "file_path": str(file_path)
         }}
 
-file_path = '/app/input_dir/{file_name}'
+file_path = f'/app/input_dir/{host_file_name}'
 result = extract_text_from_file(file_path)
 import json
 print(json.dumps(result))
 """
+
+            # Build the Docker command
+            docker_cmd = [
+                "docker", "run", "--rm",
+                "--name", container_name,
+                "--network", "host",
+                "-v", f"{host_file_dir}:/app/input_dir:ro",
+                "core-text-processor:latest",
+                "python3", "-c", python_script
             ]
             
-            logger.info(f"Running dynamic text extraction: {' '.join(docker_cmd)}")
+            logger.info(f"Running dynamic text extraction for document {document_id}")
+            logger.info(f"Host directory: {host_file_dir}")
+            logger.info(f"Host file name: {host_file_name}")
+            logger.info(f"Docker command: {' '.join(docker_cmd)}")
             
             # Execute the Docker command
             result = subprocess.run(

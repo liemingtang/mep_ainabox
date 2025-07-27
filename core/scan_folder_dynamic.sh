@@ -15,7 +15,7 @@ RECURSIVE=true
 MAX_DEPTH=""
 CONCURRENT=5
 SAVE_REPORT=""
-PROCESSOR_URL="http://localhost:8001"
+PROCESSOR_URL="http://core-processor:8001"
 CONTAINER_NAME="mep-folder-scanner-$(date +%s)"
 
 # Function to show usage
@@ -119,20 +119,15 @@ fi
 # Build the Docker run command
 DOCKER_CMD="docker run --rm --name $CONTAINER_NAME"
 
-# Add network if we need to connect to other services
-if [[ "$PROCESSOR_URL" == *"localhost"* ]]; then
-    # Use host network for localhost access
-    DOCKER_CMD="$DOCKER_CMD --network host"
-else
-    # Use bridge network and set processor URL
-    DOCKER_CMD="$DOCKER_CMD --network mep-ainabox_default"
-fi
+# Use the same network as the core services
+DOCKER_CMD="$DOCKER_CMD --network mep-services-network"
 
 # Add volume mount for the folder
 DOCKER_CMD="$DOCKER_CMD -v \"$FOLDER_PATH:/app/scan_folder:ro\""
 
 # Add environment variables
 DOCKER_CMD="$DOCKER_CMD -e CORE_PROCESSOR_URL=$PROCESSOR_URL"
+DOCKER_CMD="$DOCKER_CMD -e HOST_SCAN_FOLDER_PATH=$FOLDER_PATH"
 
 # Add the image and command
 DOCKER_CMD="$DOCKER_CMD mep-file-watcher:latest"
