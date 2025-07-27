@@ -147,6 +147,156 @@ cd core && ./stop_dashboard_host.sh
 - **Auto-scroll**: Automatic scrolling to latest logs
 - **Error Highlighting**: Automatic error detection
 
+### Scan Folder Management (http://localhost:8010/scan-folder)
+
+#### Overview
+The scan folder feature provides a comprehensive interface for processing documents from any folder on your system. This feature has been recently enhanced with improved file path handling and error resolution.
+
+#### Key Features
+
+##### 1. Folder Selection and Preview
+- **Folder Browser**: Interactive folder selection with path validation
+- **Path Input**: Manual path entry with validation
+- **Folder Preview**: View folder structure before processing
+- **File Statistics**: See total files, supported formats, and sizes
+- **Accessibility Check**: Verify folder permissions and accessibility
+
+##### 2. Processing Configuration
+- **Processing Mode**: Choose between queue-based or synchronous processing
+- **Concurrency Control**: Set number of concurrent processing tasks (1-20)
+- **Recursive Scanning**: Enable/disable subdirectory scanning
+- **Depth Limiting**: Control maximum scanning depth (1-10 levels)
+- **Report Generation**: Save detailed processing reports
+
+##### 3. Real-time Monitoring
+- **Live Progress**: Real-time updates on file processing
+- **Execution Status**: Track running, completed, failed, or stopped executions
+- **Detailed Logs**: View comprehensive execution logs
+- **Error Reporting**: Detailed error messages with recovery suggestions
+
+##### 4. Execution Management
+- **Execution History**: View all past scan operations
+- **Execution Details**: Detailed information about each execution
+- **Log Streaming**: Real-time log output from running executions
+- **Execution Control**: Stop running executions if needed
+
+#### Recent Improvements (Latest Update)
+
+##### File Path Handling Fixes
+- **Fixed f-string formatting** in processing pipeline for proper variable interpolation
+- **Enhanced path conversion** between host and container paths
+- **Improved original file path tracking** for better data source management
+- **Added environment variable support** for host path mapping (`HOST_SCAN_FOLDER_PATH`)
+
+##### Error Resolution
+- **Resolved "File not found" errors** that were occurring in the processing pipeline
+- **Fixed container path conversion** issues when scanning external folders
+- **Improved error handling** for external folder access and permissions
+- **Enhanced logging** for better debugging and troubleshooting
+
+#### Usage Workflow
+
+1. **Access Scan Folder Page**
+   - Navigate to http://localhost:8010/scan-folder
+   - Or click "Scan Folder" from the admin panel
+
+2. **Select Folder**
+   - Use folder browser to select a folder (recommended)
+   - Or manually enter the absolute path
+   - Ensure the folder is accessible and contains supported files
+
+3. **Configure Processing**
+   - Choose processing mode (queue-based recommended)
+   - Set concurrency level based on system resources
+   - Configure recursive scanning and depth limits
+   - Enable report generation if needed
+
+4. **Preview Folder (Optional)**
+   - Click "Preview Folder" to see folder structure
+   - Review file statistics and supported formats
+   - Verify folder accessibility before processing
+
+5. **Start Processing**
+   - Click "Start Scan" to begin processing
+   - Monitor real-time progress and logs
+   - Track execution status and completion
+
+6. **Monitor Results**
+   - View processing results in real-time
+   - Check execution logs for detailed information
+   - Review any errors or warnings
+
+#### Supported File Types
+- **Documents**: PDF, DOCX, DOC, TXT, HTML, HTM
+- **Images**: PNG, JPG, JPEG, GIF, BMP, TIFF
+- **Spreadsheets**: CSV, XLSX, XLS
+
+#### Best Practices
+
+##### Folder Selection
+- **Use absolute paths** for reliable folder access
+- **Check folder permissions** before processing
+- **Verify folder accessibility** from the container environment
+- **Use preview mode** for large folders to estimate processing time
+
+##### Processing Configuration
+- **Start with queue-based processing** for better reliability
+- **Adjust concurrency** based on system resources (5-10 recommended)
+- **Use recursive scanning** for complete folder processing
+- **Set appropriate depth limits** to avoid processing too many subdirectories
+
+##### Monitoring and Troubleshooting
+- **Monitor system resources** during processing
+- **Check execution logs** for detailed progress information
+- **Review error messages** for troubleshooting guidance
+- **Use execution history** to track processing patterns
+
+#### Command Line Alternative
+For advanced users, the scan folder functionality is also available via command line:
+
+```bash
+# Basic scan with Docker
+docker run --rm --network host \
+  -v /path/to/folder:/app/scan_folder:ro \
+  -e CORE_PROCESSOR_URL=http://localhost:8001 \
+  -e HOST_SCAN_FOLDER_PATH=/path/to/folder \
+  mep-file-watcher:latest \
+  python3 /app/folder_scanner.py /app/scan_folder --queue
+
+# Advanced scan with options
+docker run --rm --network host \
+  -v /path/to/folder:/app/scan_folder:ro \
+  -e CORE_PROCESSOR_URL=http://localhost:8001 \
+  -e HOST_SCAN_FOLDER_PATH=/path/to/folder \
+  mep-file-watcher:latest \
+  python3 /app/folder_scanner.py /app/scan_folder \
+  --queue --max-depth 3 --concurrent 10 --save-report report.json
+```
+
+#### Troubleshooting Scan Folder Issues
+
+##### Common Problems and Solutions
+
+**"Folder not found" or "Permission denied"**
+- Verify the folder path is absolute and correct
+- Check folder permissions and accessibility
+- Ensure the folder exists and is readable
+
+**"File not found" errors during processing**
+- This issue has been resolved in the latest update
+- Ensure you're using the updated file watcher container
+- Check that the `HOST_SCAN_FOLDER_PATH` environment variable is set correctly
+
+**Processing pipeline errors**
+- Verify all services are running (core processor, processing pipeline)
+- Check service logs for detailed error information
+- Ensure Docker is running for container-based processing
+
+**Slow processing or timeouts**
+- Reduce concurrency level to decrease system load
+- Check system resources (CPU, memory, disk I/O)
+- Use preview mode to estimate processing requirements
+
 ## 🔧 API Endpoints
 
 ### Dashboard APIs
@@ -195,6 +345,42 @@ GET /api/health/database
 
 # Network connectivity
 GET /api/health/network
+```
+
+### Scan Folder APIs
+```bash
+# Start scan folder execution
+POST /api/scan-folder/start
+Content-Type: application/json
+{
+  "folder_path": "/path/to/folder",
+  "processing_mode": "queue",
+  "concurrent_limit": 5,
+  "max_depth": 10,
+  "recursive": true,
+  "save_report": false
+}
+
+# Get scan folder executions
+GET /api/scan-folder/executions
+
+# Get execution details
+GET /api/scan-folder/executions/{execution_id}
+
+# Get execution logs
+GET /api/scan-folder/executions/{execution_id}/logs
+
+# Stop execution
+POST /api/scan-folder/executions/{execution_id}/stop
+
+# Preview folder structure
+POST /api/scan-folder/preview
+Content-Type: application/json
+{
+  "folder_path": "/path/to/folder",
+  "recursive": true,
+  "max_depth": 10
+}
 ```
 
 ## 📈 Monitoring Features
@@ -330,133 +516,3 @@ curl http://localhost:8000/health
 # Check service ports
 netstat -tulpn | grep -E ":(8000|8001|8009|5432|9200|6333)"
 ```
-
-### Debug Commands
-```bash
-# Check all running containers
-docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-# Check resource usage
-docker stats
-
-# View detailed logs
-docker compose logs -f [service-name]
-
-# Check service health
-curl http://localhost:8010/api/admin/status
-```
-
-## 🔒 Security Considerations
-
-### Network Security
-- **Local Access Only**: Dashboard accessible only from localhost
-- **No External Access**: No external network access by default
-- **Service Isolation**: Dashboard runs separately from other services
-
-### File Permissions
-- **User Permissions**: Dashboard runs as current user
-- **No Root Access**: No root privileges required
-- **Secure File Access**: Proper file permissions maintained
-
-### Environment Variables
-- **Sensitive Data Masking**: API keys and passwords masked in logs
-- **Secure Storage**: Environment variables stored securely
-- **Access Control**: Limited access to sensitive configuration
-
-### Production Recommendations
-- **Authentication**: Add authentication to dashboard
-- **Reverse Proxy**: Use reverse proxy with SSL
-- **Access Control**: Implement role-based access control
-- **Audit Logging**: Monitor dashboard access logs
-
-## 📊 Performance Optimization
-
-### Dashboard Performance
-- **Caching**: Implement caching for static data
-- **Connection Pooling**: Optimize database connections
-- **Resource Limits**: Set appropriate resource limits
-- **Log Rotation**: Implement log rotation and cleanup
-
-### Monitoring Optimization
-- **Health Check Frequency**: Adjust health check intervals
-- **Metrics Collection**: Optimize metrics collection frequency
-- **Log Levels**: Configure appropriate log levels
-- **Resource Usage**: Monitor dashboard resource consumption
-
-## 🔄 Development
-
-### Adding New Features
-1. **Backend Changes**: Modify `core/dashboard/main.py`
-2. **Frontend Changes**: Update templates in `core/dashboard/templates/`
-3. **Static Assets**: Add CSS/JS in `core/dashboard/static/`
-4. **API Endpoints**: Add new API endpoints as needed
-
-### Customization
-- **UI Themes**: Customize dashboard appearance
-- **Service Integration**: Add new service monitoring
-- **Metrics**: Add custom metrics collection
-- **Alerts**: Implement custom alerting
-
-### Testing
-```bash
-# Test dashboard health
-curl http://localhost:8010/api/health
-
-# Test admin panel
-curl http://localhost:8010/api/admin/status
-
-# Test service endpoints
-curl http://localhost:8010/api/services
-```
-
-## 📚 Integration
-
-### External Monitoring
-- **Prometheus**: Export metrics to Prometheus
-- **Grafana**: Use Grafana for advanced visualization
-- **Alerting**: Integrate with alerting systems
-- **Log Aggregation**: Send logs to external systems
-
-### API Integration
-- **REST APIs**: Use dashboard APIs for external monitoring
-- **Webhooks**: Configure webhooks for status updates
-- **Automation**: Integrate with automation tools
-- **Reporting**: Generate automated reports
-
-## 🆘 Support
-
-### Getting Help
-1. **Check Logs**: Review `core/logs/dashboard.log`
-2. **Verify Configuration**: Check environment variables
-3. **Test Connectivity**: Verify network connectivity
-4. **Check Permissions**: Ensure proper file permissions
-
-### Documentation
-- **Admin Startup Guide**: [ADMIN_STARTUP_GUIDE.md](ADMIN_STARTUP_GUIDE.md)
-- **Quick Reference**: [QUICK_REFERENCE.md](QUICK_REFERENCE.md)
-- **API Documentation**: [core/api_documentation.md](core/api_documentation.md)
-- **Architecture**: [README_architecture.md](README_architecture.md)
-
-### Community
-- **Issues**: Report issues with detailed information
-- **Feature Requests**: Suggest new features
-- **Contributions**: Contribute improvements
-- **Questions**: Ask questions in discussions
-
----
-
-The MEP AI NABOX dashboard provides a comprehensive monitoring and management interface for the entire system, making it easy to deploy, monitor, and maintain your AI-powered document processing system.
-
-## 📝 Recent Updates
-
-### Error Handling Improvements (Latest)
-The dashboard has been enhanced with comprehensive error handling to provide a smooth user experience:
-
-- **Service Unavailability**: Dashboard gracefully handles when backend services are not running
-- **JavaScript Error Prevention**: Global error handlers prevent browser alerts
-- **Data Validation**: All API responses are validated with safe fallback values
-- **Graceful Degradation**: Dashboard continues functioning even when services are down
-- **No Error Alerts**: Dashboard loads successfully without showing "Failed to load dashboard data" alerts
-- **Auto-recovery**: Dashboard automatically updates when services become available
-
-For detailed information about these improvements, see the [Changelog](CHANGELOG.md) and [Quick Reference](QUICK_REFERENCE.md) guides. 

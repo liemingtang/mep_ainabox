@@ -132,6 +132,45 @@ echo "Test content" > core/watch_folder/test_file.txt
 ./scan_folder.sh --help
 ```
 
+### Enhanced Folder Scanning (Latest Update)
+```bash
+# Basic scan with proper path mapping (recommended)
+docker run --rm --network host \
+  -v /path/to/folder:/app/scan_folder:ro \
+  -e CORE_PROCESSOR_URL=http://localhost:8001 \
+  -e HOST_SCAN_FOLDER_PATH=/path/to/folder \
+  mep-file-watcher:latest \
+  python3 /app/folder_scanner.py /app/scan_folder --queue
+
+# Advanced scan with all options
+docker run --rm --network host \
+  -v /path/to/folder:/app/scan_folder:ro \
+  -e CORE_PROCESSOR_URL=http://localhost:8001 \
+  -e HOST_SCAN_FOLDER_PATH=/path/to/folder \
+  mep-file-watcher:latest \
+  python3 /app/folder_scanner.py /app/scan_folder \
+  --queue --max-depth 3 --concurrent 10 --save-report report.json
+
+# Scan external drive or network folder
+docker run --rm --network host \
+  -v /media/user/external_drive/documents:/app/scan_folder:ro \
+  -e CORE_PROCESSOR_URL=http://localhost:8001 \
+  -e HOST_SCAN_FOLDER_PATH=/media/user/external_drive/documents \
+  mep-file-watcher:latest \
+  python3 /app/folder_scanner.py /app/scan_folder --queue
+```
+
+### Scan Folder Dashboard
+```bash
+# Access scan folder interface
+http://localhost:8010/scan-folder
+
+# API endpoints for scan folder management
+POST /api/scan-folder/start          # Start new scan execution
+GET  /api/scan-folder/executions     # List all executions
+POST /api/scan-folder/preview        # Preview folder structure
+```
+
 ## 🗄️ Database Connections
 
 | Service | Host | Port | Database |
