@@ -194,6 +194,12 @@ if [ "$SKIP_SERVICES" = false ]; then
     cd services
     docker compose up -d postgres elasticsearch kibana qdrant neo4j redis minio n8n flowise
     
+    echo -e "${CYAN}🔧 Starting development admin UIs...${NC}"
+    docker compose --profile dev up -d pgadmin redis-commander
+    
+    echo -e "${CYAN}🔧 Starting monitoring services...${NC}"
+    docker compose --profile monitoring up -d prometheus grafana
+    
     echo -e "${BLUE}⏳ Waiting for infrastructure services to be ready...${NC}"
     sleep 45
     

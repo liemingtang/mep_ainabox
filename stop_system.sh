@@ -135,6 +135,10 @@ cd ..
 echo -e "${BLUE}🛑 Stopping infrastructure services...${NC}"
 cd services
 docker compose down
+echo -e "${BLUE}🛑 Stopping development admin UIs...${NC}"
+docker compose --profile dev down
+echo -e "${BLUE}🛑 Stopping monitoring services...${NC}"
+docker compose --profile monitoring down
 cd ..
 
 # Stop any remaining containers with mep- prefix

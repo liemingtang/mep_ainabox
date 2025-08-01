@@ -272,6 +272,31 @@ if [ "$CONTAINERS_ONLY" = false ]; then
         else
             echo -e "${RED}❌ Flowise is not responding${NC}"
         fi
+
+        # Check admin UIs
+        if curl -f http://localhost:8080/ > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ pgAdmin is healthy${NC}"
+        else
+            echo -e "${RED}❌ pgAdmin is not responding${NC}"
+        fi
+
+        if curl -f http://localhost:8081/ > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ Redis Commander is healthy${NC}"
+        else
+            echo -e "${RED}❌ Redis Commander is not responding${NC}"
+        fi
+
+        if curl -f http://localhost:9090/ > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ Prometheus is healthy${NC}"
+        else
+            echo -e "${RED}❌ Prometheus is not responding${NC}"
+        fi
+
+        if curl -f http://localhost:3002/ > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ Grafana is healthy${NC}"
+        else
+            echo -e "${RED}❌ Grafana is not responding${NC}"
+        fi
     fi
 fi
 
@@ -305,6 +330,10 @@ echo -e "${GREEN}  Neo4j Browser:${NC} http://localhost:7474"
 echo -e "${GREEN}  MinIO Console:${NC} http://localhost:9001"
 echo -e "${GREEN}  n8n:${NC} http://localhost:5678"
 echo -e "${GREEN}  Flowise:${NC} http://localhost:3001"
+echo -e "${GREEN}  pgAdmin:${NC} http://localhost:8080"
+echo -e "${GREEN}  Redis Commander:${NC} http://localhost:8081"
+echo -e "${GREEN}  Prometheus:${NC} http://localhost:9090"
+echo -e "${GREEN}  Grafana:${NC} http://localhost:3002"
 
 echo ""
 echo -e "${GREEN}✅ Health check complete!${NC}" 
