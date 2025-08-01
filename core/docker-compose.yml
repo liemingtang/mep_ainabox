@@ -1,7 +1,8 @@
-networks:
-  default:
-    external:
-      name: mep-services-network
+# Remove the custom network configuration and use host networking
+# networks:
+#   default:
+#     external:
+#       name: mep-services-network
 
 services:
   # API Gateway - Unified entry point for all client interactions
@@ -11,23 +12,26 @@ services:
       dockerfile: Dockerfile
     container_name: mep-api-gateway
     restart: unless-stopped
+    network_mode: host
     environment:
       - CONFIG_PATH=/app/config
-      - CORE_SERVICE_URL=http://core-processor:8001
-      - DOCUMENT_ROUTER_URL=http://document-router:8002
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
-      - STORAGE_MANAGER_URL=http://storage-manager:8004
-    ports:
-      - "8011:8000"
+      - CORE_SERVICE_URL=http://localhost:8001
+      - DOCUMENT_ROUTER_URL=http://localhost:8002
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
+      - STORAGE_MANAGER_URL=http://localhost:8004
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8011:8000"
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
-    depends_on:
-      - core-processor
-      - document-router
-      - processing-pipeline
-      - storage-manager
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - core-processor
+    #   - document-router
+    #   - processing-pipeline
+    #   - storage-manager
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8000)); s.close(); print('Health check passed')"]
       interval: 30s
@@ -42,8 +46,10 @@ services:
       dockerfile: Dockerfile
     container_name: mep-core-processor
     restart: unless-stopped
-    ports:
-      - "8001:8001"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8001:8001"
     environment:
       - CONFIG_PATH=/app/config
       - POSTGRES_HOST=${POSTGRES_HOST}
@@ -72,13 +78,14 @@ services:
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
       - REDIS_DB=${REDIS_DB}
-      - DOCUMENT_ROUTER_URL=http://document-router:8002
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - DOCUMENT_ROUTER_URL=http://localhost:8002
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:rw
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+      - shared_scan_folders:/app/scan_folders:ro
     # Infrastructure services are managed externally
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8001)); s.close(); print('Health check passed')"]
@@ -94,19 +101,23 @@ services:
       dockerfile: Dockerfile
     container_name: mep-document-router
     restart: unless-stopped
-    ports:
-      - "8002:8002"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8002:8002"
     environment:
       - CONFIG_PATH=/app/config
-      - CORE_PROCESSOR_URL=http://core-processor:8001
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:ro
-    depends_on:
-      - core-processor
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - core-processor
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8002)); s.close(); print('Health check passed')"]
       interval: 30s
@@ -121,12 +132,14 @@ services:
       dockerfile: Dockerfile
     container_name: mep-processing-pipeline
     restart: unless-stopped
-    ports:
-      - "8003:8003"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8003:8003"
     environment:
       - CONFIG_PATH=/app/config
-      - CORE_PROCESSOR_URL=http://core-processor:8001
-      - STORAGE_MANAGER_URL=http://storage-manager:8004
+      - CORE_PROCESSOR_URL=http://localhost:8001
+      - STORAGE_MANAGER_URL=http://localhost:8004
       - DYNAMIC_TEXT_PROCESSOR_SCRIPT=/app/core/core/text_processor_dynamic.sh
       - EMBEDDING_PROVIDER=huggingface
     volumes:
@@ -137,9 +150,11 @@ services:
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
       - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
-    depends_on:
-      - core-processor
-      - storage-manager
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - core-processor
+    #   - storage-manager
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8003)); s.close(); print('Health check passed')"]
       interval: 30s
@@ -154,10 +169,11 @@ services:
       dockerfile: Dockerfile
     container_name: mep-queue-worker
     restart: unless-stopped
+    network_mode: host
     environment:
       - CONFIG_PATH=/app/config
-      - CORE_PROCESSOR_URL=http://core-processor:8001
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
@@ -169,12 +185,13 @@ services:
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
       - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
-    depends_on:
-      - processing-pipeline
-      - core-processor
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - processing-pipeline
+    #   - core-processor
     command: ["python3", "/app/queue_worker.py"]
     healthcheck:
-      test: ["CMD", "python3", "-c", "import httpx; httpx.get('http://processing-pipeline:8003/health'); print('Health check passed')"]
+      test: ["CMD", "python3", "-c", "import httpx; httpx.get('http://localhost:8003/health'); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -187,10 +204,11 @@ services:
       dockerfile: Dockerfile
     container_name: mep-status-worker
     restart: unless-stopped
+    network_mode: host
     environment:
       - CONFIG_PATH=/app/config
-      - CORE_PROCESSOR_URL=http://core-processor:8001
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
       - REDIS_HOST=${REDIS_HOST}
       - REDIS_PORT=${REDIS_PORT}
       - REDIS_PASSWORD=${REDIS_PASSWORD}
@@ -202,12 +220,13 @@ services:
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
       - ${TEMP_PROCESSING_PATH:-./temp}:/app/temp:rw
-    depends_on:
-      - processing-pipeline
-      - core-processor
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - processing-pipeline
+    #   - core-processor
     command: ["python3", "/app/status_worker.py"]
     healthcheck:
-      test: ["CMD", "python3", "-c", "import httpx; httpx.get('http://processing-pipeline:8003/health'); print('Health check passed')"]
+      test: ["CMD", "python3", "-c", "import httpx; httpx.get('http://localhost:8003/health'); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -220,8 +239,10 @@ services:
       dockerfile: Dockerfile
     container_name: mep-storage-manager
     restart: unless-stopped
-    ports:
-      - "8004:8004"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8004:8004"
     environment:
       - CONFIG_PATH=/app/config
       - POSTGRES_HOST=postgres
@@ -235,6 +256,7 @@ services:
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
+      - shared_scan_folders:/app/scan_folders:ro
     # Infrastructure services are managed externally
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8004)); s.close(); print('Health check passed')"]
@@ -243,8 +265,6 @@ services:
       retries: 3
       start_period: 30s
 
-
-
   # Metadata Processor - Metadata extraction and validation
   metadata-processor:
     build:
@@ -252,19 +272,23 @@ services:
       dockerfile: Dockerfile
     container_name: mep-metadata-processor
     restart: unless-stopped
-    ports:
-      - "8006:8006"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8006:8006"
     environment:
       - CONFIG_PATH=/app/config
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
-      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
-    depends_on:
-      - processing-pipeline
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - processing-pipeline
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8006)); s.close(); print('Health check passed')"]
       interval: 30s
@@ -279,20 +303,24 @@ services:
       dockerfile: Dockerfile
     container_name: mep-text-processor
     restart: unless-stopped
-    ports:
-      - "8005:8005"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8005:8005"
     environment:
       - CONFIG_PATH=/app/config
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
-      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${LOCAL_DOCUMENTS_PATH:-./documents}:/app/documents:ro
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:rw
       - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:ro
-    depends_on:
-      - processing-pipeline
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - processing-pipeline
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8005)); s.close(); print('Health check passed')"]
       interval: 30s
@@ -305,8 +333,10 @@ services:
     image: ollama/ollama:latest
     container_name: mep-ollama
     restart: unless-stopped
-    ports:
-      - "11434:11434"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "11434:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_ORIGINS=*
@@ -326,18 +356,20 @@ services:
       dockerfile: Dockerfile
     container_name: mep-embedding-processor
     restart: unless-stopped
-    ports:
-      - "8007:8007"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8007:8007"
     environment:
       - CONFIG_PATH=/app/config
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
-      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_API_KEY=qdrant_api_key
       # Embedding provider configuration
       - EMBEDDING_PROVIDER=huggingface
-      - OLLAMA_HOST=ollama
+      - OLLAMA_HOST=localhost
       - OLLAMA_PORT=11434
       - OLLAMA_DEFAULT_MODEL=nomic-embed-text
       # HuggingFace configuration (default)
@@ -350,8 +382,10 @@ services:
       - ./logs:/app/logs
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
       - huggingface_cache:/app/cache/huggingface
-    depends_on:
-      - processing-pipeline
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - processing-pipeline
     # Qdrant is managed externally
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8007)); s.close(); print('Health check passed')"]
@@ -367,12 +401,14 @@ services:
       dockerfile: Dockerfile
     container_name: mep-entity-processor
     restart: unless-stopped
-    ports:
-      - "8008:8008"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8008:8008"
     environment:
       - CONFIG_PATH=/app/config
-      - PROCESSING_PIPELINE_URL=http://processing-pipeline:8003
-      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - PROCESSING_PIPELINE_URL=http://localhost:8003
+      - CORE_PROCESSOR_URL=http://localhost:8001
       - NEO4J_HOST=neo4j
       - NEO4J_PORT=7474
       - NEO4J_USER=neo4j
@@ -381,8 +417,10 @@ services:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${PROCESSED_DOCUMENTS_PATH:-./processed}:/app/processed:ro
-    depends_on:
-      - processing-pipeline
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - processing-pipeline
     # Neo4j is managed externally
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8008)); s.close(); print('Health check passed')"]
@@ -394,22 +432,26 @@ services:
   # File Watcher - Monitor local folders for new documents
   file-watcher:
     build:
-      context: ./file_watcher
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: file_watcher/Dockerfile
     container_name: mep-file-watcher
     restart: unless-stopped
-    ports:
-      - "8009:8009"
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8009:8009"
     environment:
       - CONFIG_PATH=/app/config
-      - CORE_PROCESSOR_URL=http://core-processor:8001
+      - CORE_PROCESSOR_URL=http://localhost:8001
       - WATCH_PATHS=/app/watch_folder
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
       - ${WATCH_FOLDER_PATH:-./watch_folder}:/app/watch_folder:rw
-    depends_on:
-      - core-processor
+      - shared_scan_folders:/app/scan_folders:ro
+    # Remove depends_on since we're using host networking
+    # depends_on:
+    #   - core-processor
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8009)); s.close(); print('Health check passed')"]
       interval: 30s
@@ -432,5 +474,7 @@ volumes:
   ollama_data:
     driver: local
   huggingface_cache:
+    driver: local
+  shared_scan_folders:
     driver: local
   

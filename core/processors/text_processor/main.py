@@ -9,7 +9,7 @@ import sys
 import httpx
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 import uvicorn
@@ -44,6 +44,7 @@ PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost
 class ExtractTextRequest(BaseModel):
     document_path: str
     document_id: Optional[str] = None
+    host_scan_folder_path: Optional[str] = None
 
 class ExtractTextResponse(BaseModel):
     document_id: Optional[str]
@@ -72,15 +73,83 @@ async def update_job_status(document_id: str, status: str, result_data: Dict[str
     except Exception as e:
         logger.warning(f"Failed to update job status for document {document_id}: {e}")
 
+def get_shared_volume_path(container_path: str) -> str:
+    """Convert container path to shared volume path"""
+    try:
+        # If the path is already a host path, return it
+        if not container_path.startswith('/app/'):
+            return container_path
+        
+        # If it's a scan folder path, convert to shared volume path
+        if container_path.startswith('/app/scan_folder/'):
+            # Extract the filename from the container path
+            filename = Path(container_path).name
+            # Try to find the file in any mounted folder in shared volume
+            for folder_name in _get_mounted_folders():
+                shared_path = f"/app/scan_folders/{folder_name}/{filename}"
+                if Path(shared_path).exists():
+                    logger.info(f"Found file in shared volume: {shared_path}")
+                    return shared_path
+            
+            # If not found, try the default ai_scan_folder path
+            shared_path = f"/app/scan_folders/ai_scan_folder/{filename}"
+            logger.info(f"Converted container path {container_path} to shared volume path {shared_path}")
+            return shared_path
+        
+        # If it's already a shared volume path, return as is
+        if container_path.startswith('/app/scan_folders/'):
+            return container_path
+        
+        # For other container paths, try to find them in shared volume
+        filename = Path(container_path).name
+        # Try common folder names in shared volume
+        for folder_name in ['ai_scan_folder', 'documents', 'watch_folder']:
+            shared_path = f"/app/scan_folders/{folder_name}/{filename}"
+            if Path(shared_path).exists():
+                logger.info(f"Found file in shared volume: {shared_path}")
+                return shared_path
+        
+        # Fallback to original path
+        logger.warning(f"Could not find file in shared volume for {container_path}, using original path")
+        return container_path
+        
+    except Exception as e:
+        logger.warning(f"Error converting to shared volume path {container_path}: {e}")
+        return container_path
+
+def _get_mounted_folders() -> List[str]:
+    """Get list of mounted folders in shared volume"""
+    try:
+        import subprocess
+        # Use a simple approach to list directories in the shared volume
+        scan_folders_path = Path("/app/scan_folders")
+        if scan_folders_path.exists():
+            folders = [d.name for d in scan_folders_path.iterdir() if d.is_dir()]
+            return folders
+        return []
+    except Exception as e:
+        logger.warning(f"Error getting mounted folders: {e}")
+        return []
+
 def extract_text_from_file(file_path: str) -> str:
-    """Extract text from various file types"""
+    """Extract text from various file types with dynamic folder mounting support"""
     try:
         import time
+        original_file_path = file_path
         file_path = Path(file_path)
         
         logger.info(f"=== EXTRACT_TEXT_FROM_FILE CALLED at {time.time()} ===")
+        logger.info(f"Original file path: {original_file_path}")
         logger.info(f"File path: {file_path}")
         logger.info(f"File exists: {file_path.exists()}")
+        
+        # If file doesn't exist and it's a container path, try to get the shared volume path
+        if not file_path.exists() and str(file_path).startswith('/app/scan_folder/'):
+            shared_path = get_shared_volume_path(str(file_path))
+            if shared_path != str(file_path):
+                logger.info(f"Trying shared volume path: {shared_path}")
+                file_path = Path(shared_path)
+                logger.info(f"Shared volume file exists: {file_path.exists()}")
         
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")

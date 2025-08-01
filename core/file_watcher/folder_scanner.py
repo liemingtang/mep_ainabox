@@ -64,39 +64,47 @@ class FolderScanner:
         self.skipped_files = []
         self.processing_files = set()
         
-    def _convert_container_path_to_host_path(self, container_path: str) -> str:
-        """Convert container path back to host path"""
+    def _convert_container_path_to_shared_volume_path(self, container_path: str) -> str:
+        """Convert container path to shared volume path"""
         try:
-            # If we're running in a container, the path is /app/scan_folder/filename
-            # We need to convert this back to the actual host path
+            # If it's already a shared volume path, return as is
+            if container_path.startswith('/app/scan_folders/'):
+                return container_path
+            
+            # If it's a scan folder path, try to find it in shared volume
             if container_path.startswith('/app/scan_folder/'):
-                # Get the filename from the container path
                 filename = Path(container_path).name
+                # Try to find the file in any mounted folder in shared volume
+                for folder_name in self._get_mounted_folders():
+                    shared_path = f"/app/scan_folders/{folder_name}/{filename}"
+                    if Path(shared_path).exists():
+                        logger.info(f"Found file in shared volume: {shared_path}")
+                        return shared_path
                 
-                # Try to get the host path from environment variables or Docker mount info
-                # For now, we'll use a simple approach: get the current working directory
-                # and construct the host path based on the mounted volume
-                
-                # Check if we can get the host path from environment
-                host_base_path = os.environ.get('HOST_SCAN_FOLDER_PATH')
-                if host_base_path:
-                    return str(Path(host_base_path) / filename)
-                
-                # Fallback: try to get from Docker mount info
-                # This is a simplified approach - in production, you might want to use
-                # Docker API or other methods to get the actual mount information
-                
-                # For now, we'll use the container path as fallback
-                # The processing pipeline will handle the path resolution
-                logger.warning(f"Could not determine host path for {container_path}, using container path as fallback")
-                return container_path
-            else:
-                # If it's not a container path, return as is
-                return container_path
-                
-        except Exception as e:
-            logger.error(f"Error converting container path {container_path} to host path: {e}")
+                # If not found, try the default ai_scan_folder path
+                shared_path = f"/app/scan_folders/ai_scan_folder/{filename}"
+                logger.info(f"Converted container path {container_path} to shared volume path {shared_path}")
+                return shared_path
+            
+            # For other paths, return as is
             return container_path
+            
+        except Exception as e:
+            logger.error(f"Error converting container path {container_path} to shared volume path: {e}")
+            return container_path
+    
+    def _get_mounted_folders(self) -> List[str]:
+        """Get list of mounted folders in shared volume"""
+        try:
+            # Use a simple approach to list directories in the shared volume
+            scan_folders_path = Path("/app/scan_folders")
+            if scan_folders_path.exists():
+                folders = [d.name for d in scan_folders_path.iterdir() if d.is_dir()]
+                return folders
+            return []
+        except Exception as e:
+            logger.warning(f"Error getting mounted folders: {e}")
+            return []
 
     def _is_valid_file(self, file_path: str) -> bool:
         """Check if file is valid for processing"""

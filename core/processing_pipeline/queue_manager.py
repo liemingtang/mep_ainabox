@@ -7,6 +7,7 @@ Provides reliable message delivery and status updates
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import redis.asyncio as redis
@@ -38,7 +39,13 @@ class StatusUpdate:
 class RedisQueueManager:
     """Redis-based queue manager for reliable message delivery"""
     
-    def __init__(self, redis_url: str = "redis://:redis_password@redis:6379"):
+    def __init__(self, redis_url: str = None):
+        if redis_url is None:
+            # Use environment variables for host networking
+            redis_host = os.getenv("REDIS_HOST", "localhost")
+            redis_port = os.getenv("REDIS_PORT", "6379")
+            redis_password = os.getenv("REDIS_PASSWORD", "redis_password")
+            redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}"
         self.redis_url = redis_url
         self.redis_client = None
         self.processing_queue = "document_processing"

@@ -1,0 +1,24 @@
+This is a sample PDF file for testing the vault upload AI analysis functionality.
+
+Document Information:
+- Title: Sample Test Document
+- Type: Financial Statement
+- Date: 2024-01-15
+- Account: 1234567890
+
+Summary:
+This document contains sample financial data for testing purposes. It includes basic account information and transaction details that should be recognizable by the AI analysis system.
+
+Key Information:
+- Account Holder: John Doe
+- Account Type: Savings
+- Balance: $10,000.00
+- Last Transaction: 2024-01-10
+
+This document is used to test the complete file upload flow including:
+1. File upload to server
+2. Vault upload record creation
+3. AI analysis via LangServe
+4. Verification of analysis results
+
+The AI should be able to identify this as a financial document and extract relevant information such as account details, amounts, and dates. 

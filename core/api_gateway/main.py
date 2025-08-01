@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import httpx
 import os
 
@@ -23,7 +24,7 @@ STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://localhost:8004")
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "service": "api-gateway"}
+    return JSONResponse(content={"status": "healthy", "service": "api-gateway"})
 
 @app.get("/")
 async def root():

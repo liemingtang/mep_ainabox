@@ -219,8 +219,8 @@ SERVICE_INFO = {
     "api-gateway": {
         "name": "API Gateway",
         "description": "Unified entry point for all client interactions",
-        "port": 8011,
-        "url": "http://localhost:8011",
+        "port": 8000,
+        "url": "http://localhost:8000",
         "endpoints": ["/health", "/api/v1/documents", "/api/v1/search"],
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/api-gateway.log", "/app/logs/app.log"],
@@ -406,7 +406,7 @@ SERVICES = {
     "entity-processor": "http://localhost:8008/health",
     "processing-pipeline": "http://localhost:8003/health",
     "document-router": "http://localhost:8002/health",
-    "api-gateway": "http://localhost:8011/health",
+    "api-gateway": "http://localhost:8000/health",
     "elasticsearch": f"{ELASTICSEARCH_URL}/_cluster/health",
     "qdrant": f"{QDRANT_URL}/collections",
     "neo4j": f"{NEO4J_URL}/db/data/",
@@ -1199,21 +1199,61 @@ def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
             
             return  # Exit early for fallback mode
         
-        # Build the Docker command
+        # First, mount the folder to the shared volume
+        add_scan_log(execution_id, "info", f"Mounting folder to shared volume: {folder_path}")
+        
+        # Use volume manager to mount the folder
+        mount_cmd = [
+            "python3", 
+            "/app/volume_manager.py", 
+            "mount", 
+            "--path", folder_path,
+            "--name", f"scan_{execution_id[:8]}"
+        ]
+        
+        # Execute mount command in a temporary container
+        mount_docker_cmd = [
+            "docker", "run", "--rm",
+            "--name", f"mount-{container_name}",
+            "--network", "host",
+            "-v", "shared_scan_folders:/app/scan_folders:rw",
+            "-v", f"{folder_path}:/source:ro",
+            "mep-file-watcher:latest"
+        ] + mount_cmd
+        
+        add_scan_log(execution_id, "info", f"Executing mount command: {' '.join(mount_docker_cmd)}")
+        
+        # Execute the mount command
+        mount_process = subprocess.run(
+            mount_docker_cmd,
+            capture_output=True,
+            text=True
+        )
+        
+        if mount_process.returncode != 0:
+            add_scan_log(execution_id, "error", f"Failed to mount folder: {mount_process.stderr}")
+            execution.status = "failed"
+            execution.completed_at = datetime.now()
+            return
+        
+        add_scan_log(execution_id, "info", f"Successfully mounted folder: {mount_process.stdout.strip()}")
+        
+        # Build the Docker command with shared volume approach
         docker_cmd = [
             "docker", "run", "--rm",
             "--name", container_name,
             "--network", "host",  # Use host network for localhost access
-            "-v", f"{folder_path}:/app/scan_folder:ro",  # Mount folder read-only
+            "-v", "shared_scan_folders:/app/scan_folders:ro",  # Mount shared volume
             "-e", "CORE_PROCESSOR_URL=http://localhost:8001",
+            "-e", f"HOST_SCAN_FOLDER_PATH={folder_path}",
             "mep-file-watcher:latest"
         ]
         
-        # Build the Python command inside the container
+        # Build the Python command inside the container with shared volume support
         python_cmd = [
             "python3", 
             "/app/folder_scanner.py",
-            "/app/scan_folder"  # Use the mounted path
+            "/app/scan_folders"  # Use the shared volume path
         ]
         
         # Add processing mode
@@ -1595,7 +1635,7 @@ def check_core_services() -> bool:
     try:
         # Check key core services with correct ports
         services_to_check = [
-            ("api-gateway", 8011, "/health"),  # API Gateway runs on port 8011, not 8000
+            ("api-gateway", 8000, "/health"),  # API Gateway runs on port 8000 with host networking
             ("core-processor", 8001, "/docs"),  # Core processor responds on /docs
             ("file-watcher", 8009, "/health"),
             ("processing-pipeline", 8003, "/health")  # Processing pipeline for queue/status workers
@@ -2220,7 +2260,7 @@ async def get_service_status():
     
     # Core Services (from core docker-compose)
     core_services = [
-        {"name": "API Gateway", "port": 8011, "endpoint": "/health", "description": "Unified entry point for all client interactions", "service_key": "api-gateway", "admin_url": "http://localhost:8011/docs"},
+        {"name": "API Gateway", "port": 8000, "endpoint": "/health", "description": "Unified entry point for all client interactions", "service_key": "api-gateway", "admin_url": "http://localhost:8000/docs"},
         {"name": "Core Processor", "port": 8001, "endpoint": "/docs", "description": "Main document processing orchestrator", "service_key": "core-processor", "admin_url": "http://localhost:8001/docs"},
         {"name": "Document Router", "port": 8002, "endpoint": "/health", "description": "Intelligent document routing and processing", "service_key": "document-router", "admin_url": "http://localhost:8002/docs"},
         {"name": "Processing Pipeline", "port": 8003, "endpoint": "/health", "description": "Orchestrated document processing workflow", "service_key": "processing-pipeline", "admin_url": "http://localhost:8003/docs"},

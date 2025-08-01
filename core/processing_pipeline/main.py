@@ -275,296 +275,68 @@ async def get_document_processing_status(document_id: str) -> Dict[str, Any]:
         raise
 
 async def extract_text_from_document(document_id: str, file_path: str) -> Dict[str, Any]:
-    """Extract text from document using text processor service"""
+    """Extract text from document using text processor service with dynamic folder mounting support"""
     import os  # Move import to top of function
     
     try:
         logger.info(f"=== EXTRACT_TEXT_FUNCTION_CALLED ===")
         logger.info(f"Extracting text from document {document_id} at {file_path}")
         
-        # Check if this is a dynamically mounted file (from scan_folder)
-        if '/app/scan_folder' in file_path:
-            logger.info(f"Detected dynamically mounted file, using dynamic text processor for {file_path}")
-            
-            # Use dynamic text processor for files in dynamically mounted folders
-            # Create a temporary container to extract text from the file
-            container_name = f"mep-dynamic-text-extractor-{document_id[:8]}"
-            
-            # Get the original file path from metadata to determine the correct host path
-            # We need to get the document metadata to find the original_file_path
+        # Use the text processor service for all files
+        # Since we're using host networking, all files should be accessible
+        text_processor_url = "http://localhost:8005"
+        
+        logger.info(f"Using text processor service for file: {file_path}")
+        
+        # Detect if this is a scan folder path and mount to shared volume if needed
+        request_data = {
+            "document_path": file_path,
+            "document_id": document_id
+        }
+        
+        # If the file path is a container path from scan folder, ensure it's mounted in shared volume
+        if file_path.startswith('/app/scan_folder/'):
             try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    doc_response = await client.get(f"{CORE_PROCESSOR_URL}/documents/{document_id}")
-                    if doc_response.status_code == 200:
-                        doc_data = doc_response.json()
-                        original_file_path = doc_data.get('original_file_path')
-                        if original_file_path:
-                            # Use the original file path to determine the host directory
-                            host_file_dir = os.path.dirname(original_file_path)
-                            host_file_name = os.path.basename(original_file_path)
-                            logger.info(f"Using original file path: {original_file_path}")
-                            logger.info(f"Host directory: {host_file_dir}")
-                        else:
-                            # Fallback to the old hardcoded path
-                            host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
-                            host_file_dir = os.path.dirname(host_file_path)
-                            host_file_name = os.path.basename(host_file_path)
-                            logger.warning(f"Original file path not found, using fallback: {host_file_path}")
-                    else:
-                        # Fallback to the old hardcoded path
-                        host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
-                        host_file_dir = os.path.dirname(host_file_path)
-                        host_file_name = os.path.basename(host_file_path)
-                        logger.warning(f"Could not fetch document metadata, using fallback: {host_file_path}")
-            except Exception as e:
-                # Fallback to the old hardcoded path
-                host_file_path = file_path.replace('/app/scan_folder', '/media/lie/DATA2/ai_scan_folder')
-                host_file_dir = os.path.dirname(host_file_path)
-                host_file_name = os.path.basename(host_file_path)
-                logger.warning(f"Error fetching document metadata: {e}, using fallback: {host_file_path}")
-            
-            # Build the Docker command to run text extraction
-            # Create the Python script with the correct filename
-            python_script = f"""
-import sys
-import os
-sys.path.append('/app')
-
-# Enhanced text extraction function with PDF support
-def extract_text_from_file(file_path):
-    try:
-        from pathlib import Path
-        import logging
-        
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
-        
-        # The file is mounted at /app/input_dir/filename
-        input_file_path = f"/app/input_dir/{host_file_name}"
-        logger.info(f"Looking for file at: {{input_file_path}}")
-        
-        if not os.path.exists(input_file_path):
-            logger.error(f"File not found at: {{input_file_path}}")
-            return {{
-                "success": False,
-                "error": f"File not found: {{input_file_path}}",
-                "file_path": str(input_file_path)
-            }}
-        
-        file_path = Path(input_file_path)
-        file_extension = file_path.suffix.lower()
-        
-        logger.info(f"Processing file: {{file_path}} with extension: {{file_extension}}")
-        
-        # Handle PDF files
-        if file_extension == '.pdf':
-            try:
-                import PyPDF2
-                text_content = ""
-                
-                with open(file_path, 'rb') as file:
-                    pdf_reader = PyPDF2.PdfReader(file)
-                    logger.info(f"PDF has {{len(pdf_reader.pages)}} pages")
+                document_info = await get_document_info(document_id)
+                original_file_path = document_info.get("original_file_path")
+                if original_file_path and original_file_path != file_path:
+                    # Extract the host folder path from the original file path
+                    from pathlib import Path
+                    host_folder_path = str(Path(original_file_path).parent)
+                    folder_name = Path(host_folder_path).name
                     
-                    for page_num, page in enumerate(pdf_reader.pages):
-                        try:
-                            page_text = page.extract_text()
-                            if page_text:
-                                text_content += f"\\n--- Page {{page_num + 1}} ---\\n{{page_text}}\\n"
-                                logger.info(f"Extracted {{len(page_text)}} characters from page {{page_num + 1}}")
-                            else:
-                                logger.warning(f"No text extracted from page {{page_num + 1}}")
-                        except Exception as e:
-                            logger.warning(f"Error extracting text from page {{page_num + 1}}: {{e}}")
-                            text_content += f"\\n--- Page {{page_num + 1}} ---\\n[Error extracting text: {{e}}]\\n"
-                
-                if not text_content.strip():
-                    logger.warning("No text content extracted from PDF")
-                    return {{
-                        "success": False,
-                        "error": "No extractable text content found in PDF",
-                        "file_path": str(file_path)
-                    }}
-                
-                logger.info(f"Successfully extracted {{len(text_content)}} characters from PDF")
-                return {{
-                    "success": True,
-                    "text_content": text_content,
-                    "text_length": len(text_content),
-                    "quality_score": min(1.0, len(text_content) / 1000.0),
-                    "file_path": str(file_path)
-                }}
-                
-            except ImportError:
-                return {{
-                    "success": False,
-                    "error": "PyPDF2 not available for PDF processing",
-                    "file_path": str(file_path)
-                }}
+                    # Use volume manager to ensure the folder is mounted with concurrent support
+                    from volume_manager import VolumeManager
+                    volume_manager = VolumeManager()
+                    
+                    # Mount folder with concurrent processing support
+                    unique_folder_name = volume_manager.mount_folder_concurrent(host_folder_path, folder_name)
+                    if unique_folder_name:
+                        logger.info(f"Successfully mounted folder {host_folder_path} to shared volume as {unique_folder_name}")
+                        # Update the file path to use the unique folder name
+                        filename = Path(file_path).name
+                        file_path = f"/app/scan_folders/{unique_folder_name}/{filename}"
+                        request_data["document_path"] = file_path
+                    else:
+                        logger.warning(f"Failed to mount folder {host_folder_path}, using original path")
+                        
             except Exception as e:
-                return {{
-                    "success": False,
-                    "error": f"Error processing PDF: {{e}}",
-                    "file_path": str(file_path)
-                }}
+                logger.warning(f"Failed to mount folder to shared volume: {e}")
         
-        # Handle Word documents
-        elif file_extension in ['.docx', '.doc']:
-            try:
-                from docx import Document
-                doc = Document(file_path)
-                text_content = ""
-                
-                for paragraph in doc.paragraphs:
-                    if paragraph.text.strip():
-                        text_content += paragraph.text + "\\n"
-                
-                return {{
-                    "success": True,
-                    "text_content": text_content,
-                    "text_length": len(text_content),
-                    "quality_score": min(1.0, len(text_content) / 1000.0),
-                    "file_path": str(file_path)
-                }}
-                
-            except ImportError:
-                return {{
-                    "success": False,
-                    "error": "python-docx not available for Word document processing",
-                    "file_path": str(file_path)
-                }}
-            except Exception as e:
-                return {{
-                    "success": False,
-                    "error": f"Error processing Word document: {{e}}",
-                    "file_path": str(file_path)
-                }}
-        
-        # Handle text files
-        elif file_extension in ['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm']:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                return {{
-                    "success": True,
-                    "text_content": content,
-                    "text_length": len(content),
-                    "quality_score": min(1.0, len(content) / 1000.0),
-                    "file_path": str(file_path)
-                }}
-            except UnicodeDecodeError:
-                # Try other encodings
-                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
-                    try:
-                        with open(file_path, 'r', encoding=encoding) as f:
-                            content = f.read()
-                        return {{
-                            "success": True,
-                            "text_content": content,
-                            "text_length": len(content),
-                            "quality_score": min(1.0, len(content) / 1000.0),
-                            "file_path": str(file_path)
-                        }}
-                    except UnicodeDecodeError:
-                        continue
-                
-                return {{
-                    "success": False,
-                    "error": f"Could not decode file with any supported encoding",
-                    "file_path": str(file_path)
-                }}
-        
-        # For other file types, try to read as text
-        else:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                return {{
-                    "success": True,
-                    "text_content": content,
-                    "text_length": len(content),
-                    "quality_score": min(1.0, len(content) / 1000.0),
-                    "file_path": str(file_path)
-                }}
-            except UnicodeDecodeError:
-                return {{
-                    "success": False,
-                    "error": f"Binary or unsupported file type: {{file_extension}}",
-                    "file_path": str(file_path)
-                }}
-                
-    except Exception as e:
-        return {{
-            "success": False,
-            "error": str(e),
-            "file_path": str(file_path)
-        }}
-
-file_path = f'/app/input_dir/{host_file_name}'
-result = extract_text_from_file(file_path)
-import json
-print(json.dumps(result))
-"""
-
-            # Build the Docker command
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "--name", container_name,
-                "--network", "host",
-                "-v", f"{host_file_dir}:/app/input_dir:ro",
-                "core-text-processor:latest",
-                "python3", "-c", python_script
-            ]
-            
-            logger.info(f"Running dynamic text extraction for document {document_id}")
-            logger.info(f"Host directory: {host_file_dir}")
-            logger.info(f"Host file name: {host_file_name}")
-            logger.info(f"Docker command: {' '.join(docker_cmd)}")
-            
-            # Execute the Docker command
-            result = subprocess.run(
-                docker_cmd,
-                capture_output=True,
-                text=True,
+        # Regular HTTP call to text processor
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{text_processor_url}/extract-text",
+                json=request_data,
                 timeout=60.0
             )
+            response.raise_for_status()
+            result = response.json()
             
-            if result.returncode != 0:
-                logger.error(f"Dynamic text extraction failed: {result.stderr}")
-                raise Exception(f"Dynamic text extraction failed: {result.stderr}")
-            
-            # Parse the JSON result
-            try:
-                extraction_result = json.loads(result.stdout.strip())
-                logger.info(f"Dynamic text extraction completed for document {document_id}")
-                logger.info(f"Text content length: {len(extraction_result.get('text_content', ''))}")
-                return extraction_result
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse dynamic text extraction result: {e}")
-                logger.error(f"Raw output: {result.stdout}")
-                raise Exception(f"Failed to parse dynamic text extraction result: {e}")
-        
-        else:
-            # Use the regular text processor service for files in standard locations
-            text_processor_url = "http://text-processor:8005"
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{text_processor_url}/extract-text",
-                    json={
-                        "document_path": file_path,
-                        "document_id": document_id
-                    },
-                    timeout=60.0
-                )
-                response.raise_for_status()
-                result = response.json()
-                
-                logger.info(f"Text extraction completed for document {document_id}")
-                logger.info(f"Text extraction result: {result}")
-                logger.info(f"Text content length: {len(result.get('text_content', ''))}")
-                return result
+            logger.info(f"Text extraction completed for document {document_id}")
+            logger.info(f"Text extraction result: {result}")
+            logger.info(f"Text content length: {len(result.get('text_content', ''))}")
+            return result
             
     except Exception as e:
         logger.error(f"Text extraction failed for document {document_id}: {e}")
@@ -837,7 +609,7 @@ async def process_document(request: ProcessingRequest):
                 "current_step": "document_info_retrieval",
                 "progress": 20,
                 "message": "Retrieving document information"
-            })
+            }, document_id=document_id)
             
             document_info = await get_document_info(document_id)
             file_path = document_info.get("file_path")
@@ -859,7 +631,7 @@ async def process_document(request: ProcessingRequest):
                 "current_step": "text_extraction",
                 "progress": 40,
                 "message": f"Extracting text from {os.path.basename(file_path)}"
-            })
+            }, document_id=document_id)
             
             text_result = await extract_text_from_document(document_id, file_path)
             
@@ -890,7 +662,7 @@ async def process_document(request: ProcessingRequest):
                 "current_step": "embedding_generation",
                 "progress": 70,
                 "message": f"Generating embeddings for {len(text_content)} characters of text"
-            })
+            }, document_id=document_id)
             
             embedding_result = await generate_embeddings(
                 document_id, 
@@ -1028,7 +800,7 @@ async def update_job_status_from_processor(document_id: str, status_update: dict
                 processing_jobs[job_id]["error_message"] = result_data.get("error", "Unknown error")
             
             # Update job status in core processor
-            await update_job_status(job_id, status, result_data)
+            await update_job_status(job_id, status, result_data, document_id=document_id)
             
             # If job is completed, update document status
             if status == "completed":
@@ -1568,7 +1340,7 @@ async def process_document_sync(request: ProcessingRequest):
         
         # GUARANTEED FAILURE UPDATE: Update both job and document status to failed
         try:
-            await update_job_status(request.job_id, "failed", {"error": str(e)}, max_retries=3)
+            await update_job_status(request.job_id, "failed", {"error": str(e)}, max_retries=3, document_id=request.document_id)
             await update_document_status(request.document_id, "failed", max_retries=3)
         except Exception as update_error:
             logger.error(f"Failed to update failure status: {update_error}")

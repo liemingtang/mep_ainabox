@@ -74,6 +74,48 @@ class DocumentHandler(FileSystemEventHandler):
         self.http_client = httpx.AsyncClient(timeout=30.0)
         self.processing_files = set()
     
+    def _get_shared_volume_path(self, file_path: str) -> str:
+        """Convert file path to shared volume path if needed"""
+        try:
+            # If it's already a shared volume path, return as is
+            if file_path.startswith('/app/scan_folders/'):
+                return file_path
+            
+            # If it's a scan folder path, try to find it in shared volume
+            if file_path.startswith('/app/scan_folder/'):
+                filename = Path(file_path).name
+                # Try to find the file in any mounted folder in shared volume
+                for folder_name in self._get_mounted_folders():
+                    shared_path = f"/app/scan_folders/{folder_name}/{filename}"
+                    if Path(shared_path).exists():
+                        logger.info(f"Found file in shared volume: {shared_path}")
+                        return shared_path
+                
+                # If not found, try the default ai_scan_folder path
+                shared_path = f"/app/scan_folders/ai_scan_folder/{filename}"
+                logger.info(f"Converted container path {file_path} to shared volume path {shared_path}")
+                return shared_path
+            
+            # For other paths, return as is
+            return file_path
+            
+        except Exception as e:
+            logger.warning(f"Error converting to shared volume path {file_path}: {e}")
+            return file_path
+    
+    def _get_mounted_folders(self) -> List[str]:
+        """Get list of mounted folders in shared volume"""
+        try:
+            # Use a simple approach to list directories in the shared volume
+            scan_folders_path = Path("/app/scan_folders")
+            if scan_folders_path.exists():
+                folders = [d.name for d in scan_folders_path.iterdir() if d.is_dir()]
+                return folders
+            return []
+        except Exception as e:
+            logger.warning(f"Error getting mounted folders: {e}")
+            return []
+    
     def on_created(self, event):
         if not event.is_directory:
             file_path = event.src_path
@@ -100,7 +142,7 @@ class DocumentHandler(FileSystemEventHandler):
             logger.error(f"Error in async processing: {e}")
     
     async def process_document(self, file_path: str):
-        """Process a detected document"""
+        """Process a detected document with shared volume support"""
         if file_path in self.processing_files:
             logger.info(f"File already being processed: {file_path}")
             return
@@ -110,6 +152,9 @@ class DocumentHandler(FileSystemEventHandler):
         try:
             # Wait a moment to ensure file is fully written
             await asyncio.sleep(1)
+            
+            # Convert file path to shared volume path if needed
+            file_path = self._get_shared_volume_path(file_path)
             
             # Check if file still exists and is accessible
             if not os.path.exists(file_path):
