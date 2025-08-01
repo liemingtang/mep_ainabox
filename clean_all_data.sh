@@ -101,7 +101,17 @@ fi
 
 # 2. Clean Qdrant (Vector Database)
 echo "🔍 Cleaning Qdrant..."
-collections=$(curl -s "http://localhost:6333/collections" | jq -r '.collections[].name' 2>/dev/null || echo "")
+
+# Load environment variables for Qdrant API key
+if [ -f "services/.env" ]; then
+    source services/.env
+elif [ -f ".env" ]; then
+    source .env
+fi
+
+QDRANT_API_KEY=${QDRANT_API_KEY:-qdrant_api_key}
+
+collections=$(curl -s -H "api-key: $QDRANT_API_KEY" "http://localhost:6333/collections" | jq -r '.result.collections[].name' 2>/dev/null || echo "")
 if [ -n "$collections" ]; then
     echo "   Found collections: $collections"
     if [ "$DRY_RUN" = true ]; then
@@ -111,7 +121,7 @@ if [ -n "$collections" ]; then
         for collection in $collections; do
             if [ -n "$collection" ]; then
                 echo "   Deleting collection: $collection"
-                curl -X DELETE "http://localhost:6333/collections/$collection" || true
+                curl -X DELETE -H "api-key: $QDRANT_API_KEY" "http://localhost:6333/collections/$collection" || true
             fi
         done
     fi
@@ -280,7 +290,7 @@ else
     fi
     
     # Check Qdrant
-    if curl -s "http://localhost:6333/collections" | grep -q "documents"; then
+    if curl -s -H "api-key: $QDRANT_API_KEY" "http://localhost:6333/collections" | grep -q "documents"; then
         echo "⚠️  Qdrant still has documents collection"
     else
         echo "✅ Qdrant is clean"
