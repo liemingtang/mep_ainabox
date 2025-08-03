@@ -24,4 +24,4 @@ RUN mkdir -p /app/config /app/logs /app/scan_folders
 EXPOSE 8011
 
 # Run the host volume manager in serve mode
-CMD ["python3", "host_volume_manager.py", "serve", "--port", "8011"] 
+CMD ["python3", "host_volume_manager.py", "serve", "--port", "8012"] 

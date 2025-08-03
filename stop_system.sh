@@ -27,11 +27,14 @@ show_help() {
     echo "  --force                 Force stop (kill processes immediately)"
     echo ""
     echo "WHAT IT STOPS:"
-    echo "  • Dashboard processes (python3 main.py)"
-    echo "  • Qdrant UI processes (python3 server.py)"
-    echo "  • All Docker containers (mep-*)"
-    echo "  • Docker network (mep-services-network)"
-    echo "  • PID files cleanup"
+echo "  • Native core services (API Gateway, Core Processor, etc.)"
+echo "  • Host volume manager"
+echo "  • Dashboard processes (python3 main.py)"
+echo "  • Qdrant UI processes (python3 server.py)"
+echo "  • All Docker containers (mep-*)"
+echo "  • Docker network (mep-services-network)"
+echo "  • PID files cleanup"
+echo "  • Processes on service ports (8001-8009, 8011, 8012)"
     echo ""
     echo "EXAMPLES:"
     echo "  $0                      # Graceful shutdown"
@@ -83,29 +86,81 @@ if [ ! -f "core/docker-compose.yml" ]; then
     exit 1
 fi
 
+# Stop native core services
+echo -e "${BLUE}🛑 Stopping native core services...${NC}"
+cd core
+if [ -f "start_native_services.sh" ]; then
+    echo "Stopping all native core services..."
+    ./start_native_services.sh --stop all
+    echo -e "${GREEN}✅ Native core services stopped${NC}"
+else
+    echo -e "${YELLOW}⚠️  Native services script not found${NC}"
+fi
+cd ..
+
+# Stop host volume manager
+echo -e "${BLUE}🛑 Stopping host volume manager...${NC}"
+cd core
+if [ -f "stop_host_volume_manager.sh" ]; then
+    echo "Stopping host volume manager..."
+    ./stop_host_volume_manager.sh
+    echo -e "${GREEN}✅ Host volume manager stopped${NC}"
+else
+    echo -e "${YELLOW}⚠️  Host volume manager script not found${NC}"
+fi
+cd ..
+
 # Stop dashboard processes
 echo -e "${BLUE}🧹 Stopping dashboard processes...${NC}"
-if pgrep -f "python3.*main.py" > /dev/null; then
+if pgrep -f "python3.*dashboard.*main.py" > /dev/null; then
     echo "Stopping dashboard process..."
     if [ "$FORCE_STOP" = true ]; then
-        pkill -9 -f "python3.*main.py" || true
+        pkill -9 -f "python3.*dashboard.*main.py" || true
     else
-        pkill -f "python3.*main.py" || true
+        pkill -f "python3.*dashboard.*main.py" || true
     fi
     sleep 2
 fi
 
 # Stop Qdrant UI processes
 echo -e "${BLUE}🧹 Stopping Qdrant UI processes...${NC}"
-if pgrep -f "python3.*server.py" > /dev/null; then
+if pgrep -f "python3.*qdrant.*server.py" > /dev/null; then
     echo "Stopping Qdrant UI process..."
     if [ "$FORCE_STOP" = true ]; then
-        pkill -9 -f "python3.*server.py" || true
+        pkill -9 -f "python3.*qdrant.*server.py" || true
     else
-        pkill -f "python3.*server.py" || true
+        pkill -f "python3.*qdrant.*server.py" || true
     fi
     sleep 2
 fi
+
+# Stop any remaining native service processes
+echo -e "${BLUE}🧹 Stopping any remaining native service processes...${NC}"
+# Stop processes by service name patterns
+for service in api-gateway core-processor document-router processing-pipeline storage-manager text-processor metadata-processor embedding-processor entity-processor file-watcher queue-worker status-worker; do
+    if pgrep -f "python3.*$service" > /dev/null; then
+        echo "Stopping $service process..."
+        if [ "$FORCE_STOP" = true ]; then
+            pkill -9 -f "python3.*$service" || true
+        else
+            pkill -f "python3.*$service" || true
+        fi
+    fi
+done
+
+# Stop any Python processes running on known service ports
+echo -e "${BLUE}🧹 Stopping processes on service ports...${NC}"
+for port in 8001 8002 8003 8004 8005 8006 8007 8008 8009 8011 8012; do
+    PIDS=$(sudo lsof -ti:$port 2>/dev/null || true)
+    if [ -n "$PIDS" ]; then
+        echo "Stopping processes on port $port..."
+        if [ "$FORCE_STOP" = true ]; then
+            echo "$PIDS" | xargs -r sudo kill -9
+        else
+            echo "$PIDS" | xargs -r sudo kill
+        fi
+    fi
+done
 
 # Clean up PID files
 echo -e "${BLUE}🧹 Cleaning up PID files...${NC}"

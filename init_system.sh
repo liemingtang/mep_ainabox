@@ -266,7 +266,7 @@ if [ "$SKIP_SERVICES" = false ]; then
     
     # Start native services
     echo -e "${BLUE}🚀 Starting native core processing services...${NC}"
-    ./start_native_services.sh --start all
+    ./start_native_services.sh all
     
     echo -e "${BLUE}⏳ Waiting for native core services to be ready...${NC}"
     sleep 30
@@ -311,9 +311,9 @@ echo -e "${PURPLE}==========================================${NC}"
 
 # Clean up existing dashboard processes
 echo -e "${BLUE}🧹 Cleaning up existing dashboard processes...${NC}"
-if pgrep -f "python3.*main.py" > /dev/null; then
+if pgrep -f "python3.*dashboard.*main.py" > /dev/null; then
     echo "Stopping existing dashboard process..."
-    pkill -f "python3.*main.py" || true
+    pkill -f "python3.*dashboard.*main.py" || true
     sleep 2
 fi
 

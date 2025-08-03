@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 SERVICE_NAME="host-volume-manager"
-PORT=8011
+PORT=8012
 PID_FILE="host_volume_manager.pid"
 LOG_FILE="logs/host_volume_manager.log"
 

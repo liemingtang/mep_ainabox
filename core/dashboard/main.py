@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://localhost:8001")
 FILE_WATCHER_URL = os.getenv("FILE_WATCHER_URL", "http://localhost:8009")
 STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://localhost:8004")
-HOST_VOLUME_MANAGER_URL = os.getenv("HOST_VOLUME_MANAGER_URL", "http://localhost:8011")
+HOST_VOLUME_MANAGER_URL = os.getenv("HOST_VOLUME_MANAGER_URL", "http://localhost:8012")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 NEO4J_URL = os.getenv("NEO4J_URL", "http://localhost:7474")
@@ -2407,7 +2407,7 @@ async def start_individual_service(service_key: str):
             if service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher", "queue-worker", "status-worker"]:
                 # Native core service - use start_native_services.sh
                 os.chdir("/home/lie/repo_mep/mep_ainabox/core")
-                cmd = ["./start_native_services.sh", "--start", service_key]
+                cmd = ["./start_native_services.sh", service_key]
                 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 
