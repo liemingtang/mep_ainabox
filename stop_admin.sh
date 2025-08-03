@@ -73,6 +73,41 @@ else
     print_warning "No Python main.py processes found"
 fi
 
+# Step 2.5: Stop native core services
+print_status "Step 2.5: Stopping native core services..."
+if [ -d "core" ]; then
+    cd core
+    if [ -f "start_native_services.sh" ]; then
+        print_status "Stopping native core services..."
+        ./start_native_services.sh --stop all 2>/dev/null || true
+        print_success "Native core services stopped"
+    else
+        print_warning "Native services script not found"
+    fi
+    cd ..
+else
+    print_warning "Core directory not found"
+fi
+
+# Step 2.6: Stop specific worker processes
+print_status "Step 2.6: Stopping worker processes..."
+WORKER_PROCESSES=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py\|python.*host_volume_manager.py" 2>/dev/null || true)
+if [ -n "$WORKER_PROCESSES" ]; then
+    print_status "Found worker processes: $WORKER_PROCESSES"
+    echo "$WORKER_PROCESSES" | xargs -r kill -TERM 2>/dev/null || true
+    sleep 2
+    
+    # Force kill remaining worker processes
+    REMAINING_WORKERS=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py\|python.*host_volume_manager.py" 2>/dev/null || true)
+    if [ -n "$REMAINING_WORKERS" ]; then
+        print_warning "Force killing remaining worker processes..."
+        echo "$REMAINING_WORKERS" | xargs -r kill -9 2>/dev/null || true
+    fi
+    print_success "Worker processes stopped"
+else
+    print_warning "No worker processes found"
+fi
+
 # Step 3: Stop Core System Services
 print_status "Step 3: Stopping Core System Services..."
 if [ -d "core" ]; then
@@ -199,6 +234,14 @@ if [ -n "$PYTHON_REMAINING" ]; then
     print_error "Warning: Some Python processes still running: $PYTHON_REMAINING"
 else
     print_success "All Python processes stopped"
+fi
+
+# Check for remaining worker processes
+WORKER_REMAINING=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py\|python.*host_volume_manager.py" 2>/dev/null || true)
+if [ -n "$WORKER_REMAINING" ]; then
+    print_error "Warning: Some worker processes still running: $WORKER_REMAINING"
+else
+    print_success "All worker processes stopped"
 fi
 
 # Check for remaining MEP containers
