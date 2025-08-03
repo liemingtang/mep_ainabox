@@ -79,4 +79,6 @@ async def store_data():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8004) 
+    port = int(os.getenv("STORAGE_MANAGER_PORT", 8004))
+    host = os.getenv("API_HOST", "0.0.0.0")
+    uvicorn.run(app, host=host, port=port) 

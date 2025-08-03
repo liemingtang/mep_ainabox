@@ -3,7 +3,7 @@ Database initialization and connection management
 """
 
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import asyncpg
 from elasticsearch import AsyncElasticsearch
@@ -93,10 +93,42 @@ async def init_postgresql():
         async with postgres_pool.acquire() as conn:
             await conn.execute("SELECT 1")
         
+        # Initialize schema
+        await init_schema()
+        
         logger.info("PostgreSQL connection pool initialized successfully")
         
     except Exception as e:
         logger.error(f"Failed to initialize PostgreSQL: {e}")
+        raise
+
+
+async def init_schema():
+    """Initialize database schema"""
+    try:
+        schema_path = "app/database/schema.sql"
+        
+        # Read schema file
+        with open(schema_path, 'r') as f:
+            schema_sql = f.read()
+        
+        # Execute schema with error handling for existing objects
+        async with postgres_pool.acquire() as conn:
+            try:
+                await conn.execute(schema_sql)
+                logger.info("Database schema initialized successfully")
+            except Exception as e:
+                if "already exists" in str(e):
+                    logger.info("Database schema already exists, skipping initialization")
+                else:
+                    logger.error(f"Failed to initialize schema: {e}")
+                    raise
+        
+    except FileNotFoundError:
+        logger.error(f"Schema file not found: {schema_path}")
+        raise
+    except Exception as e:
+        logger.error(f"Failed to initialize schema: {e}")
         raise
 
 
@@ -126,6 +158,7 @@ async def init_elasticsearch():
         
     except Exception as e:
         logger.error(f"Failed to initialize Elasticsearch: {e}")
+        elasticsearch_client = None
         raise
 
 
@@ -273,10 +306,11 @@ def get_postgres_pool() -> asyncpg.Pool:
     return postgres_pool
 
 
-def get_elasticsearch_client() -> AsyncElasticsearch:
+def get_elasticsearch_client() -> Optional[AsyncElasticsearch]:
     """Get Elasticsearch client"""
     if not elasticsearch_client:
-        raise RuntimeError("Elasticsearch client not initialized")
+        logger.warning("Elasticsearch client not initialized")
+        return None
     return elasticsearch_client
 
 
@@ -322,8 +356,12 @@ async def health_check() -> Dict[str, Any]:
     
     try:
         # Elasticsearch health check
-        await get_elasticsearch_client().ping()
-        health_status["elasticsearch"] = "healthy"
+        es_client = get_elasticsearch_client()
+        if es_client:
+            await es_client.ping()
+            health_status["elasticsearch"] = "healthy"
+        else:
+            health_status["elasticsearch"] = "not initialized"
     except Exception as e:
         health_status["elasticsearch"] = f"unhealthy: {e}"
     

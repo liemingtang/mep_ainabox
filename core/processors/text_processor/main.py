@@ -74,29 +74,29 @@ async def update_job_status(document_id: str, status: str, result_data: Dict[str
         logger.warning(f"Failed to update job status for document {document_id}: {e}")
 
 def get_shared_volume_path(container_path: str) -> str:
-    """Convert container path to shared volume path"""
+    """Convert container path to native file system path"""
     try:
-        # If the path is already a host path, return it
+        # If the path is already a native path, return it
         if not container_path.startswith('/app/'):
             return container_path
         
-        # If it's a scan folder path, convert to shared volume path
+        # If it's a scan folder path, convert to native path
         if container_path.startswith('/app/scan_folder/'):
             # Extract the filename from the container path
             filename = Path(container_path).name
-            # Try to find the file in any mounted folder in shared volume
-            for folder_name in _get_mounted_folders():
-                shared_path = f"/app/scan_folders/{folder_name}/{filename}"
-                if Path(shared_path).exists():
-                    logger.info(f"Found file in shared volume: {shared_path}")
-                    return shared_path
+            # Try to find the file in the watch folder
+            watch_folder = os.getenv("WATCH_FOLDER_PATH", "/media/lie/DATA2/ai_scan_folder")
+            native_path = f"{watch_folder}/{filename}"
+            if Path(native_path).exists():
+                logger.info(f"Found file in watch folder: {native_path}")
+                return native_path
             
             # If not found, try the default ai_scan_folder path
-            shared_path = f"/app/scan_folders/ai_scan_folder/{filename}"
-            logger.info(f"Converted container path {container_path} to shared volume path {shared_path}")
-            return shared_path
+            default_path = f"/media/lie/DATA2/ai_scan_folder/{filename}"
+            logger.info(f"Converted container path {container_path} to native path {default_path}")
+            return default_path
         
-        # If it's already a shared volume path, return as is
+        # If it's already a shared volume path, convert to native path
         if container_path.startswith('/app/scan_folders/'):
             return container_path
         
@@ -118,14 +118,13 @@ def get_shared_volume_path(container_path: str) -> str:
         return container_path
 
 def _get_mounted_folders() -> List[str]:
-    """Get list of mounted folders in shared volume"""
+    """Get list of mounted folders in native file system"""
     try:
-        import subprocess
-        # Use a simple approach to list directories in the shared volume
-        scan_folders_path = Path("/app/scan_folders")
-        if scan_folders_path.exists():
-            folders = [d.name for d in scan_folders_path.iterdir() if d.is_dir()]
-            return folders
+        # Use the watch folder path from environment
+        watch_folder = os.getenv("WATCH_FOLDER_PATH", "/media/lie/DATA2/ai_scan_folder")
+        watch_path = Path(watch_folder)
+        if watch_path.exists():
+            return [watch_path.name]
         return []
     except Exception as e:
         logger.warning(f"Error getting mounted folders: {e}")
@@ -143,13 +142,23 @@ def extract_text_from_file(file_path: str) -> str:
         logger.info(f"File path: {file_path}")
         logger.info(f"File exists: {file_path.exists()}")
         
-        # If file doesn't exist and it's a container path, try to get the shared volume path
+        # If file doesn't exist and it's a container path, try to get the native path
         if not file_path.exists() and str(file_path).startswith('/app/scan_folder/'):
-            shared_path = get_shared_volume_path(str(file_path))
-            if shared_path != str(file_path):
-                logger.info(f"Trying shared volume path: {shared_path}")
-                file_path = Path(shared_path)
-                logger.info(f"Shared volume file exists: {file_path.exists()}")
+            native_path = get_shared_volume_path(str(file_path))
+            if native_path != str(file_path):
+                logger.info(f"Trying native path: {native_path}")
+                file_path = Path(native_path)
+                logger.info(f"Native file exists: {file_path.exists()}")
+        
+        # Also try to resolve any /app/scan_folders paths to native paths
+        if not file_path.exists() and str(file_path).startswith('/app/scan_folders/'):
+            # Extract filename and try to find it in the watch folder
+            filename = file_path.name
+            watch_folder = os.getenv("WATCH_FOLDER_PATH", "/media/lie/DATA2/ai_scan_folder")
+            native_path = f"{watch_folder}/{filename}"
+            logger.info(f"Trying native path for scan folder file: {native_path}")
+            file_path = Path(native_path)
+            logger.info(f"Native scan folder file exists: {file_path.exists()}")
         
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -401,7 +410,7 @@ async def process_document(request: Dict[str, Any]):
 
 if __name__ == "__main__":
     # Get port from environment or use default
-    port = int(os.getenv("API_PORT", 8005))
+    port = int(os.getenv("TEXT_PROCESSOR_PORT", 8005))
     host = os.getenv("API_HOST", "0.0.0.0")
     
     uvicorn.run(

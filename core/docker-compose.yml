@@ -140,6 +140,8 @@ services:
       - CONFIG_PATH=/app/config
       - CORE_PROCESSOR_URL=http://localhost:8001
       - STORAGE_MANAGER_URL=http://localhost:8004
+      - TEXT_PROCESSOR_URL=http://localhost:8005
+      - EMBEDDING_PROCESSOR_URL=http://localhost:8007
       - DYNAMIC_TEXT_PROCESSOR_SCRIPT=/app/core/core/text_processor_dynamic.sh
       - EMBEDDING_PROVIDER=huggingface
     volumes:
@@ -454,6 +456,34 @@ services:
     #   - core-processor
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8009)); s.close(); print('Health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Host Volume Manager - Dynamic folder mounting service
+  host-volume-manager:
+    build:
+      context: .
+      dockerfile: host_volume_manager/Dockerfile
+    container_name: mep-host-volume-manager
+    restart: unless-stopped
+    network_mode: host
+    # Remove ports since we're using host networking
+    # ports:
+    #   - "8011:8011"
+    environment:
+      - CONFIG_PATH=/app/config
+      - VOLUME_NAME=shared_scan_folders
+    volumes:
+      - ./config:/app/config:ro
+      - ./logs:/app/logs
+      - shared_scan_folders:/app/scan_folders:rw
+      - /:/host:ro  # Mount host filesystem for dynamic folder access
+      - /var/run/docker.sock:/var/run/docker.sock  # Mount Docker socket for Docker operations
+    # Remove depends_on since we're using host networking
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8011)); s.close(); print('Health check passed')"]
       interval: 30s
       timeout: 10s
       retries: 3

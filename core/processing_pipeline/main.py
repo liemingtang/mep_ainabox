@@ -284,7 +284,7 @@ async def extract_text_from_document(document_id: str, file_path: str) -> Dict[s
         
         # Use the text processor service for all files
         # Since we're using host networking, all files should be accessible
-        text_processor_url = "http://localhost:8005"
+        text_processor_url = os.getenv("TEXT_PROCESSOR_URL", "http://localhost:8005")
         
         logger.info(f"Using text processor service for file: {file_path}")
         
@@ -305,12 +305,35 @@ async def extract_text_from_document(document_id: str, file_path: str) -> Dict[s
                     host_folder_path = str(Path(original_file_path).parent)
                     folder_name = Path(host_folder_path).name
                     
-                    # Use volume manager to ensure the folder is mounted with concurrent support
-                    from volume_manager import VolumeManager
-                    volume_manager = VolumeManager()
+                    # Use host volume manager to ensure the folder is mounted with concurrent support
+                    import asyncio
                     
-                    # Mount folder with concurrent processing support
-                    unique_folder_name = volume_manager.mount_folder_concurrent(host_folder_path, folder_name)
+                    # Call host volume manager service
+                    async with httpx.AsyncClient() as client:
+                        try:
+                            response = await client.post(
+                                "http://localhost:8011/mount",
+                                json={
+                                    "host_path": host_folder_path,
+                                    "folder_name": folder_name
+                                },
+                                timeout=30.0
+                            )
+                            
+                            if response.status_code == 200:
+                                result = response.json()
+                                if result.get("success"):
+                                    unique_folder_name = result.get("unique_folder_name")
+                                else:
+                                    logger.warning(f"Failed to mount folder: {result.get('error_message')}")
+                                    unique_folder_name = None
+                            else:
+                                logger.warning(f"Host volume manager returned status {response.status_code}")
+                                unique_folder_name = None
+                                
+                        except Exception as e:
+                            logger.warning(f"Failed to call host volume manager: {e}")
+                            unique_folder_name = None
                     if unique_folder_name:
                         logger.info(f"Successfully mounted folder {host_folder_path} to shared volume as {unique_folder_name}")
                         # Update the file path to use the unique folder name
@@ -555,26 +578,9 @@ async def process_document(request: ProcessingRequest):
         try:
             logger.info(f"Starting processing for document {request.document_id}, job {request.job_id}")
             
-            # Initialize job tracking locally (no external status updates during processing)
-            
-            # Get the existing job ID from the database for this document
-            try:
-                document_info = await get_document_info(document_id)
-                processing_status = await get_document_processing_status(document_id)
-                
-                # Find the first job for this document
-                existing_jobs = processing_status.get("processing_jobs", [])
-                if existing_jobs:
-                    # Use the first job ID from the database
-                    job_id = existing_jobs[0]["id"]
-                    logger.info(f"Using existing job ID from database: {job_id} (request job_id was: {request.job_id})")
-                else:
-                    # Fallback to the provided job_id if no jobs exist
-                    job_id = request.job_id
-                    logger.warning(f"No existing jobs found, using provided job_id: {job_id}")
-            except Exception as e:
-                logger.warning(f"Failed to get existing job ID, using provided job_id: {e}")
-                job_id = request.job_id
+            # Use the job ID provided in the request (this is the correct job ID from the core processor)
+            job_id = request.job_id
+            logger.info(f"Using job ID from request: {job_id}")
             
             processing_jobs[job_id] = {
                 "job_id": job_id,
@@ -1975,4 +1981,6 @@ async def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003) 
+    port = int(os.getenv("PROCESSING_PIPELINE_PORT", 8003))
+    host = os.getenv("API_HOST", "0.0.0.0")
+    uvicorn.run(app, host=host, port=port) 

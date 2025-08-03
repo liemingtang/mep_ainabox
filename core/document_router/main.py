@@ -191,4 +191,6 @@ async def route_document():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8002) 
+    port = int(os.getenv("DOCUMENT_ROUTER_PORT", 8002))
+    host = os.getenv("API_HOST", "0.0.0.0")
+    uvicorn.run(app, host=host, port=port) 

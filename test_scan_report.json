@@ -1,0 +1,18 @@
+{
+  "scan_timestamp": "2025-08-01T05:00:34.790276",
+  "processed_files": [],
+  "error_files": [
+    {
+      "file_path": "/home/lie/repo_mep/mep_ainabox/watch_folder/sample.pdf",
+      "error_at": "2025-08-01T05:00:34.288505",
+      "error": "Processing failed"
+    }
+  ],
+  "skipped_files": [],
+  "summary": {
+    "total_processed": 0,
+    "total_errors": 1,
+    "total_skipped": 0,
+    "total_files": 1
+  }
+}

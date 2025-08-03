@@ -27,10 +27,12 @@ elif [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  in the MEP AI NABOX project. It includes:"
     echo "  - Elasticsearch (documents, indices)"
     echo "  - Qdrant (vector embeddings, collections)"
-    echo "  - PostgreSQL (processed data, metadata)"
+    echo "  - PostgreSQL (processed data, metadata, processing jobs)"
     echo "  - Redis (cached data, sessions)"
     echo "  - Neo4j (graph relationships, nodes)"
     echo "  - MinIO (stored files, documents)"
+    echo "  - Shared scan folders (previous scan sessions)"
+    echo "  - Processing pipeline data (job queues, status caches)"
     echo "  - Local files (PRESERVED - not deleted)"
     echo "  - Watch folder (PRESERVED - not deleted)"
     echo ""
@@ -41,16 +43,21 @@ elif [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  - Comprehensive verification after cleanup"
     echo ""
     exit 0
+fi
+
+if [ "$DRY_RUN" = false ]; then
     echo "🧹 MEP AI NABOX - Cleaning All Data (REAL EXECUTION)"
     echo "====================================================="
     echo ""
     echo "⚠️  WARNING: This will ACTUALLY delete ALL data from:"
     echo "   - Elasticsearch (documents, indices)"
     echo "   - Qdrant (vector embeddings, collections)"
-    echo "   - PostgreSQL (processed data, metadata)"
+    echo "   - PostgreSQL (processed data, metadata, processing jobs)"
     echo "   - Redis (cached data, sessions)"
     echo "   - Neo4j (graph relationships, nodes)"
     echo "   - MinIO (stored files, documents)"
+    echo "   - Shared scan folders (previous scan sessions)"
+    echo "   - Processing pipeline data (job queues, status caches)"
     echo "   - Local processed files"
     echo ""
     echo "This action is IRREVERSIBLE!"
@@ -135,7 +142,7 @@ else
     echo "✅ Qdrant cleaned"
 fi
 
-# 3. Clean PostgreSQL
+# 3. Clean PostgreSQL (including processing jobs)
 echo "🗄️  Cleaning PostgreSQL..."
 # Use environment variables or defaults
 POSTGRES_USER=${POSTGRES_USER:-mep_user}
@@ -246,7 +253,47 @@ else
     echo "✅ MinIO cleaned"
 fi
 
-# 7. Local files (SKIPPED - preserving local files)
+# 7. Clean Shared Scan Folders (NEW)
+echo "📁 Cleaning Shared Scan Folders..."
+scan_folders=$(docker run --rm -v shared_scan_folders:/app/scan_folders alpine find /app/scan_folders -maxdepth 1 -type d -name "scan_*" 2>/dev/null | wc -l || echo "0")
+if [ "$scan_folders" -gt 0 ] 2>/dev/null; then
+    echo "   Found $scan_folders scan session folders"
+    if [ "$DRY_RUN" = true ]; then
+        echo "   [DRY RUN] Would delete all scan session folders"
+        docker run --rm -v shared_scan_folders:/app/scan_folders alpine find /app/scan_folders -maxdepth 1 -type d -name "scan_*" 2>/dev/null || echo "   No scan folders found"
+    else
+        echo "   Deleting all scan session folders..."
+        docker run --rm -v shared_scan_folders:/app/scan_folders alpine sh -c "find /app/scan_folders -maxdepth 1 -type d -name 'scan_*' -exec rm -rf {} +" || echo "   Shared scan folders cleanup failed"
+    fi
+else
+    echo "   No scan session folders found"
+fi
+
+if [ "$DRY_RUN" = true ]; then
+    echo "✅ [DRY RUN] Shared scan folders analysis complete"
+else
+    echo "✅ Shared scan folders cleaned"
+fi
+
+# 8. Clean Processing Pipeline Data (NEW)
+echo "⚙️  Cleaning Processing Pipeline Data..."
+if [ "$DRY_RUN" = true ]; then
+    echo "   [DRY RUN] Would clear processing pipeline caches and queues"
+    echo "   [DRY RUN] Would restart processing pipeline containers"
+else
+    echo "   Clearing processing pipeline caches..."
+    # Clear processing pipeline caches by restarting containers
+    docker restart mep-processing-pipeline mep-queue-worker mep-status-worker 2>/dev/null || echo "   Processing pipeline restart failed"
+    echo "   Processing pipeline containers restarted"
+fi
+
+if [ "$DRY_RUN" = true ]; then
+    echo "✅ [DRY RUN] Processing pipeline analysis complete"
+else
+    echo "✅ Processing pipeline cleaned"
+fi
+
+# 9. Local files (SKIPPED - preserving local files)
 echo "📁 Local files (SKIPPED)"
 echo "   Preserving all local files in:"
 echo "   - core/processed/"
@@ -255,12 +302,12 @@ echo "   - core/temp/"
 echo "   - core/logs/"
 echo "✅ Local files preserved"
 
-# 8. Watch folder (SKIPPED - preserving uploaded documents)
+# 10. Watch folder (SKIPPED - preserving uploaded documents)
 echo "👀 Watch folder (SKIPPED)"
 echo "   Preserving all uploaded documents in watch_folder/"
 echo "✅ Watch folder preserved"
 
-# 9. Summary
+# 11. Summary
 echo ""
 if [ "$DRY_RUN" = true ]; then
     echo "🔍 DRY RUN SUMMARY"
@@ -269,10 +316,12 @@ if [ "$DRY_RUN" = true ]; then
     echo "📋 What would be cleaned:"
     echo "   🔍 Elasticsearch indices and documents"
     echo "   🔍 Qdrant vector collections"
-    echo "   🔍 PostgreSQL database tables"
+    echo "   🔍 PostgreSQL database tables (including processing jobs)"
     echo "   🔍 Redis cache and sessions"
     echo "   🔍 Neo4j graph data"
     echo "   🔍 MinIO stored files"
+    echo "   🔍 Shared scan folders (previous scan sessions)"
+    echo "   🔍 Processing pipeline data (job queues, status caches)"
     echo "   📁 Local files (PRESERVED)"
     echo "   👀 Watch folder (PRESERVED)"
     echo ""
@@ -312,6 +361,14 @@ else
         echo "✅ Redis is clean"
     fi
     
+    # Check Shared Scan Folders
+    scan_folders_after=$(docker run --rm -v shared_scan_folders:/app/scan_folders alpine find /app/scan_folders -maxdepth 1 -type d -name "scan_*" 2>/dev/null | wc -l || echo "0")
+    if [ "$scan_folders_after" -gt 0 ] 2>/dev/null; then
+        echo "⚠️  Shared scan folders still has $scan_folders_after scan session folders"
+    else
+        echo "✅ Shared scan folders is clean"
+    fi
+    
     echo ""
     echo "🎉 Data cleanup completed!"
     echo "=========================="
@@ -319,10 +376,12 @@ else
     echo "📋 What was cleaned:"
     echo "   ✅ Elasticsearch indices and documents"
     echo "   ✅ Qdrant vector collections"
-    echo "   ✅ PostgreSQL database tables"
+    echo "   ✅ PostgreSQL database tables (including processing jobs)"
     echo "   ✅ Redis cache and sessions"
     echo "   ✅ Neo4j graph data"
     echo "   ✅ MinIO stored files"
+    echo "   ✅ Shared scan folders (previous scan sessions)"
+    echo "   ✅ Processing pipeline data (job queues, status caches)"
     echo "   📁 Local files (PRESERVED)"
     echo "   👀 Watch folder (PRESERVED)"
     echo ""

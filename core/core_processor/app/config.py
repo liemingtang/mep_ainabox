@@ -29,52 +29,52 @@ class ProcessingConfig(BaseModel):
 
 
 class PostgreSQLConfig(BaseModel):
-    host: str = "postgres"
-    port: int = 5432
-    database: str = "mep_ainabox"
-    user: str = "mep_user"
-    password: str = "mep_password"
-    pool_size: int = 10
-    max_overflow: int = 20
+    host: str = Field(default="postgres", env="POSTGRES_HOST")
+    port: int = Field(default=5432, env="POSTGRES_PORT")
+    database: str = Field(default="mep_ainabox", env="POSTGRES_DB")
+    user: str = Field(default="mep_user", env="POSTGRES_USER")
+    password: str = Field(default="mep_password", env="POSTGRES_PASSWORD")
+    pool_size: int = Field(default=10, env="POSTGRES_POOL_SIZE")
+    max_overflow: int = Field(default=20, env="POSTGRES_MAX_OVERFLOW")
 
 
 class ElasticsearchConfig(BaseModel):
-    host: str = "elasticsearch"
-    port: int = 9200
-    index_prefix: str = "documents"
-    username: str = "elastic"
-    password: str = "elastic_password"
-    timeout: int = 30
+    host: str = Field(default="elasticsearch", env="ELASTICSEARCH_HOST")
+    port: int = Field(default=9200, env="ELASTICSEARCH_PORT")
+    index_prefix: str = Field(default="documents", env="ELASTICSEARCH_INDEX_PREFIX")
+    username: str = Field(default="elastic", env="ELASTICSEARCH_USERNAME")
+    password: str = Field(default="elastic_password", env="ELASTICSEARCH_PASSWORD")
+    timeout: int = Field(default=30, env="ELASTICSEARCH_TIMEOUT")
 
 
 class QdrantConfig(BaseModel):
-    host: str = "qdrant"
-    port: int = 6333
-    api_key: str = "qdrant_api_key"
-    timeout: int = 30
+    host: str = Field(default="qdrant", env="QDRANT_HOST")
+    port: int = Field(default=6333, env="QDRANT_PORT")
+    api_key: str = Field(default="qdrant_api_key", env="QDRANT_API_KEY")
+    timeout: int = Field(default=30, env="QDRANT_TIMEOUT")
 
 
 class Neo4jConfig(BaseModel):
-    uri: str = "bolt://neo4j:7687"
-    user: str = "neo4j"
-    password: str = "neo4j_password"
-    max_connections: int = 50
+    uri: str = Field(default="bolt://neo4j:7687", env="NEO4J_URI")
+    user: str = Field(default="neo4j", env="NEO4J_USER")
+    password: str = Field(default="neo4j_password", env="NEO4J_PASSWORD")
+    max_connections: int = Field(default=50, env="NEO4J_MAX_CONNECTIONS")
 
 
 class MinIOConfig(BaseModel):
-    endpoint: str = "minio:9000"
-    access_key: str = "minio_access_key"
-    secret_key: str = "minio_secret_key"
-    bucket_name: str = "documents"
-    use_ssl: bool = False
+    endpoint: str = Field(default="minio:9000", env="MINIO_ENDPOINT")
+    access_key: str = Field(default="minio_access_key", env="MINIO_ACCESS_KEY")
+    secret_key: str = Field(default="minio_secret_key", env="MINIO_SECRET_KEY")
+    bucket_name: str = Field(default="documents", env="MINIO_BUCKET_NAME")
+    use_ssl: bool = Field(default=False, env="MINIO_USE_SSL")
 
 
 class RedisConfig(BaseModel):
-    host: str = "redis"
-    port: int = 6379
-    password: str = "redis_password"
-    db: int = 0
-    max_connections: int = 20
+    host: str = Field(default="redis", env="REDIS_HOST")
+    port: int = Field(default=6379, env="REDIS_PORT")
+    password: str = Field(default="redis_password", env="REDIS_PASSWORD")
+    db: int = Field(default=0, env="REDIS_DB")
+    max_connections: int = Field(default=20, env="REDIS_MAX_CONNECTIONS")
 
 
 class StorageConfig(BaseModel):
@@ -267,10 +267,12 @@ class Settings(BaseSettings):
     monitoring: MonitoringConfig = MonitoringConfig()
     security: SecurityConfig = SecurityConfig()
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore"  # Allow extra fields from environment variables
+    }
 
 
 def load_config() -> Settings:

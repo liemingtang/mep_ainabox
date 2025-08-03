@@ -183,13 +183,27 @@ else
     echo -e "${YELLOW}⏭️  Skipping Docker build (--skip-build flag used)${NC}"
 fi
 
+# Check and build file-watcher image specifically (always build if missing)
+echo -e "${CYAN}📦 Checking file-watcher image...${NC}"
+if ! docker images | grep -q "mep-file-watcher"; then
+    echo -e "${YELLOW}⚠️  File-watcher image not found. Building...${NC}"
+    cd core
+    docker compose build file-watcher
+    cd ..
+    echo -e "${GREEN}✅ File-watcher image built successfully${NC}"
+else
+    echo -e "${GREEN}✅ File-watcher image already exists${NC}"
+fi
+
+
+
 # Start services (if not skipped)
 if [ "$SKIP_SERVICES" = false ]; then
     echo ""
     echo -e "${PURPLE}🚀 Starting Services${NC}"
     echo -e "${PURPLE}==================${NC}"
     
-    # Start infrastructure services first
+    # Step 1: Start infrastructure services first
     echo -e "${CYAN}🔧 Starting infrastructure services...${NC}"
     cd services
     docker compose up -d postgres elasticsearch kibana qdrant neo4j redis minio n8n flowise
@@ -236,28 +250,47 @@ if [ "$SKIP_SERVICES" = false ]; then
     
     cd ..
     
-    # Start core services
-    echo -e "${CYAN}🔧 Starting core services...${NC}"
+    # Step 2: Start native core processing services
+    echo -e "${CYAN}🔧 Starting native core processing services...${NC}"
     cd core
-    docker compose up -d
     
-    echo -e "${BLUE}⏳ Waiting for core services to be ready...${NC}"
+    # Install Python requirements if not already done
+    echo -e "${BLUE}🐍 Installing Python requirements for native core services...${NC}"
+    if command -v pip3 &> /dev/null; then
+        pip3 install -r requirements_native.txt --user
+        echo -e "${GREEN}✅ Python requirements installed${NC}"
+    else
+        echo -e "${RED}❌ pip3 not found. Please install Python 3 and pip3 first.${NC}"
+        exit 1
+    fi
+    
+    # Start native services
+    echo -e "${BLUE}🚀 Starting native core processing services...${NC}"
+    ./start_native_services.sh --start all
+    
+    echo -e "${BLUE}⏳ Waiting for native core services to be ready...${NC}"
     sleep 30
     
-    # Check core services health
-    echo -e "${BLUE}🔍 Checking core services health...${NC}"
+    # Check native core services health
+    echo -e "${BLUE}🔍 Checking native core services health...${NC}"
     
-    for service in api-gateway core-processor document-router processing-pipeline storage-manager; do
-        port=8000
-        case $service in
-            "api-gateway") port=8000 ;;
-            "core-processor") port=8001 ;;
-            "document-router") port=8002 ;;
-            "processing-pipeline") port=8003 ;;
-            "storage-manager") port=8004 ;;
-        esac
-        
-        if curl -f http://localhost:$port/health > /dev/null 2>&1; then
+    # Define service ports for native processing
+    declare -A service_ports=(
+        ["api-gateway"]=8011
+        ["core-processor"]=8001
+        ["document-router"]=8002
+        ["processing-pipeline"]=8003
+        ["storage-manager"]=8004
+        ["text-processor"]=8005
+        ["metadata-processor"]=8006
+        ["embedding-processor"]=8007
+        ["entity-processor"]=8008
+        ["file-watcher"]=8009
+    )
+    
+    for service in "${!service_ports[@]}"; do
+        port="${service_ports[$service]}"
+        if curl -f http://localhost:$port/health > /dev/null 2>&1 || curl -f http://localhost:$port/docs > /dev/null 2>&1; then
             echo -e "${GREEN}✅ $service is healthy (port $port)${NC}"
         else
             echo -e "${YELLOW}⚠️  $service health check failed (port $port)${NC}"
@@ -293,9 +326,13 @@ if [ -f "core/dashboard.pid" ]; then
     fi
 fi
 
+# Start host volume manager service
+echo -e "${CYAN}🚀 Starting host volume manager service...${NC}"
+cd core
+./start_host_volume_manager.sh
+
 # Start dashboard on host
 echo -e "${CYAN}🚀 Starting dashboard on host...${NC}"
-cd core
 ./start_dashboard_host.sh --background
 
 # Wait for dashboard to be ready
@@ -330,7 +367,29 @@ echo -e "${CYAN}🔍 Starting Qdrant UI...${NC}"
 cd services
 if [ -d "qdrant-ui" ]; then
     ./scripts/start-qdrant-ui-daemon.sh
-    echo -e "${GREEN}✅ Qdrant UI started${NC}"
+    
+    # Wait for Qdrant UI to be ready
+    echo -e "${BLUE}⏳ Waiting for Qdrant UI to start...${NC}"
+    max_attempts=30
+    attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -f http://localhost:7070/index.html > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ Qdrant UI is ready!${NC}"
+            break
+        else
+            echo -e "${YELLOW}⏳ Waiting for Qdrant UI... (attempt $((attempt + 1))/$max_attempts)${NC}"
+            sleep 2
+            attempt=$((attempt + 1))
+        fi
+    done
+    
+    if [ $attempt -eq $max_attempts ]; then
+        echo -e "${RED}❌ Qdrant UI failed to start properly.${NC}"
+        echo "Check logs with: tail -f services/qdrant-ui.log"
+        # Don't exit, just warn
+    else
+        echo -e "${GREEN}✅ Qdrant UI started successfully${NC}"
+    fi
 else
     echo -e "${YELLOW}⚠️  Qdrant UI directory not found${NC}"
 fi
@@ -343,11 +402,16 @@ echo ""
 echo -e "${BLUE}🌐 Service URLs:${NC}"
 echo -e "${GREEN}  Dashboard:${NC} http://localhost:8010"
 echo -e "${GREEN}  Admin Panel:${NC} http://localhost:8010/admin"
-echo -e "${GREEN}  API Gateway:${NC} http://localhost:8000"
+echo -e "${GREEN}  API Gateway:${NC} http://localhost:8011"
 echo -e "${GREEN}  Core Processor:${NC} http://localhost:8001"
 echo -e "${GREEN}  Document Router:${NC} http://localhost:8002"
 echo -e "${GREEN}  Processing Pipeline:${NC} http://localhost:8003"
 echo -e "${GREEN}  Storage Manager:${NC} http://localhost:8004"
+echo -e "${GREEN}  Text Processor:${NC} http://localhost:8005"
+echo -e "${GREEN}  Metadata Processor:${NC} http://localhost:8006"
+echo -e "${GREEN}  Embedding Processor:${NC} http://localhost:8007"
+echo -e "${GREEN}  Entity Processor:${NC} http://localhost:8008"
+echo -e "${GREEN}  File Watcher:${NC} http://localhost:8009"
 echo ""
 echo -e "${BLUE}🔧 Infrastructure Services:${NC}"
 echo -e "${GREEN}  PostgreSQL:${NC} localhost:5432"

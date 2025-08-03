@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://localhost:8001")
 FILE_WATCHER_URL = os.getenv("FILE_WATCHER_URL", "http://localhost:8009")
 STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://localhost:8004")
+HOST_VOLUME_MANAGER_URL = os.getenv("HOST_VOLUME_MANAGER_URL", "http://localhost:8011")
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 NEO4J_URL = os.getenv("NEO4J_URL", "http://localhost:7474")
@@ -115,6 +116,17 @@ SERVICE_INFO = {
         "config_paths": ["/app/config/main.yaml"],
         "log_paths": ["/app/logs/file-watcher.log", "/app/logs/app.log"],
         "docker_container": "mep-file-watcher",
+        "admin_ui": None
+    },
+    "host-volume-manager": {
+        "name": "Host Volume Manager",
+        "description": "Dynamically mounts local folders to shared Docker volumes",
+        "port": 8011,
+        "url": HOST_VOLUME_MANAGER_URL,
+        "endpoints": ["/health", "/mount", "/list", "/unmount"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/host-volume-manager.log", "/app/logs/app.log"],
+        "docker_container": None,  # Runs on host, not in container
         "admin_ui": None
     },
     "storage-manager": {
@@ -399,6 +411,7 @@ SERVICE_INFO = {
 SERVICES = {
     "core-processor": f"{CORE_PROCESSOR_URL}/health",
     "file-watcher": f"{FILE_WATCHER_URL}/health",
+    "host-volume-manager": f"{HOST_VOLUME_MANAGER_URL}/health",
     "storage-manager": f"{STORAGE_MANAGER_URL}/health",
     "text-processor": "http://localhost:8005/health",
     "metadata-processor": "http://localhost:8006/health",
@@ -1022,8 +1035,8 @@ def update_scan_progress(execution_id: str):
         else:
             execution.progress = 0.0
 
-def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
-    """Background worker for scanning folders"""
+async def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
+    """Background worker for scanning folders with dynamic volume mounting"""
     # Store original directory - we'll restore this at the end
     import os
     original_dir = os.getcwd()
@@ -1048,6 +1061,37 @@ def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
         folder_path = os.path.abspath(request.folder_path)
         add_scan_log(execution_id, "info", f"Resolved folder path: {folder_path}")
         
+        # Use the volume manager to dynamically mount the folder
+        add_scan_log(execution_id, "info", f"Mounting folder to shared volume: {folder_path}")
+        
+        # Call the volume manager to mount the folder
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                mount_response = await client.post(
+                    f"{HOST_VOLUME_MANAGER_URL}/mount",
+                    json={
+                        "host_path": folder_path,
+                        "folder_name": f"scan_{execution_id[:8]}"
+                    },
+                    timeout=30.0
+                )
+                
+                if mount_response.status_code != 200:
+                    raise Exception(f"Failed to mount folder: {mount_response.text}")
+                
+                mount_data = mount_response.json()
+                if not mount_data.get("success"):
+                    raise Exception(f"Volume manager failed to mount folder: {mount_data.get('error_message')}")
+                
+                unique_folder_name = mount_data.get("unique_folder_name")
+                add_scan_log(execution_id, "info", f"Successfully mounted folder: {unique_folder_name}")
+                
+        except Exception as e:
+            add_scan_log(execution_id, "error", f"Failed to mount folder using volume manager: {str(e)}")
+            add_scan_log(execution_id, "info", "Falling back to direct folder access")
+            unique_folder_name = None
+        
         # Use dynamic Docker mounting approach for external folders
         # This ensures the processing pipeline can access the files correctly
         container_name = f"mep-folder-scanner-{execution_id[:8]}"
@@ -1064,7 +1108,7 @@ def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
             if not result.stdout.strip():
                 add_scan_log(execution_id, "info", "Docker image not found, building mep-file-watcher:latest...")
                 build_result = subprocess.run(
-                    ["docker", "build", "-t", "mep-file-watcher:latest", "./core/file_watcher"],
+                    ["docker", "build", "-t", "mep-file-watcher:latest", "-f", "./core/file_watcher/Dockerfile", "./core"],
                     capture_output=True,
                     text=True,
                     timeout=300.0  # 5 minutes timeout for build
@@ -1074,6 +1118,125 @@ def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
                     raise Exception(f"Failed to build Docker image: {build_result.stderr}")
                 
                 add_scan_log(execution_id, "info", "Docker image built successfully")
+                
+            # Use Docker with volume manager if available
+            if unique_folder_name:
+                add_scan_log(execution_id, "info", f"Executing Docker command: docker run --rm --name {container_name} --network host -v shared_scan_folders:/app/scan_folders:ro -e CORE_PROCESSOR_URL=http://localhost:8001 -e HOST_SCAN_FOLDER_PATH={folder_path} mep-file-watcher:latest python3 /app/folder_scanner.py /app/scan_folders --queue --save-report scan_report_{execution_id}.json")
+                
+                # Build Docker command with volume manager
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    "--name", container_name,
+                    "--network", "host",
+                    "-v", "shared_scan_folders:/app/scan_folders:ro",
+                    "-e", f"CORE_PROCESSOR_URL=http://localhost:8001",
+                    "-e", f"HOST_SCAN_FOLDER_PATH={folder_path}",
+                    "mep-file-watcher:latest",
+                    "python3", "/app/folder_scanner.py", "/app/scan_folders",
+                    "--queue"
+                ]
+                
+                # Add processing mode
+                if request.processing_mode == "sync":
+                    docker_cmd.append("--sync")
+                
+                # Add other options
+                if not request.recursive:
+                    docker_cmd.append("--no-recursive")
+                
+                if request.max_depth != 10:
+                    docker_cmd.extend(["--max-depth", str(request.max_depth)])
+                
+                if request.concurrent_limit != 5:
+                    docker_cmd.extend(["--concurrent", str(request.concurrent_limit)])
+                
+                if request.save_report:
+                    # Generate a timestamped report filename
+                    import time
+                    timestamp = time.strftime("%Y%m%d_%H%M%S")
+                    report_filename = f"scan_report_{timestamp}.json"
+                    docker_cmd.extend(["--save-report", report_filename])
+                
+                add_scan_log(execution_id, "info", f"Process started with PID: {os.getpid()}")
+                
+                # Start the Docker process
+                process = subprocess.Popen(
+                    docker_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+                
+                scan_processes[execution_id] = process
+                
+                # Monitor the process
+                import threading
+                
+                def monitor_stderr():
+                    while True:
+                        error_output = process.stderr.readline()
+                        if error_output == '' and process.poll() is not None:
+                            break
+                        if error_output:
+                            line = error_output.strip()
+                            # Check if it's actually an error or just info output
+                            if "ERROR" in line:
+                                add_scan_log(execution_id, "error", f"STDERR: {line}")
+                            else:
+                                add_scan_log(execution_id, "info", f"STDERR: {line}")
+                
+                # Start stderr monitoring in a separate thread
+                stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
+                stderr_thread.start()
+                
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        line = output.strip()
+                        add_scan_log(execution_id, "info", line)
+                        
+                        # Parse progress from output
+                        if "Found" in line and "files to process" in line:
+                            try:
+                                total_files = int(line.split()[1])
+                                execution.total_files = total_files
+                                add_scan_log(execution_id, "info", f"Found {total_files} files to process")
+                            except:
+                                pass
+                        elif "Uploaded file" in line or "✅ Uploaded file" in line:
+                            execution.processed_files += 1
+                            update_scan_progress(execution_id)
+                        elif "Successfully processed" in line or "✅ Successfully processed" in line:
+                            execution.completed_files += 1
+                        elif "Failed to process" in line or "❌ Failed to process" in line:
+                            execution.failed_files += 1
+                        elif "Processing file" in line:
+                            # Extract file number from "Processing file X/Y: filename"
+                            try:
+                                parts = line.split("Processing file ")[1].split("/")[0]
+                                current_file = int(parts)
+                                if execution.total_files == 0:
+                                    execution.total_files = current_file
+                            except:
+                                pass
+                
+                # Get return code
+                return_code = process.poll()
+                
+                if return_code == 0:
+                    execution.status = "completed"
+                    add_scan_log(execution_id, "success", "Scan completed successfully")
+                else:
+                    execution.status = "failed"
+                    add_scan_log(execution_id, "error", f"Scan failed with return code: {return_code}")
+                
+                execution.completed_at = datetime.utcnow()
+                return
+                
         except Exception as e:
             add_scan_log(execution_id, "warning", f"Docker not available, falling back to direct execution: {str(e)}")
             # Fall back to direct Python execution
@@ -1187,200 +1350,22 @@ def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
                 execution.status = "failed"
                 add_scan_log(execution_id, "error", f"Scan failed with return code: {return_code}")
             
-            execution.completed_at = datetime.now()
-            if execution_id in scan_processes:
-                del scan_processes[execution_id]
-            
-            # Restore original directory
-            try:
-                os.chdir(original_dir)
-            except:
-                pass
-            
-            return  # Exit early for fallback mode
-        
-        # First, mount the folder to the shared volume
-        add_scan_log(execution_id, "info", f"Mounting folder to shared volume: {folder_path}")
-        
-        # Use volume manager to mount the folder
-        mount_cmd = [
-            "python3", 
-            "/app/volume_manager.py", 
-            "mount", 
-            "--path", folder_path,
-            "--name", f"scan_{execution_id[:8]}"
-        ]
-        
-        # Execute mount command in a temporary container
-        mount_docker_cmd = [
-            "docker", "run", "--rm",
-            "--name", f"mount-{container_name}",
-            "--network", "host",
-            "-v", "shared_scan_folders:/app/scan_folders:rw",
-            "-v", f"{folder_path}:/source:ro",
-            "mep-file-watcher:latest"
-        ] + mount_cmd
-        
-        add_scan_log(execution_id, "info", f"Executing mount command: {' '.join(mount_docker_cmd)}")
-        
-        # Execute the mount command
-        mount_process = subprocess.run(
-            mount_docker_cmd,
-            capture_output=True,
-            text=True
-        )
-        
-        if mount_process.returncode != 0:
-            add_scan_log(execution_id, "error", f"Failed to mount folder: {mount_process.stderr}")
-            execution.status = "failed"
-            execution.completed_at = datetime.now()
+            execution.completed_at = datetime.utcnow()
             return
-        
-        add_scan_log(execution_id, "info", f"Successfully mounted folder: {mount_process.stdout.strip()}")
-        
-        # Build the Docker command with shared volume approach
-        docker_cmd = [
-            "docker", "run", "--rm",
-            "--name", container_name,
-            "--network", "host",  # Use host network for localhost access
-            "-v", "shared_scan_folders:/app/scan_folders:ro",  # Mount shared volume
-            "-e", "CORE_PROCESSOR_URL=http://localhost:8001",
-            "-e", f"HOST_SCAN_FOLDER_PATH={folder_path}",
-            "mep-file-watcher:latest"
-        ]
-        
-        # Build the Python command inside the container with shared volume support
-        python_cmd = [
-            "python3", 
-            "/app/folder_scanner.py",
-            "/app/scan_folders"  # Use the shared volume path
-        ]
-        
-        # Add processing mode
-        if request.processing_mode == "queue":
-            python_cmd.append("--queue")
-        elif request.processing_mode == "sync":
-            python_cmd.append("--sync")
-        
-        # Add other options
-        if not request.recursive:
-            python_cmd.append("--no-recursive")
-        
-        if request.max_depth != 10:
-            python_cmd.extend(["--max-depth", str(request.max_depth)])
-        
-        if request.concurrent_limit != 5:
-            python_cmd.extend(["--concurrent", str(request.concurrent_limit)])
-        
-        if request.save_report:
-            # Generate a timestamped report filename
-            import time
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            report_filename = f"scan_report_{timestamp}.json"
-            python_cmd.extend(["--save-report", report_filename])
-        
-        # Combine Docker and Python commands
-        full_cmd = docker_cmd + python_cmd
-        
-        add_scan_log(execution_id, "info", f"Executing Docker command: {' '.join(full_cmd)}")
-        
-        # Start the process
-        process = subprocess.Popen(
-            full_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        add_scan_log(execution_id, "info", f"Process started with PID: {process.pid}")
-        scan_processes[execution_id] = process
-        
-        # Monitor the process
-        import threading
-        
-        def monitor_stderr():
-            while True:
-                error_output = process.stderr.readline()
-                if error_output == '' and process.poll() is not None:
-                    break
-                if error_output:
-                    line = error_output.strip()
-                    # Check if it's actually an error or just info output
-                    if "ERROR" in line:
-                        add_scan_log(execution_id, "error", f"STDERR: {line}")
-                    else:
-                        add_scan_log(execution_id, "info", f"STDERR: {line}")
-        
-        # Start stderr monitoring in a separate thread
-        stderr_thread = threading.Thread(target=monitor_stderr, daemon=True)
-        stderr_thread.start()
-        
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                line = output.strip()
-                add_scan_log(execution_id, "info", line)
-                
-                # Parse progress from output
-                if "Found" in line and "files to process" in line:
-                    try:
-                        total_files = int(line.split()[1])
-                        execution.total_files = total_files
-                        add_scan_log(execution_id, "info", f"Found {total_files} files to process")
-                    except:
-                        pass
-                elif "Uploaded file" in line or "✅ Uploaded file" in line:
-                    execution.processed_files += 1
-                    update_scan_progress(execution_id)
-                elif "Successfully processed" in line or "✅ Successfully processed" in line:
-                    execution.completed_files += 1
-                elif "Failed to process" in line or "❌ Failed to process" in line:
-                    execution.failed_files += 1
-                elif "Processing file" in line:
-                    # Extract file number from "Processing file X/Y: filename"
-                    try:
-                        parts = line.split("Processing file ")[1].split("/")[0]
-                        current_file = int(parts)
-                        if execution.total_files == 0:
-                            execution.total_files = current_file
-                    except:
-                        pass
-        
-        # Get return code
-        return_code = process.poll()
-        
-        if return_code == 0:
-            execution.status = "completed"
-            add_scan_log(execution_id, "success", "Scan completed successfully")
-        else:
-            execution.status = "failed"
-            add_scan_log(execution_id, "error", f"Scan failed with return code: {return_code}")
-        
-        execution.completed_at = datetime.now()
-        if execution_id in scan_processes:
-            del scan_processes[execution_id]
-        
-        # Restore original directory
-        try:
-            os.chdir(original_dir)
-        except:
-            pass
-        
+            
     except Exception as e:
         if execution_id in scan_executions:
             scan_executions[execution_id].status = "failed"
             add_scan_log(execution_id, "error", f"Scan worker error: {str(e)}")
-            scan_executions[execution_id].completed_at = datetime.now()
+            scan_executions[execution_id].completed_at = datetime.utcnow()
             if execution_id in scan_processes:
                 del scan_processes[execution_id]
-        
-        # Restore original directory
+    
+    finally:
+        # Always restore original directory, regardless of success or failure
         try:
             os.chdir(original_dir)
+            logger.info(f"Restored working directory to: {original_dir}")
         except:
             pass
 
@@ -1631,11 +1616,11 @@ def check_infrastructure_services() -> bool:
         return False
 
 def check_core_services() -> bool:
-    """Check if core services are running"""
+    """Check if core services are running (Native Host-based Processing)"""
     try:
-        # Check key core services with correct ports
+        # Check key core services with correct ports for native processing
         services_to_check = [
-            ("api-gateway", 8000, "/health"),  # API Gateway runs on port 8000 with host networking
+            ("api-gateway", 8011, "/health"),  # API Gateway runs on port 8011 with native processing
             ("core-processor", 8001, "/docs"),  # Core processor responds on /docs
             ("file-watcher", 8009, "/health"),
             ("processing-pipeline", 8003, "/health")  # Processing pipeline for queue/status workers
@@ -1722,10 +1707,10 @@ def startup_services():
             admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ⏳ Waiting for infrastructure services to be ready...")
             time.sleep(30)
             
-            # Step 2: Start core services
-            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Starting core system services...")
+            # Step 2: Start core services (Native Host-based Processing)
+            admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Starting native core system services...")
             
-            # Navigate to the core directory (where the current docker-compose.yml is)
+            # Navigate to the core directory (where the start_native_services.sh script is)
             # Since the dashboard is now running on the host, we need to go up one level from core/dashboard
             core_dir = os.path.dirname(original_dir)
             
@@ -1734,14 +1719,16 @@ def startup_services():
             if os.path.exists(core_dir):
                 admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found core directory")
                 os.chdir(core_dir)
+                
+                # Start native services using the start_native_services.sh script
                 result = subprocess.run(
-                    ["docker", "compose", "up", "-d"],
+                    ["./start_native_services.sh", "--start", "all"],
                     capture_output=True, text=True, timeout=300
                 )
                 if result.returncode == 0:
-                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Core system services started successfully")
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Native core system services started successfully")
                 else:
-                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to start core services: {result.stderr}")
+                    admin_state["startup_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to start native core services: {result.stderr}")
                     admin_state["startup_in_progress"] = False
                     return
             else:
@@ -2106,8 +2093,8 @@ def shutdown_services():
         admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 📍 Original directory: {original_dir}")
         
         try:
-            # Step 1: Stop core services first
-            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Stopping core system services...")
+            # Step 1: Stop core services first (Native Host-based Processing)
+            admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] 🔧 Stopping native core system services...")
             
             # Navigate to the core directory
             core_dir = os.path.dirname(original_dir)
@@ -2117,14 +2104,16 @@ def shutdown_services():
             if os.path.exists(core_dir):
                 admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Found core directory")
                 os.chdir(core_dir)
+                
+                # Stop native services using the start_native_services.sh script
                 result = subprocess.run(
-                    ["docker", "compose", "down"],
+                    ["./start_native_services.sh", "--stop", "all"],
                     capture_output=True, text=True, timeout=300
                 )
                 if result.returncode == 0:
-                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Core system services stopped successfully")
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Native core system services stopped successfully")
                 else:
-                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to stop core services: {result.stderr}")
+                    admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Failed to stop native core services: {result.stderr}")
             else:
                 admin_state["shutdown_logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Core directory not found: {core_dir}")
             
@@ -2258,9 +2247,9 @@ async def get_shutdown_logs():
 async def get_service_status():
     """Get detailed status of all services"""
     
-    # Core Services (from core docker-compose)
+    # Core Services (Native Host-based Processing)
     core_services = [
-        {"name": "API Gateway", "port": 8000, "endpoint": "/health", "description": "Unified entry point for all client interactions", "service_key": "api-gateway", "admin_url": "http://localhost:8000/docs"},
+        {"name": "API Gateway", "port": 8011, "endpoint": "/health", "description": "Unified entry point for all client interactions", "service_key": "api-gateway", "admin_url": "http://localhost:8011/docs"},
         {"name": "Core Processor", "port": 8001, "endpoint": "/docs", "description": "Main document processing orchestrator", "service_key": "core-processor", "admin_url": "http://localhost:8001/docs"},
         {"name": "Document Router", "port": 8002, "endpoint": "/health", "description": "Intelligent document routing and processing", "service_key": "document-router", "admin_url": "http://localhost:8002/docs"},
         {"name": "Processing Pipeline", "port": 8003, "endpoint": "/health", "description": "Orchestrated document processing workflow", "service_key": "processing-pipeline", "admin_url": "http://localhost:8003/docs"},
@@ -2296,6 +2285,20 @@ async def get_service_status():
         {"name": "pgAdmin", "port": 8080, "endpoint": "/", "description": "PostgreSQL administration", "service_key": "pgadmin", "admin_url": "http://localhost:8080"},
         {"name": "Redis Commander", "port": 8081, "endpoint": "/", "description": "Redis management interface", "service_key": "redis-commander", "admin_url": "http://localhost:8081"}
     ]
+    
+    def check_native_service_process(service_name: str) -> bool:
+        """Check if a native service process is running"""
+        try:
+            import subprocess
+            # Check for Python processes running the service
+            result = subprocess.run(
+                ["pgrep", "-f", f"python.*{service_name}"],
+                capture_output=True,
+                text=True
+            )
+            return result.returncode == 0
+        except:
+            return False
     
     def check_service_status(service):
         """Check if a service is running"""
@@ -2344,6 +2347,12 @@ async def get_service_status():
                 else:
                     return "running"
             else:
+                # For native services, also check if the process is running
+                if service["service_key"] in ["api-gateway", "core-processor", "document-router", "processing-pipeline", 
+                                            "storage-manager", "text-processor", "metadata-processor", "embedding-processor", 
+                                            "entity-processor", "file-watcher"]:
+                    if check_native_service_process(service["service_key"]):
+                        return "running"  # Process is running but port might not be ready yet
                 return "stopped"
         except:
             return "unknown"
@@ -2387,23 +2396,6 @@ async def get_service_status():
 async def start_individual_service(service_key: str):
     """Start an individual service"""
     try:
-        # Determine which docker-compose file to use based on service key
-        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
-            # Infrastructure service - use services docker-compose
-            compose_file = "services/docker-compose.yml"
-            service_name = service_key
-        elif service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher"]:
-            # Core service - use core docker-compose
-            compose_file = "core/docker-compose.yml"
-            service_name = service_key
-        elif service_key in ["prometheus", "grafana", "qdrantui", "pgadmin", "redis-commander"]:
-            # Admin UI service - use services docker-compose with profile
-            compose_file = "services/docker-compose.yml"
-            service_name = service_key
-        else:
-            raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
-        
-        # Start the service
         import subprocess
         import os
         
@@ -2411,24 +2403,54 @@ async def start_individual_service(service_key: str):
         original_dir = os.getcwd()
         
         try:
-            # Change to the appropriate directory
-            if compose_file.startswith("services/"):
-                os.chdir("/home/lie/repo_mep/mep_ainabox")
-            else:
-                os.chdir("/home/lie/repo_mep/mep_ainabox")
+            # Handle native core services
+            if service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher", "queue-worker", "status-worker"]:
+                # Native core service - use start_native_services.sh
+                os.chdir("/home/lie/repo_mep/mep_ainabox/core")
+                cmd = ["./start_native_services.sh", "--start", service_key]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    return {"message": f"Native service {service_key} started successfully", "status": "started"}
+                else:
+                    return {"message": f"Failed to start native service {service_key}: {result.stderr}", "status": "failed"}
             
-            # Build the docker compose command
-            if service_key in ["prometheus", "grafana"]:
-                cmd = ["docker", "compose", "-f", compose_file, "--profile", service_key, "up", "-d", service_name]
-            else:
+            # Handle infrastructure services (still use Docker)
+            elif service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
+                # Infrastructure service - use services docker-compose
+                compose_file = "services/docker-compose.yml"
+                service_name = service_key
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
+                
                 cmd = ["docker", "compose", "-f", compose_file, "up", "-d", service_name]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    return {"message": f"Infrastructure service {service_key} started successfully", "status": "started"}
+                else:
+                    return {"message": f"Failed to start infrastructure service {service_key}: {result.stderr}", "status": "failed"}
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            
-            if result.returncode == 0:
-                return {"message": f"Service {service_key} started successfully", "status": "started"}
+            # Handle admin UI services (still use Docker)
+            elif service_key in ["prometheus", "grafana", "qdrantui", "pgadmin", "redis-commander"]:
+                # Admin UI service - use services docker-compose with profile
+                compose_file = "services/docker-compose.yml"
+                service_name = service_key
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
+                
+                if service_key in ["prometheus", "grafana"]:
+                    cmd = ["docker", "compose", "-f", compose_file, "--profile", service_key, "up", "-d", service_name]
+                else:
+                    cmd = ["docker", "compose", "-f", compose_file, "up", "-d", service_name]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    return {"message": f"Admin UI service {service_key} started successfully", "status": "started"}
+                else:
+                    return {"message": f"Failed to start admin UI service {service_key}: {result.stderr}", "status": "failed"}
             else:
-                return {"message": f"Failed to start {service_key}: {result.stderr}", "status": "failed"}
+                raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
                 
         finally:
             # Restore original directory
@@ -2441,23 +2463,6 @@ async def start_individual_service(service_key: str):
 async def stop_individual_service(service_key: str):
     """Stop an individual service"""
     try:
-        # Determine which docker-compose file to use based on service key
-        if service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
-            # Infrastructure service - use services docker-compose
-            compose_file = "services/docker-compose.yml"
-            service_name = service_key
-        elif service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher"]:
-            # Core service - use core docker-compose
-            compose_file = "core/docker-compose.yml"
-            service_name = service_key
-        elif service_key in ["prometheus", "grafana", "qdrantui", "pgadmin", "redis-commander"]:
-            # Admin UI service - use services docker-compose with profile
-            compose_file = "services/docker-compose.yml"
-            service_name = service_key
-        else:
-            raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
-        
-        # Stop the service
         import subprocess
         import os
         
@@ -2465,24 +2470,54 @@ async def stop_individual_service(service_key: str):
         original_dir = os.getcwd()
         
         try:
-            # Change to the appropriate directory
-            if compose_file.startswith("services/"):
-                os.chdir("/home/lie/repo_mep/mep_ainabox")
-            else:
-                os.chdir("/home/lie/repo_mep/mep_ainabox")
+            # Handle native core services
+            if service_key in ["api-gateway", "core-processor", "document-router", "processing-pipeline", "storage-manager", "text-processor", "metadata-processor", "embedding-processor", "entity-processor", "file-watcher", "queue-worker", "status-worker"]:
+                # Native core service - use start_native_services.sh
+                os.chdir("/home/lie/repo_mep/mep_ainabox/core")
+                cmd = ["./start_native_services.sh", "--stop", service_key]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    return {"message": f"Native service {service_key} stopped successfully", "status": "stopped"}
+                else:
+                    return {"message": f"Failed to stop native service {service_key}: {result.stderr}", "status": "failed"}
             
-            # Build the docker compose command
-            if service_key in ["prometheus", "grafana"]:
-                cmd = ["docker", "compose", "-f", compose_file, "--profile", service_key, "stop", service_name]
-            else:
+            # Handle infrastructure services (still use Docker)
+            elif service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
+                # Infrastructure service - use services docker-compose
+                compose_file = "services/docker-compose.yml"
+                service_name = service_key
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
+                
                 cmd = ["docker", "compose", "-f", compose_file, "stop", service_name]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    return {"message": f"Infrastructure service {service_key} stopped successfully", "status": "stopped"}
+                else:
+                    return {"message": f"Failed to stop infrastructure service {service_key}: {result.stderr}", "status": "failed"}
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            
-            if result.returncode == 0:
-                return {"message": f"Service {service_key} stopped successfully", "status": "stopped"}
+            # Handle admin UI services (still use Docker)
+            elif service_key in ["prometheus", "grafana", "qdrantui", "pgadmin", "redis-commander"]:
+                # Admin UI service - use services docker-compose with profile
+                compose_file = "services/docker-compose.yml"
+                service_name = service_key
+                os.chdir("/home/lie/repo_mep/mep_ainabox")
+                
+                if service_key in ["prometheus", "grafana"]:
+                    cmd = ["docker", "compose", "-f", compose_file, "--profile", service_key, "stop", service_name]
+                else:
+                    cmd = ["docker", "compose", "-f", compose_file, "stop", service_name]
+                
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                
+                if result.returncode == 0:
+                    return {"message": f"Admin UI service {service_key} stopped successfully", "status": "stopped"}
+                else:
+                    return {"message": f"Failed to stop admin UI service {service_key}: {result.stderr}", "status": "failed"}
             else:
-                return {"message": f"Failed to stop {service_key}: {result.stderr}", "status": "failed"}
+                raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
                 
         finally:
             # Restore original directory
@@ -2496,6 +2531,11 @@ async def stop_individual_service(service_key: str):
 async def scan_folder_page(request: Request):
     """Scan folder page"""
     return templates.TemplateResponse("scan_folder.html", {"request": request})
+
+@app.get("/folder-browser", response_class=HTMLResponse)
+async def folder_browser_page(request: Request):
+    """Dynamic folder browser page for selecting folders to scan"""
+    return templates.TemplateResponse("folder_browser.html", {"request": request})
 
 @app.post("/api/scan-folder/start")
 async def start_scan_folder(request: ScanFolderRequest):
@@ -2539,10 +2579,18 @@ async def start_scan_folder(request: ScanFolderRequest):
         scan_executions[execution_id] = execution
         logger.info(f"Created scan execution {execution_id} for folder: {request.folder_path}")
         
-        # Start background worker
+        # Start background worker with async wrapper
+        def run_async_worker():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(scan_folder_worker(execution_id, request))
+            finally:
+                loop.close()
+        
         worker_thread = threading.Thread(
-            target=scan_folder_worker,
-            args=(execution_id, request),
+            target=run_async_worker,
             daemon=True
         )
         worker_thread.start()
@@ -2969,6 +3017,244 @@ Answer questions about the database content, statistics, and documents. Be infor
         
     except Exception as e:
         return {"answer": f"Error querying database: {str(e)}"}
+
+# Dynamic folder selection and browsing endpoints
+class FolderBrowseRequest(BaseModel):
+    path: str = "/"
+    show_hidden: bool = False
+
+class FolderBrowseResponse(BaseModel):
+    current_path: str
+    parent_path: Optional[str] = None
+    folders: List[Dict[str, Any]]
+    files: List[Dict[str, Any]]
+    error: Optional[str] = None
+
+@app.post("/api/folder/browse")
+async def browse_folder(request: FolderBrowseRequest):
+    """Browse folders for dynamic selection"""
+    try:
+        import os
+        from pathlib import Path
+        
+        # Resolve the path
+        path = Path(request.path).resolve()
+        
+        # Security check - ensure path is accessible
+        if not path.exists():
+            return FolderBrowseResponse(
+                current_path=str(path),
+                error="Path does not exist"
+            )
+        
+        if not path.is_dir():
+            return FolderBrowseResponse(
+                current_path=str(path),
+                error="Path is not a directory"
+            )
+        
+        # Get parent path
+        parent_path = str(path.parent) if path.parent != path else None
+        
+        # List contents
+        folders = []
+        files = []
+        
+        try:
+            for item in path.iterdir():
+                # Skip hidden files unless requested
+                if not request.show_hidden and item.name.startswith('.'):
+                    continue
+                
+                try:
+                    stat = item.stat()
+                    item_info = {
+                        "name": item.name,
+                        "path": str(item),
+                        "size": stat.st_size,
+                        "modified": stat.st_mtime,
+                        "is_dir": item.is_dir(),
+                        "is_file": item.is_file(),
+                        "is_symlink": item.is_symlink()
+                    }
+                    
+                    if item.is_dir():
+                        folders.append(item_info)
+                    else:
+                        files.append(item_info)
+                        
+                except (PermissionError, OSError):
+                    # Skip items we can't access
+                    continue
+            
+            # Sort folders and files
+            folders.sort(key=lambda x: x["name"].lower())
+            files.sort(key=lambda x: x["name"].lower())
+            
+            return FolderBrowseResponse(
+                current_path=str(path),
+                parent_path=parent_path,
+                folders=folders,
+                files=files
+            )
+            
+        except PermissionError:
+            return FolderBrowseResponse(
+                current_path=str(path),
+                error="Permission denied"
+            )
+            
+    except Exception as e:
+        return FolderBrowseResponse(
+            current_path=request.path,
+            error=f"Error browsing folder: {str(e)}"
+        )
+
+class FolderMountRequest(BaseModel):
+    folder_path: str
+    folder_name: Optional[str] = None
+
+class FolderMountResponse(BaseModel):
+    success: bool
+    unique_folder_name: Optional[str] = None
+    error_message: Optional[str] = None
+
+@app.post("/api/folder/mount")
+async def mount_folder(request: FolderMountRequest):
+    """Mount a folder using the volume manager"""
+    try:
+        import httpx
+        
+        # Validate the folder path
+        import os
+        from pathlib import Path
+        
+        folder_path = Path(request.folder_path).resolve()
+        
+        if not folder_path.exists():
+            return FolderMountResponse(
+                success=False,
+                error_message="Folder does not exist"
+            )
+        
+        if not folder_path.is_dir():
+            return FolderMountResponse(
+                success=False,
+                error_message="Path is not a directory"
+            )
+        
+        # Call the volume manager
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{HOST_VOLUME_MANAGER_URL}/mount",
+                json={
+                    "host_path": str(folder_path),
+                    "folder_name": request.folder_name
+                },
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                return FolderMountResponse(
+                    success=False,
+                    error_message=f"Volume manager error: {response.text}"
+                )
+            
+            result = response.json()
+            if result.get("success"):
+                return FolderMountResponse(
+                    success=True,
+                    unique_folder_name=result.get("unique_folder_name")
+                )
+            else:
+                return FolderMountResponse(
+                    success=False,
+                    error_message=result.get("error_message", "Unknown error")
+                )
+                
+    except Exception as e:
+        return FolderMountResponse(
+            success=False,
+            error_message=f"Error mounting folder: {str(e)}"
+        )
+
+class FolderUnmountRequest(BaseModel):
+    folder_name: str
+
+class FolderUnmountResponse(BaseModel):
+    success: bool
+    error_message: Optional[str] = None
+
+@app.post("/api/folder/unmount")
+async def unmount_folder(request: FolderUnmountRequest):
+    """Unmount a folder using the volume manager"""
+    try:
+        import httpx
+        
+        # Call the volume manager
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{HOST_VOLUME_MANAGER_URL}/unmount",
+                json={
+                    "folder_name": request.folder_name
+                },
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                return FolderUnmountResponse(
+                    success=False,
+                    error_message=f"Volume manager error: {response.text}"
+                )
+            
+            result = response.json()
+            if result.get("success"):
+                return FolderUnmountResponse(success=True)
+            else:
+                return FolderUnmountResponse(
+                    success=False,
+                    error_message=result.get("error_message", "Unknown error")
+                )
+                
+    except Exception as e:
+        return FolderUnmountResponse(
+            success=False,
+            error_message=f"Error unmounting folder: {str(e)}"
+        )
+
+class FolderListResponse(BaseModel):
+    folders: List[str]
+    error_message: Optional[str] = None
+
+@app.get("/api/folder/list")
+async def list_mounted_folders():
+    """List all mounted folders"""
+    try:
+        import httpx
+        
+        # Call the volume manager
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{HOST_VOLUME_MANAGER_URL}/list",
+                timeout=10.0
+            )
+            
+            if response.status_code != 200:
+                return FolderListResponse(
+                    folders=[],
+                    error_message=f"Volume manager error: {response.text}"
+                )
+            
+            result = response.json()
+            return FolderListResponse(
+                folders=result.get("folders", [])
+            )
+                
+    except Exception as e:
+        return FolderListResponse(
+            folders=[],
+            error_message=f"Error listing folders: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn

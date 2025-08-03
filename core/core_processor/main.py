@@ -377,7 +377,7 @@ async def get_system_stats():
 
 if __name__ == "__main__":
     # Get port from environment or use default
-    port = int(os.getenv("API_PORT", 8001))
+    port = int(os.getenv("CORE_PROCESSOR_PORT", 8001))
     host = os.getenv("API_HOST", "0.0.0.0")
     
     logger.info(f"Starting Core Processor on {host}:{port}")
