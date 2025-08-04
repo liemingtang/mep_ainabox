@@ -339,10 +339,10 @@ if [ -f "core/dashboard.pid" ]; then
     fi
 fi
 
-# Start host volume manager service
-echo -e "${CYAN}🚀 Starting host volume manager service...${NC}"
-cd core
-./start_host_volume_manager.sh
+# Start host volume manager service (DISABLED - user preference)
+# echo -e "${CYAN}🚀 Starting host volume manager service...${NC}"
+# cd core
+# ./start_host_volume_manager.sh
 
 # Start dashboard on host
 echo -e "${CYAN}🚀 Starting dashboard on host...${NC}"

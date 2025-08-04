@@ -118,17 +118,17 @@ SERVICE_INFO = {
         "docker_container": "mep-file-watcher",
         "admin_ui": None
     },
-    "host-volume-manager": {
-        "name": "Host Volume Manager",
-        "description": "Dynamically mounts local folders to shared Docker volumes",
-        "port": 8011,
-        "url": HOST_VOLUME_MANAGER_URL,
-        "endpoints": ["/health", "/mount", "/list", "/unmount"],
-        "config_paths": ["/app/config/main.yaml"],
-        "log_paths": ["/app/logs/host-volume-manager.log", "/app/logs/app.log"],
-        "docker_container": None,  # Runs on host, not in container
-        "admin_ui": None
-    },
+    # "host-volume-manager": {
+    #     "name": "Host Volume Manager",
+    #     "description": "Dynamically mounts local folders to shared Docker volumes",
+    #     "port": 8011,
+    #     "url": HOST_VOLUME_MANAGER_URL,
+    #     "endpoints": ["/health", "/mount", "/list", "/unmount"],
+    #     "config_paths": ["/app/config/main.yaml"],
+    #     "log_paths": ["/app/logs/host-volume-manager.log", "/app/logs/app.log"],
+    #     "docker_container": None,  # Runs on host, not in container
+    #     "admin_ui": None
+    # },
     "storage-manager": {
         "name": "Storage Manager",
         "description": "Unified data storage and retrieval interface",
@@ -411,7 +411,7 @@ SERVICE_INFO = {
 SERVICES = {
     "core-processor": f"{CORE_PROCESSOR_URL}/health",
     "file-watcher": f"{FILE_WATCHER_URL}/health",
-    "host-volume-manager": f"{HOST_VOLUME_MANAGER_URL}/health",
+    # "host-volume-manager": f"{HOST_VOLUME_MANAGER_URL}/health",  # DISABLED - user preference
     "storage-manager": f"{STORAGE_MANAGER_URL}/health",
     "text-processor": "http://localhost:8005/health",
     "metadata-processor": "http://localhost:8006/health",
