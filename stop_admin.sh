@@ -89,16 +89,47 @@ else
     print_warning "Core directory not found"
 fi
 
-# Step 2.6: Stop specific worker processes
-print_status "Step 2.6: Stopping worker processes..."
-WORKER_PROCESSES=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py\|python.*host_volume_manager.py" 2>/dev/null || true)
+# Step 2.6: Stop Host Volume Manager
+print_status "Step 2.6: Stopping Host Volume Manager..."
+if [ -d "core" ]; then
+    cd core
+    if [ -f "stop_host_volume_manager.sh" ]; then
+        print_status "Using Host Volume Manager stop script..."
+        chmod +x "stop_host_volume_manager.sh"
+        ./stop_host_volume_manager.sh 2>/dev/null || true
+        print_success "Host Volume Manager stopped using stop script"
+    else
+        print_warning "Host Volume Manager stop script not found, using fallback method..."
+        if pgrep -f "python.*host_volume_manager.py" > /dev/null; then
+            print_status "Found Host Volume Manager process, stopping..."
+            pkill -f "python.*host_volume_manager.py" || true
+            sleep 2
+            
+            # Force kill if still running
+            if pgrep -f "python.*host_volume_manager.py" > /dev/null; then
+                print_warning "Host Volume Manager still running, force killing..."
+                pkill -9 -f "python.*host_volume_manager.py" || true
+            fi
+            print_success "Host Volume Manager stopped"
+        else
+            print_warning "No Host Volume Manager process found"
+        fi
+    fi
+    cd ..
+else
+    print_warning "Core directory not found"
+fi
+
+# Step 2.7: Stop specific worker processes
+print_status "Step 2.7: Stopping worker processes..."
+WORKER_PROCESSES=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py" 2>/dev/null || true)
 if [ -n "$WORKER_PROCESSES" ]; then
     print_status "Found worker processes: $WORKER_PROCESSES"
     echo "$WORKER_PROCESSES" | xargs -r kill -TERM 2>/dev/null || true
     sleep 2
     
     # Force kill remaining worker processes
-    REMAINING_WORKERS=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py\|python.*host_volume_manager.py" 2>/dev/null || true)
+    REMAINING_WORKERS=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py" 2>/dev/null || true)
     if [ -n "$REMAINING_WORKERS" ]; then
         print_warning "Force killing remaining worker processes..."
         echo "$REMAINING_WORKERS" | xargs -r kill -9 2>/dev/null || true
@@ -237,11 +268,19 @@ else
 fi
 
 # Check for remaining worker processes
-WORKER_REMAINING=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py\|python.*host_volume_manager.py" 2>/dev/null || true)
+WORKER_REMAINING=$(pgrep -f "python.*queue_worker.py\|python.*status_worker.py" 2>/dev/null || true)
 if [ -n "$WORKER_REMAINING" ]; then
     print_error "Warning: Some worker processes still running: $WORKER_REMAINING"
 else
     print_success "All worker processes stopped"
+fi
+
+# Check for remaining host volume manager process
+HOST_VOLUME_MANAGER_REMAINING=$(pgrep -f "python.*host_volume_manager.py" 2>/dev/null || true)
+if [ -n "$HOST_VOLUME_MANAGER_REMAINING" ]; then
+    print_error "Warning: Host Volume Manager process still running: $HOST_VOLUME_MANAGER_REMAINING"
+else
+    print_success "Host Volume Manager process stopped"
 fi
 
 # Check for remaining MEP containers

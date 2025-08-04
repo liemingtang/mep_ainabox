@@ -108,13 +108,14 @@ echo ""
 # Create necessary directories
 echo -e "${BLUE}📁 Creating necessary directories...${NC}"
 mkdir -p core/{documents,processed,temp,logs,watch_folder,config}
+mkdir -p core/cache/huggingface
 mkdir -p services/{volumes,config,logs}
 mkdir -p services/volumes/{postgres,elasticsearch,kibana,qdrant,neo4j,redis,minio,n8n,flowise,pgadmin,prometheus,grafana}
 mkdir -p services/config/{postgres,elasticsearch,kibana,qdrant,neo4j,redis,minio}
 
 # Set proper permissions
 echo -e "${BLUE}🔐 Setting proper permissions...${NC}"
-chmod -R 755 core/{documents,processed,temp,logs,watch_folder} 2>/dev/null || true
+chmod -R 755 core/{documents,processed,temp,logs,watch_folder,cache} 2>/dev/null || true
 sudo chown -R 1000:1000 services/volumes/elasticsearch 2>/dev/null || true
 sudo chown -R 1000:1000 services/volumes/neo4j 2>/dev/null || true
 sudo chown -R 1000:1000 services/volumes/redis 2>/dev/null || true
@@ -264,9 +265,21 @@ if [ "$SKIP_SERVICES" = false ]; then
         exit 1
     fi
     
+    # Initialize database
+    echo -e "${BLUE}🗄️  Initializing database...${NC}"
+    cd core_processor
+    if [ -f "init_database.sh" ]; then
+        chmod +x init_database.sh
+        ./init_database.sh
+        echo -e "${GREEN}✅ Database initialized${NC}"
+    else
+        echo -e "${YELLOW}⚠️  init_database.sh not found. Database may not be properly initialized.${NC}"
+    fi
+    cd ..
+    
     # Start native services
     echo -e "${BLUE}🚀 Starting native core processing services...${NC}"
-    ./start_native_services.sh all
+    ./start_native_services.sh
     
     echo -e "${BLUE}⏳ Waiting for native core services to be ready...${NC}"
     sleep 30
