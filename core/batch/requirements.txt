@@ -1,0 +1,4 @@
+asyncpg>=0.28.0
+PyYAML>=6.0
+python-magic>=0.4.27
+pathlib2>=2.3.7 
