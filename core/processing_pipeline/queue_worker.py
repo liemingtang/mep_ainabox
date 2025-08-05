@@ -23,6 +23,67 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 import os
+import yaml
+from pathlib import Path
+
+def load_config():
+    """Load configuration from main.yaml and set environment variables"""
+    try:
+        config_path = Path(__file__).parent.parent / "config" / "main.yaml"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            # Set Redis environment variables
+            redis_config = config.get('core', {}).get('storage', {}).get('redis', {})
+            os.environ.setdefault('REDIS_HOST', redis_config.get('host', 'localhost'))
+            os.environ.setdefault('REDIS_PORT', str(redis_config.get('port', 6379)))
+            os.environ.setdefault('REDIS_PASSWORD', redis_config.get('password', 'redis_password'))
+            
+            # Set PostgreSQL environment variables
+            postgres_config = config.get('core', {}).get('storage', {}).get('postgresql', {})
+            os.environ.setdefault('POSTGRES_HOST', postgres_config.get('host', 'localhost'))
+            os.environ.setdefault('POSTGRES_PORT', str(postgres_config.get('port', 5432)))
+            os.environ.setdefault('POSTGRES_DB', postgres_config.get('database', 'mep_ainabox'))
+            os.environ.setdefault('POSTGRES_USER', postgres_config.get('user', 'mep_user'))
+            os.environ.setdefault('POSTGRES_PASSWORD', postgres_config.get('password', 'mep_password'))
+            
+            # Set Elasticsearch environment variables
+            es_config = config.get('core', {}).get('storage', {}).get('elasticsearch', {})
+            os.environ.setdefault('ELASTICSEARCH_HOST', es_config.get('host', 'localhost'))
+            os.environ.setdefault('ELASTICSEARCH_PORT', str(es_config.get('port', 9200)))
+            os.environ.setdefault('ELASTICSEARCH_USERNAME', es_config.get('username', 'elastic'))
+            os.environ.setdefault('ELASTICSEARCH_PASSWORD', es_config.get('password', 'elastic_password'))
+            
+            # Set Qdrant environment variables
+            qdrant_config = config.get('core', {}).get('storage', {}).get('qdrant', {})
+            os.environ.setdefault('QDRANT_HOST', qdrant_config.get('host', 'localhost'))
+            os.environ.setdefault('QDRANT_PORT', str(qdrant_config.get('port', 6333)))
+            os.environ.setdefault('QDRANT_API_KEY', qdrant_config.get('api_key', 'qdrant_api_key'))
+            
+            # Set Neo4j environment variables
+            neo4j_config = config.get('core', {}).get('storage', {}).get('neo4j', {})
+            os.environ.setdefault('NEO4J_URI', neo4j_config.get('uri', 'bolt://localhost:7687'))
+            os.environ.setdefault('NEO4J_USER', neo4j_config.get('user', 'neo4j'))
+            os.environ.setdefault('NEO4J_PASSWORD', neo4j_config.get('password', 'neo4j_password'))
+            
+            # Set MinIO environment variables
+            minio_config = config.get('core', {}).get('storage', {}).get('minio', {})
+            os.environ.setdefault('MINIO_ENDPOINT', minio_config.get('endpoint', 'localhost:9000'))
+            os.environ.setdefault('MINIO_ACCESS_KEY', minio_config.get('access_key', 'minio_access_key'))
+            os.environ.setdefault('MINIO_SECRET_KEY', minio_config.get('secret_key', 'minio_secret_key'))
+            os.environ.setdefault('MINIO_BUCKET_NAME', minio_config.get('bucket_name', 'documents'))
+            os.environ.setdefault('MINIO_USE_SSL', str(minio_config.get('use_ssl', False)).lower())
+            
+            logger.info("✅ Configuration loaded and environment variables set")
+        else:
+            logger.warning("⚠️ Configuration file not found, using default values")
+    except Exception as e:
+        logger.error(f"❌ Error loading configuration: {e}")
+
+# Load configuration at startup
+load_config()
+
 PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
 
 class QueueWorker:

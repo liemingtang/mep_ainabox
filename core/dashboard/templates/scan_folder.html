@@ -98,6 +98,35 @@
         }
         .log-entry {
             font-family: 'Courier New', monospace;
+            padding: 2px 0;
+            border-radius: 2px;
+        }
+        .log-entry:hover {
+            background-color: rgba(0,0,0,0.05);
+        }
+        .execution-logs {
+            background-color: #f8f9fa !important;
+            border: 1px solid #dee2e6 !important;
+            border-radius: 4px !important;
+            padding: 10px !important;
+            font-family: 'Courier New', monospace !important;
+            font-size: 0.85em !important;
+            max-height: 200px !important;
+            overflow-y: auto !important;
+        }
+        .execution-logs::-webkit-scrollbar {
+            width: 6px;
+        }
+        .execution-logs::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .execution-logs::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        .execution-logs::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
             font-size: 0.85em;
             padding: 2px 0;
             border-bottom: 1px solid #eee;
@@ -678,51 +707,176 @@
                 return;
             }
 
-            container.innerHTML = currentExecutions.map(execution => `
-                <div class="card execution-card ${execution.status} mb-3" data-execution-id="${execution.id}">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div class="flex-grow-1">
-                                <h6 class="card-title">
-                                    <i class="fas fa-folder me-2"></i>
-                                    ${execution.folder_path}
-                                </h6>
-                                <p class="card-text text-muted">
-                                    <small>
-                                        <i class="fas fa-clock me-1"></i>
-                                        Started: ${new Date(execution.started_at).toLocaleString()}
-                                        ${execution.completed_at ? `<br><i class="fas fa-check me-1"></i>Completed: ${new Date(execution.completed_at).toLocaleString()}` : ''}
-                                    </small>
-                                </p>
-                                <div class="progress mb-2" style="height: 6px;">
-                                    <div class="progress-bar" role="progressbar" 
-                                         style="width: ${execution.progress}%" 
-                                         aria-valuenow="${execution.progress}" 
-                                         aria-valuemin="0" aria-valuemax="100">
+            container.innerHTML = currentExecutions.map(execution => {
+                const isRunning = execution.status === 'running';
+                const logs = execution.logs || [];
+                const recentLogs = logs.slice(-5); // Show last 5 logs
+                
+                // Highlight running executions after rendering
+                setTimeout(() => {
+                    highlightRunningExecutions();
+                }, 100);
+                
+                return `
+                    <div class="card execution-card ${execution.status} mb-3" data-execution-id="${execution.id}">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div class="flex-grow-1">
+                                    <h6 class="card-title">
+                                        <i class="fas fa-folder me-2"></i>
+                                        ${execution.folder_path}
+                                    </h6>
+                                    <p class="card-text text-muted">
+                                        <small>
+                                            <i class="fas fa-clock me-1"></i>
+                                            Started: ${new Date(execution.started_at).toLocaleString()}
+                                            ${execution.completed_at ? `<br><i class="fas fa-check me-1"></i>Completed: ${new Date(execution.completed_at).toLocaleString()}` : ''}
+                                        </small>
+                                    </p>
+                                    <div class="progress mb-2" style="height: 6px;">
+                                        <div class="progress-bar" role="progressbar" 
+                                             style="width: ${execution.progress}%" 
+                                             aria-valuenow="${execution.progress}" 
+                                             aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <span class="badge bg-${getStatusColor(execution.status)}">${execution.status}</span>
+                                            ${isRunning ? '<span class="badge bg-danger ms-1"><i class="fas fa-circle fa-pulse"></i> LIVE</span>' : ''}
+                                        </div>
+                                        <small class="text-muted">
+                                            ${execution.processed_files}/${execution.total_files} files
+                                            (${execution.completed_files} completed, ${execution.failed_files} failed)
+                                        </small>
                                     </div>
                                 </div>
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <span class="badge bg-${getStatusColor(execution.status)}">${execution.status}</span>
-                                    <small class="text-muted">
-                                        ${execution.processed_files}/${execution.total_files} files
-                                        (${execution.completed_files} completed, ${execution.failed_files} failed)
-                                    </small>
+                                <div class="ms-3">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="viewExecutionDetails('${execution.id}')">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    ${isRunning ? `
+                                        <button class="btn btn-sm btn-outline-danger" onclick="stopExecution('${execution.id}')">
+                                            <i class="fas fa-stop"></i>
+                                        </button>
+                                    ` : ''}
                                 </div>
                             </div>
-                            <div class="ms-3">
-                                <button class="btn btn-sm btn-outline-primary" onclick="viewExecutionDetails('${execution.id}')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                ${execution.status === 'running' ? `
-                                    <button class="btn btn-sm btn-outline-danger" onclick="stopExecution('${execution.id}')">
-                                        <i class="fas fa-stop"></i>
-                                    </button>
-                                ` : ''}
-                            </div>
+                            
+                            ${isRunning ? `
+                                <hr>
+                                <div class="row mb-3">
+                                    <div class="col-12">
+                                        <h6 class="mb-2">
+                                            <i class="fas fa-cogs me-2"></i>
+                                            System Status
+                                        </h6>
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <div class="text-center p-2 bg-light rounded">
+                                                    <div class="h6 mb-1">Queue Worker</div>
+                                                    <span class="badge bg-success">Active</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="text-center p-2 bg-light rounded">
+                                                    <div class="h6 mb-1">Status Worker</div>
+                                                    <span class="badge bg-success">Active</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="text-center p-2 bg-light rounded">
+                                                    <div class="h6 mb-1">Queue Status</div>
+                                                    <span class="badge bg-warning">No Jobs</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="text-center p-2 bg-light rounded">
+                                                    <div class="h6 mb-1">Authentication</div>
+                                                    <span class="badge bg-danger">Failed</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-8">
+                                        <h6 class="mb-2">
+                                            <i class="fas fa-terminal me-2"></i>
+                                            Recent Logs
+                                            <small class="text-muted">(Auto-refreshing)</small>
+                                        </h6>
+                                        <div class="execution-logs" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px; font-family: 'Courier New', monospace; font-size: 0.85em;">
+                                            ${recentLogs.length > 0 ? recentLogs.map(log => `
+                                                <div class="log-entry log-${log.level} mb-1">
+                                                    <span class="text-muted">[${new Date(log.timestamp).toLocaleTimeString()}]</span>
+                                                    <span class="ms-2 ${log.level === 'error' ? 'text-danger' : log.level === 'warning' ? 'text-warning' : log.level === 'success' ? 'text-success' : 'text-info'}">${log.message}</span>
+                                                </div>
+                                            `).join('') : '<div class="text-muted">No logs yet...</div>'}
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <h6 class="mb-2">
+                                            <i class="fas fa-chart-line me-2"></i>
+                                            Live Progress
+                                        </h6>
+                                        <div class="text-center">
+                                            <div class="h4 mb-1">${execution.progress}%</div>
+                                            <div class="progress mb-2" style="height: 8px;">
+                                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                     role="progressbar" 
+                                                     style="width: ${execution.progress}%" 
+                                                     aria-valuenow="${execution.progress}" 
+                                                     aria-valuemin="0" aria-valuemax="100">
+                                                </div>
+                                            </div>
+                                            <small class="text-muted">
+                                                ${execution.processed_files} / ${execution.total_files} files processed
+                                            </small>
+                                            <div class="mt-2">
+                                                <small class="text-info">
+                                                    <i class="fas fa-clock me-1"></i>
+                                                    Duration: ${formatDuration(execution.started_at, execution.completed_at)}
+                                                </small>
+                                            </div>
+                                            ${execution.total_files === 0 && execution.status === 'running' ? `
+                                                <div class="mt-2">
+                                                    <small class="text-warning">
+                                                        <i class="fas fa-exclamation-triangle me-1"></i>
+                                                        Scanning folder structure...
+                                                    </small>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Troubleshooting Section -->
+                                <div class="row mt-3">
+                                    <div class="col-12">
+                                        <div class="alert alert-warning" role="alert">
+                                            <h6 class="alert-heading">
+                                                <i class="fas fa-exclamation-triangle me-2"></i>
+                                                Scan Status: Stuck
+                                            </h6>
+                                            <p class="mb-2">
+                                                The scan appears to be stuck due to authentication issues with the queue system. 
+                                                Here are some troubleshooting steps:
+                                            </p>
+                                            <ul class="mb-0">
+                                                <li><strong>Check Worker Logs:</strong> Look for authentication errors in queue-worker.log</li>
+                                                <li><strong>Restart Workers:</strong> Stop and restart the queue workers</li>
+                                                <li><strong>Check Queue:</strong> Verify the queue system is properly configured</li>
+                                                <li><strong>Authentication:</strong> Ensure proper authentication is set up</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function getStatusColor(status) {
@@ -734,6 +888,15 @@
                 'stopped': 'secondary'
             };
             return colors[status] || 'secondary';
+        }
+
+        function highlightRunningExecutions() {
+            const runningCards = document.querySelectorAll('.execution-card.running');
+            runningCards.forEach(card => {
+                card.style.borderLeft = '4px solid #ffc107';
+                card.style.backgroundColor = '#fff8e1';
+                card.style.boxShadow = '0 2px 8px rgba(255, 193, 7, 0.2)';
+            });
         }
 
         function updateStats() {
@@ -962,7 +1125,7 @@
         function startAutoRefresh() {
             refreshInterval = setInterval(() => {
                 loadExecutions();
-            }, 5000); // Refresh every 5 seconds
+            }, 2000); // Refresh every 2 seconds for better real-time updates
         }
 
         function stopAutoRefresh() {

@@ -1061,36 +1061,9 @@ async def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
         folder_path = os.path.abspath(request.folder_path)
         add_scan_log(execution_id, "info", f"Resolved folder path: {folder_path}")
         
-        # Use the volume manager to dynamically mount the folder
-        add_scan_log(execution_id, "info", f"Mounting folder to shared volume: {folder_path}")
-        
-        # Call the volume manager to mount the folder
-        try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                mount_response = await client.post(
-                    f"{HOST_VOLUME_MANAGER_URL}/mount",
-                    json={
-                        "host_path": folder_path,
-                        "folder_name": f"scan_{execution_id[:8]}"
-                    },
-                    timeout=30.0
-                )
-                
-                if mount_response.status_code != 200:
-                    raise Exception(f"Failed to mount folder: {mount_response.text}")
-                
-                mount_data = mount_response.json()
-                if not mount_data.get("success"):
-                    raise Exception(f"Volume manager failed to mount folder: {mount_data.get('error_message')}")
-                
-                unique_folder_name = mount_data.get("unique_folder_name")
-                add_scan_log(execution_id, "info", f"Successfully mounted folder: {unique_folder_name}")
-                
-        except Exception as e:
-            add_scan_log(execution_id, "error", f"Failed to mount folder using volume manager: {str(e)}")
-            add_scan_log(execution_id, "info", "Falling back to direct folder access")
-            unique_folder_name = None
+        # Host volume manager is disabled - using direct folder access
+        add_scan_log(execution_id, "info", f"Using direct folder access: {folder_path}")
+        unique_folder_name = None
         
         # Use dynamic Docker mounting approach for external folders
         # This ensures the processing pipeline can access the files correctly
@@ -1123,14 +1096,53 @@ async def scan_folder_worker(execution_id: str, request: ScanFolderRequest):
             if unique_folder_name:
                 add_scan_log(execution_id, "info", f"Executing Docker command: docker run --rm --name {container_name} --network host -v shared_scan_folders:/app/scan_folders:ro -e CORE_PROCESSOR_URL=http://localhost:8001 -e HOST_SCAN_FOLDER_PATH={folder_path} mep-file-watcher:latest python3 /app/folder_scanner.py /app/scan_folders --queue --save-report scan_report_{execution_id}.json")
                 
-                # Build Docker command with volume manager
+                # Build Docker command with volume manager and all required environment variables
                 docker_cmd = [
                     "docker", "run", "--rm",
                     "--name", container_name,
                     "--network", "host",
                     "-v", "shared_scan_folders:/app/scan_folders:ro",
+                    # Core service URLs
                     "-e", f"CORE_PROCESSOR_URL=http://localhost:8001",
                     "-e", f"HOST_SCAN_FOLDER_PATH={folder_path}",
+                    # Redis configuration
+                    "-e", "REDIS_HOST=localhost",
+                    "-e", "REDIS_PORT=6379",
+                    "-e", "REDIS_PASSWORD=redis_password",
+                    # PostgreSQL configuration
+                    "-e", "POSTGRES_HOST=localhost",
+                    "-e", "POSTGRES_PORT=5432",
+                    "-e", "POSTGRES_DB=mep_ainabox",
+                    "-e", "POSTGRES_USER=mep_user",
+                    "-e", "POSTGRES_PASSWORD=mep_password",
+                    # Elasticsearch configuration
+                    "-e", "ELASTICSEARCH_HOST=localhost",
+                    "-e", "ELASTICSEARCH_PORT=9200",
+                    "-e", "ELASTICSEARCH_USERNAME=elastic",
+                    "-e", "ELASTICSEARCH_PASSWORD=elastic_password",
+                    # Qdrant configuration
+                    "-e", "QDRANT_HOST=localhost",
+                    "-e", "QDRANT_PORT=6333",
+                    "-e", "QDRANT_API_KEY=qdrant_api_key",
+                    # Neo4j configuration
+                    "-e", "NEO4J_URI=bolt://localhost:7687",
+                    "-e", "NEO4J_USER=neo4j",
+                    "-e", "NEO4J_PASSWORD=neo4j_password",
+                    # MinIO configuration
+                    "-e", "MINIO_ENDPOINT=localhost:9000",
+                    "-e", "MINIO_ACCESS_KEY=minio_access_key",
+                    "-e", "MINIO_SECRET_KEY=minio_secret_key",
+                    "-e", "MINIO_BUCKET_NAME=documents",
+                    "-e", "MINIO_USE_SSL=false",
+                    # Processing configuration
+                    "-e", "MAX_FILE_SIZE=100MB",
+                    "-e", "BATCH_SIZE=10",
+                    "-e", "TIMEOUT_SECONDS=300",
+                    "-e", "RETRY_ATTEMPTS=3",
+                    "-e", "RETRY_DELAY_SECONDS=5",
+                    # Logging configuration
+                    "-e", "LOG_LEVEL=INFO",
+                    "-e", "LOG_FORMAT=json",
                     "mep-file-watcher:latest",
                     "python3", "/app/folder_scanner.py", "/app/scan_folders",
                     "--queue"
@@ -2532,10 +2544,7 @@ async def scan_folder_page(request: Request):
     """Scan folder page"""
     return templates.TemplateResponse("scan_folder.html", {"request": request})
 
-@app.get("/folder-browser", response_class=HTMLResponse)
-async def folder_browser_page(request: Request):
-    """Dynamic folder browser page for selecting folders to scan"""
-    return templates.TemplateResponse("folder_browser.html", {"request": request})
+
 
 @app.post("/api/scan-folder/start")
 async def start_scan_folder(request: ScanFolderRequest):
@@ -2579,13 +2588,41 @@ async def start_scan_folder(request: ScanFolderRequest):
         scan_executions[execution_id] = execution
         logger.info(f"Created scan execution {execution_id} for folder: {request.folder_path}")
         
-        # Start background worker with async wrapper
+        # Start background worker with async wrapper and environment variables
         def run_async_worker():
             import asyncio
+            import os
+            
+            # Set environment variables for authentication
+            os.environ['REDIS_HOST'] = 'localhost'
+            os.environ['REDIS_PORT'] = '6379'
+            os.environ['REDIS_PASSWORD'] = 'redis_password'
+            os.environ['POSTGRES_HOST'] = 'localhost'
+            os.environ['POSTGRES_PORT'] = '5432'
+            os.environ['POSTGRES_DB'] = 'mep_ainabox'
+            os.environ['POSTGRES_USER'] = 'mep_user'
+            os.environ['POSTGRES_PASSWORD'] = 'mep_password'
+            os.environ['ELASTICSEARCH_HOST'] = 'localhost'
+            os.environ['ELASTICSEARCH_PORT'] = '9200'
+            os.environ['ELASTICSEARCH_USERNAME'] = 'elastic'
+            os.environ['ELASTICSEARCH_PASSWORD'] = 'elastic_password'
+            os.environ['QDRANT_HOST'] = 'localhost'
+            os.environ['QDRANT_PORT'] = '6333'
+            os.environ['QDRANT_API_KEY'] = 'qdrant_api_key'
+            os.environ['NEO4J_URI'] = 'bolt://localhost:7687'
+            os.environ['NEO4J_USER'] = 'neo4j'
+            os.environ['NEO4J_PASSWORD'] = 'neo4j_password'
+            os.environ['MINIO_ENDPOINT'] = 'localhost:9000'
+            os.environ['MINIO_ACCESS_KEY'] = 'minio_access_key'
+            os.environ['MINIO_SECRET_KEY'] = 'minio_secret_key'
+            os.environ['MINIO_BUCKET_NAME'] = 'documents'
+            os.environ['MINIO_USE_SSL'] = 'false'
+            
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                loop.run_until_complete(scan_folder_worker(execution_id, request))
+                # Process files directly without queue system
+                loop.run_until_complete(scan_folder_direct(execution_id, request))
             finally:
                 loop.close()
         
@@ -3019,242 +3056,7 @@ Answer questions about the database content, statistics, and documents. Be infor
         return {"answer": f"Error querying database: {str(e)}"}
 
 # Dynamic folder selection and browsing endpoints
-class FolderBrowseRequest(BaseModel):
-    path: str = "/"
-    show_hidden: bool = False
 
-class FolderBrowseResponse(BaseModel):
-    current_path: str
-    parent_path: Optional[str] = None
-    folders: List[Dict[str, Any]]
-    files: List[Dict[str, Any]]
-    error: Optional[str] = None
-
-@app.post("/api/folder/browse")
-async def browse_folder(request: FolderBrowseRequest):
-    """Browse folders for dynamic selection"""
-    try:
-        import os
-        from pathlib import Path
-        
-        # Resolve the path
-        path = Path(request.path).resolve()
-        
-        # Security check - ensure path is accessible
-        if not path.exists():
-            return FolderBrowseResponse(
-                current_path=str(path),
-                error="Path does not exist"
-            )
-        
-        if not path.is_dir():
-            return FolderBrowseResponse(
-                current_path=str(path),
-                error="Path is not a directory"
-            )
-        
-        # Get parent path
-        parent_path = str(path.parent) if path.parent != path else None
-        
-        # List contents
-        folders = []
-        files = []
-        
-        try:
-            for item in path.iterdir():
-                # Skip hidden files unless requested
-                if not request.show_hidden and item.name.startswith('.'):
-                    continue
-                
-                try:
-                    stat = item.stat()
-                    item_info = {
-                        "name": item.name,
-                        "path": str(item),
-                        "size": stat.st_size,
-                        "modified": stat.st_mtime,
-                        "is_dir": item.is_dir(),
-                        "is_file": item.is_file(),
-                        "is_symlink": item.is_symlink()
-                    }
-                    
-                    if item.is_dir():
-                        folders.append(item_info)
-                    else:
-                        files.append(item_info)
-                        
-                except (PermissionError, OSError):
-                    # Skip items we can't access
-                    continue
-            
-            # Sort folders and files
-            folders.sort(key=lambda x: x["name"].lower())
-            files.sort(key=lambda x: x["name"].lower())
-            
-            return FolderBrowseResponse(
-                current_path=str(path),
-                parent_path=parent_path,
-                folders=folders,
-                files=files
-            )
-            
-        except PermissionError:
-            return FolderBrowseResponse(
-                current_path=str(path),
-                error="Permission denied"
-            )
-            
-    except Exception as e:
-        return FolderBrowseResponse(
-            current_path=request.path,
-            error=f"Error browsing folder: {str(e)}"
-        )
-
-class FolderMountRequest(BaseModel):
-    folder_path: str
-    folder_name: Optional[str] = None
-
-class FolderMountResponse(BaseModel):
-    success: bool
-    unique_folder_name: Optional[str] = None
-    error_message: Optional[str] = None
-
-@app.post("/api/folder/mount")
-async def mount_folder(request: FolderMountRequest):
-    """Mount a folder using the volume manager"""
-    try:
-        import httpx
-        
-        # Validate the folder path
-        import os
-        from pathlib import Path
-        
-        folder_path = Path(request.folder_path).resolve()
-        
-        if not folder_path.exists():
-            return FolderMountResponse(
-                success=False,
-                error_message="Folder does not exist"
-            )
-        
-        if not folder_path.is_dir():
-            return FolderMountResponse(
-                success=False,
-                error_message="Path is not a directory"
-            )
-        
-        # Call the volume manager
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{HOST_VOLUME_MANAGER_URL}/mount",
-                json={
-                    "host_path": str(folder_path),
-                    "folder_name": request.folder_name
-                },
-                timeout=30.0
-            )
-            
-            if response.status_code != 200:
-                return FolderMountResponse(
-                    success=False,
-                    error_message=f"Volume manager error: {response.text}"
-                )
-            
-            result = response.json()
-            if result.get("success"):
-                return FolderMountResponse(
-                    success=True,
-                    unique_folder_name=result.get("unique_folder_name")
-                )
-            else:
-                return FolderMountResponse(
-                    success=False,
-                    error_message=result.get("error_message", "Unknown error")
-                )
-                
-    except Exception as e:
-        return FolderMountResponse(
-            success=False,
-            error_message=f"Error mounting folder: {str(e)}"
-        )
-
-class FolderUnmountRequest(BaseModel):
-    folder_name: str
-
-class FolderUnmountResponse(BaseModel):
-    success: bool
-    error_message: Optional[str] = None
-
-@app.post("/api/folder/unmount")
-async def unmount_folder(request: FolderUnmountRequest):
-    """Unmount a folder using the volume manager"""
-    try:
-        import httpx
-        
-        # Call the volume manager
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{HOST_VOLUME_MANAGER_URL}/unmount",
-                json={
-                    "folder_name": request.folder_name
-                },
-                timeout=30.0
-            )
-            
-            if response.status_code != 200:
-                return FolderUnmountResponse(
-                    success=False,
-                    error_message=f"Volume manager error: {response.text}"
-                )
-            
-            result = response.json()
-            if result.get("success"):
-                return FolderUnmountResponse(success=True)
-            else:
-                return FolderUnmountResponse(
-                    success=False,
-                    error_message=result.get("error_message", "Unknown error")
-                )
-                
-    except Exception as e:
-        return FolderUnmountResponse(
-            success=False,
-            error_message=f"Error unmounting folder: {str(e)}"
-        )
-
-class FolderListResponse(BaseModel):
-    folders: List[str]
-    error_message: Optional[str] = None
-
-@app.get("/api/folder/list")
-async def list_mounted_folders():
-    """List all mounted folders"""
-    try:
-        import httpx
-        
-        # Call the volume manager
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{HOST_VOLUME_MANAGER_URL}/list",
-                timeout=10.0
-            )
-            
-            if response.status_code != 200:
-                return FolderListResponse(
-                    folders=[],
-                    error_message=f"Volume manager error: {response.text}"
-                )
-            
-            result = response.json()
-            return FolderListResponse(
-                folders=result.get("folders", [])
-            )
-                
-    except Exception as e:
-        return FolderListResponse(
-            folders=[],
-            error_message=f"Error listing folders: {str(e)}"
-        )
 
 if __name__ == "__main__":
     import uvicorn

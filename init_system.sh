@@ -346,6 +346,7 @@ fi
 
 # Start dashboard on host
 echo -e "${CYAN}🚀 Starting dashboard on host...${NC}"
+cd core
 ./start_dashboard_host.sh --background
 
 # Wait for dashboard to be ready

@@ -12,8 +12,71 @@ from datetime import datetime
 import uuid
 import asyncio
 import re
-from queue_manager import queue_manager, ProcessingJob, StatusUpdate
+import yaml
+from pathlib import Path
+
+def load_config():
+    """Load configuration from main.yaml and set environment variables"""
+    try:
+        config_path = Path(__file__).parent.parent / "config" / "main.yaml"
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            # Set Redis environment variables
+            redis_config = config.get('core', {}).get('storage', {}).get('redis', {})
+            os.environ.setdefault('REDIS_HOST', redis_config.get('host', 'localhost'))
+            os.environ.setdefault('REDIS_PORT', str(redis_config.get('port', 6379)))
+            os.environ.setdefault('REDIS_PASSWORD', redis_config.get('password', 'redis_password'))
+            
+            # Set PostgreSQL environment variables
+            postgres_config = config.get('core', {}).get('storage', {}).get('postgresql', {})
+            os.environ.setdefault('POSTGRES_HOST', postgres_config.get('host', 'localhost'))
+            os.environ.setdefault('POSTGRES_PORT', str(postgres_config.get('port', 5432)))
+            os.environ.setdefault('POSTGRES_DB', postgres_config.get('database', 'mep_ainabox'))
+            os.environ.setdefault('POSTGRES_USER', postgres_config.get('user', 'mep_user'))
+            os.environ.setdefault('POSTGRES_PASSWORD', postgres_config.get('password', 'mep_password'))
+            
+            # Set Elasticsearch environment variables
+            es_config = config.get('core', {}).get('storage', {}).get('elasticsearch', {})
+            os.environ.setdefault('ELASTICSEARCH_HOST', es_config.get('host', 'localhost'))
+            os.environ.setdefault('ELASTICSEARCH_PORT', str(es_config.get('port', 9200)))
+            os.environ.setdefault('ELASTICSEARCH_USERNAME', es_config.get('username', 'elastic'))
+            os.environ.setdefault('ELASTICSEARCH_PASSWORD', es_config.get('password', 'elastic_password'))
+            
+            # Set Qdrant environment variables
+            qdrant_config = config.get('core', {}).get('storage', {}).get('qdrant', {})
+            os.environ.setdefault('QDRANT_HOST', qdrant_config.get('host', 'localhost'))
+            os.environ.setdefault('QDRANT_PORT', str(qdrant_config.get('port', 6333)))
+            os.environ.setdefault('QDRANT_API_KEY', qdrant_config.get('api_key', 'qdrant_api_key'))
+            
+            # Set Neo4j environment variables
+            neo4j_config = config.get('core', {}).get('storage', {}).get('neo4j', {})
+            os.environ.setdefault('NEO4J_URI', neo4j_config.get('uri', 'bolt://localhost:7687'))
+            os.environ.setdefault('NEO4J_USER', neo4j_config.get('user', 'neo4j'))
+            os.environ.setdefault('NEO4J_PASSWORD', neo4j_config.get('password', 'neo4j_password'))
+            
+            # Set MinIO environment variables
+            minio_config = config.get('core', {}).get('storage', {}).get('minio', {})
+            os.environ.setdefault('MINIO_ENDPOINT', minio_config.get('endpoint', 'localhost:9000'))
+            os.environ.setdefault('MINIO_ACCESS_KEY', minio_config.get('access_key', 'minio_access_key'))
+            os.environ.setdefault('MINIO_SECRET_KEY', minio_config.get('secret_key', 'minio_secret_key'))
+            os.environ.setdefault('MINIO_BUCKET_NAME', minio_config.get('bucket_name', 'documents'))
+            os.environ.setdefault('MINIO_USE_SSL', str(minio_config.get('use_ssl', False)).lower())
+            
+            logging.info("✅ Configuration loaded and environment variables set")
+        else:
+            logging.warning("⚠️ Configuration file not found, using default values")
+    except Exception as e:
+        logging.error(f"❌ Error loading configuration: {e}")
+
+# Now import queue_manager module after configuration is loaded
+import queue_manager
+from queue_manager import ProcessingJob, StatusUpdate
 from state_manager import state_manager
+
+# Get the queue_manager instance after configuration is loaded
+queue_manager = queue_manager.get_queue_manager()
 
 # Add atomic status update function at the top of the file, after the imports
 async def atomic_status_update(document_id: str, job_id: str, status: str, results: Dict[str, Any] = None, error_message: str = None) -> bool:
@@ -172,9 +235,9 @@ app.add_middleware(
 )
 
 # Service URLs
-CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://core-processor:8001")
+CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://localhost:8001")
 PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
-EMBEDDING_PROCESSOR_URL = os.getenv("EMBEDDING_PROCESSOR_URL", "http://embedding-processor:8007")
+EMBEDDING_PROCESSOR_URL = os.getenv("EMBEDDING_PROCESSOR_URL", "http://localhost:8007")
 STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://storage-manager:8004")
 
 # Embedding provider configuration
@@ -416,10 +479,10 @@ async def process_folder_directly(folder_path: str, max_depth: int = 0, concurre
         }
         
         # Run the text processor directly
-        text_processor_script = "/app/core/core/processors/text_processor/text_processor.py"
+        text_processor_script = "./processors/text_processor/text_processor.py"
         
         cmd = [
-            "python", text_processor_script,
+            "python3", text_processor_script,
             folder_path,
             "--max-depth", str(max_depth),
             "--output", "json",
@@ -437,7 +500,7 @@ async def process_folder_directly(folder_path: str, max_depth: int = 0, concurre
             capture_output=True,
             text=True,
             timeout=300.0,  # 5 minutes timeout
-            cwd="/app"
+            cwd=os.getcwd()  # Use current working directory for native mode
         )
         
         # Log the output for debugging (truncated for logs)
@@ -470,40 +533,93 @@ async def process_folder_directly(folder_path: str, max_depth: int = 0, concurre
             processing_jobs[job_id]["total_files"] = len(files)
             processing_jobs[job_id]["progress"] = 20
             
-            # Process each file through the embedding pipeline
+            # Process each file through the core processor pipeline
             processed_count = 0
             failed_count = 0
             
             for file_info in files:
                 try:
-                    # Generate document ID for this file
-                    document_id = str(uuid.uuid4())
+                    file_path = file_info.get("file_path", "")
+                    filename = os.path.basename(file_path)
+                    file_size = file_info.get("file_size", 0)
                     
-                    # Extract text content
-                    text_content = file_info.get("text_content", "")
-                    if not text_content:
-                        logger.warning(f"No text content for file: {file_info.get('file_path', 'unknown')}")
-                        failed_count += 1
-                        continue
-                    
-                    # Generate embeddings
-                    metadata = {
-                        "filename": os.path.basename(file_info.get("file_path", "")),
-                        "file_path": file_info.get("file_path"),
-                        "file_size": file_info.get("file_size"),
-                        "text_length": file_info.get("text_length"),
-                        "quality_score": file_info.get("quality_score"),
-                        "folder_path": folder_path
+                    # Create document metadata for core processor
+                    document_metadata = {
+                        "filename": filename,
+                        "file_path": file_path,
+                        "file_size": file_size,
+                        "file_hash": "",  # Will be generated by core processor
+                        "source": "scan_folder",
+                        "processing_status": "pending",
+                        "document_type": None,  # Will be detected by core processor
+                        "metadata": {
+                            "folder_path": folder_path,
+                            "text_length": file_info.get("text_length", 0),
+                            "quality_score": file_info.get("quality_score", 0.0),
+                            "scan_folder_processed": True
+                        },
+                        "data_source_type": "file_system",
+                        "data_source_uri": folder_path
                     }
                     
-                    embedding_result = await generate_embeddings(document_id, text_content, metadata)
-                    
-                    if embedding_result.get("status") == "completed":
-                        processed_count += 1
-                        logger.info(f"Successfully processed file: {file_info.get('file_path')}")
-                    else:
-                        failed_count += 1
-                        logger.error(f"Failed to generate embeddings for: {file_info.get('file_path')}")
+                    # Create document through core processor
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(
+                            f"{CORE_PROCESSOR_URL}/documents/upload",
+                            json=document_metadata,
+                            timeout=30.0
+                        )
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            document_id = result.get("document_id")
+                            processing_job_id = result.get("processing_job_id")
+                            
+                            logger.info(f"Successfully created document {document_id} with job {processing_job_id} for file: {filename}")
+                            
+                            # Get all jobs for the document and enqueue them all
+                            try:
+                                # Get all processing jobs for this document
+                                jobs_response = await client.get(
+                                    f"{CORE_PROCESSOR_URL}/documents/{document_id}/processing-status",
+                                    timeout=10.0
+                                )
+                                
+                                if jobs_response.status_code == 200:
+                                    jobs_data = jobs_response.json()
+                                    document_jobs = jobs_data.get("processing_jobs", [])
+                                    
+                                    logger.info(f"Found {len(document_jobs)} jobs for document {document_id}")
+                                    
+                                    # Enqueue all jobs
+                                    for job in document_jobs:
+                                        job_id = job.get("id")
+                                        if job_id:
+                                            try:
+                                                enqueue_response = await client.post(
+                                                    f"http://localhost:8003/process-queue",
+                                                    json={
+                                                        "document_id": document_id,
+                                                        "job_id": job_id
+                                                    },
+                                                    timeout=10.0
+                                                )
+                                                if enqueue_response.status_code == 200:
+                                                    logger.info(f"Successfully enqueued job {job_id} for document {document_id}")
+                                                else:
+                                                    logger.warning(f"Failed to enqueue job {job_id}: {enqueue_response.text}")
+                                            except Exception as e:
+                                                logger.warning(f"Failed to enqueue job {job_id}: {e}")
+                                else:
+                                    logger.warning(f"Failed to get jobs for document {document_id}: {jobs_response.text}")
+                                    
+                            except Exception as e:
+                                logger.warning(f"Failed to get or enqueue jobs for document {document_id}: {e}")
+                            
+                            processed_count += 1
+                        else:
+                            logger.error(f"Failed to create document for {filename}: {response.text}")
+                            failed_count += 1
                         
                 except Exception as e:
                     failed_count += 1
@@ -524,7 +640,7 @@ async def process_folder_directly(folder_path: str, max_depth: int = 0, concurre
             logger.info(f"Folder processing completed. Processed: {processed_count}, Failed: {failed_count}")
             
             return {
-                "status": "success",
+                "status": "completed",
                 "job_id": job_id,
                 "folder_path": folder_path,
                 "message": f"Successfully processed {processed_count} files",
@@ -1577,7 +1693,7 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
         
         # STEP 2: Extract text from document
         logger.info(f"Step 2/4: Extracting text from {job.file_path}")
-        await update_job_status(job.job_id, "generating_embeddings", {
+        await update_job_status(job.job_id, "running", {
             "current_step": "text_extraction",
             "progress": 30,
             "message": f"Extracting text from {os.path.basename(job.file_path)}"
@@ -1588,32 +1704,32 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
         if not text_result.get("success"):
             error_msg = f"Text extraction failed: {text_result.get('error', 'Unknown error')}"
             logger.error(f"Error in step 2: {error_msg}")
-            await update_job_status(job.job_id, "text_extraction_failed", {
+            await update_job_status(job.job_id, "failed", {
                 "current_step": "text_extraction",
                 "error": error_msg
             }, document_id=job.document_id)
-            await update_document_status(job.document_id, "text_extraction_failed")
+            await update_document_status(job.document_id, "failed")
             raise Exception(error_msg)
         
         text_content = text_result.get("text_content", "")
         if not text_content:
             error_msg = "No text content extracted from document"
             logger.error(f"Error in step 2: {error_msg}")
-            await update_job_status(job.job_id, "text_extraction_failed", {
+            await update_job_status(job.job_id, "failed", {
                 "current_step": "text_extraction",
                 "error": error_msg
             }, document_id=job.document_id)
-            await update_document_status(job.document_id, "text_extraction_failed")
+            await update_document_status(job.document_id, "failed")
             raise Exception(error_msg)
         
         logger.info(f"✅ Step 2 completed: Text extracted ({len(text_content)} characters) for {job.document_id}")
         
         # Update document status to reflect next step
-        await update_document_status(job.document_id, "generating_embeddings")
+        await update_document_status(job.document_id, "processing")
         
         # STEP 3: Generate embeddings
         logger.info(f"Step 3/4: Generating embeddings for {len(text_content)} characters of text")
-        await update_job_status(job.job_id, "generating_embeddings", {
+        await update_job_status(job.job_id, "running", {
             "current_step": "embedding_generation",
             "progress": 60,
             "message": f"Generating embeddings for {len(text_content)} characters of text"
@@ -1632,21 +1748,21 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
         if embedding_result.get("status") != "completed":
             error_msg = f"Embedding generation failed: {embedding_result.get('error', 'Unknown error')}"
             logger.error(f"Error in step 3: {error_msg}")
-            await update_job_status(job.job_id, "embedding_generation_failed", {
+            await update_job_status(job.job_id, "failed", {
                 "current_step": "embedding_generation",
                 "error": error_msg
             }, document_id=job.document_id)
-            await update_document_status(job.document_id, "embedding_generation_failed")
+            await update_document_status(job.document_id, "failed")
             raise Exception(error_msg)
         
         logger.info(f"✅ Step 3 completed: Embeddings generated for {job.document_id}")
         
         # Update document status to reflect next step
-        await update_document_status(job.document_id, "finalizing")
+        await update_document_status(job.document_id, "processing")
         
         # STEP 4: Finalize queue processing
         logger.info(f"Step 4/4: Finalizing queue processing for {job.document_id}")
-        await update_job_status(job.job_id, "finalizing", {
+        await update_job_status(job.job_id, "running", {
             "current_step": "finalizing",
             "progress": 90,
             "message": "Finalizing queue processing and storing results"
@@ -1668,8 +1784,8 @@ async def process_document_from_queue(job: ProcessingJob) -> Dict[str, Any]:
         
         logger.info(f"✅ Step 4 completed: Queue processing finalized for {job.document_id}")
         
-        # Update document status to finalizing before completion
-        await update_document_status(job.document_id, "finalizing")
+        # Update document status to processing before completion
+        await update_document_status(job.document_id, "processing")
         
         # Update document status to completed at the end
         await update_document_status(job.document_id, "completed")
