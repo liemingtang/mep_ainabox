@@ -1,9 +1,9 @@
 #!/bin/bash
-"""
-Queue Processing Worker Script - Docker-based
-Processes files from file_processing_queue table using text_processor.py
-Usage: ./process_file_processing_queue.sh [options]
-"""
+#
+# Queue Processing Worker Script - Docker-based
+# Processes files from file_processing_queue table using text_processor.py
+# Usage: ./process_file_processing_queue.sh [options]
+#
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -1,7 +1,7 @@
 #!/bin/bash
-"""
-Build and run the folder scanner Docker container
-"""
+#
+# Build and run the folder scanner Docker container
+#
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -163,10 +163,20 @@ class BatchProcessFileQueue:
             mount_points = []
             for folder_path in folder_groups.keys():
                 if folder_path and os.path.exists(folder_path):
-                    mount_point = f"/mnt/{os.path.basename(folder_path)}"
+                    # Create a more descriptive mount point that preserves the path structure
+                    folder_name = os.path.basename(folder_path)
+                    mount_point = f"/mnt/{folder_name}"
                     docker_cmd.extend(["-v", f"{folder_path}:{mount_point}:ro"])
                     mount_points.append(mount_point)
                     logger.info(f"📁 Mounting folder: {folder_path} -> {mount_point}")
+                    
+                    # Also mount the parent directory if it exists
+                    parent_dir = os.path.dirname(folder_path)
+                    if parent_dir and parent_dir != folder_path and os.path.exists(parent_dir):
+                        parent_mount = f"/mnt/parent_{folder_name}"
+                        docker_cmd.extend(["-v", f"{parent_dir}:{parent_mount}:ro"])
+                        mount_points.append(parent_mount)
+                        logger.info(f"📁 Mounting parent folder: {parent_dir} -> {parent_mount}")
             
             # Mount the temporary file with items
             docker_cmd.extend(["-v", f"{temp_file}:/app/items.json:ro"])
@@ -237,6 +247,18 @@ class BatchProcessFileQueue:
             # Create items file
             with open('/app/items.json', 'w') as f:
                 json.dump(items, f, indent=2)
+            
+            # Set up mount points for direct execution
+            # When running inside Docker, we need to set up the mount points manually
+            mount_points = []
+            for item in items:
+                parent_dir = item.get('parent_directory')
+                if parent_dir and parent_dir not in mount_points:
+                    mount_points.append(parent_dir)
+            
+            # Set the MOUNT_POINTS environment variable
+            os.environ['MOUNT_POINTS'] = ','.join(mount_points)
+            logger.info(f"🔧 Set mount points for direct execution: {mount_points}")
             
             # Build command to run the worker script
             cmd = ["python3", "/app/process_file_processing_queue.py"]

@@ -1,9 +1,9 @@
 #!/bin/bash
-"""
-Queue File Processing Script - Docker-based
-Adds files from file_info table to file_processing_queue table
-Usage: ./queue_file_processing.sh [options]
-"""
+#
+# Queue File Processing Script - Docker-based
+# Adds files from file_info table to file_processing_queue table
+# Usage: ./queue_file_processing.sh [options]
+#
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

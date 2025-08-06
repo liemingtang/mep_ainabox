@@ -28,6 +28,10 @@ COPY queue_file_processing.py .
 COPY process_file_processing_queue.py .
 COPY text_processor.py .
 COPY batch_process_file_queue.py .
+COPY check_queue.py .
+COPY test_file_paths.py .
+COPY test_db.py .
+COPY test_elasticsearch.py .
 
 # Create a non-root user for security
 RUN useradd -m -u 1000 scanner && \
