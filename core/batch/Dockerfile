@@ -25,9 +25,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the scanner scripts
 COPY folder_scanner.py .
 COPY queue_file_processing.py .
-COPY process_queue_worker.py .
+COPY process_file_processing_queue.py .
 COPY text_processor.py .
-COPY batch_processor_docker.py .
+COPY batch_process_file_queue.py .
 
 # Create a non-root user for security
 RUN useradd -m -u 1000 scanner && \

@@ -12,7 +12,7 @@ Scans directories recursively and stores comprehensive file information in the P
 ### 2. Queue File Processing (`queue_file_processing.sh`)
 Adds files from the `file_info` table to the `file_processing_queue` table for processing.
 
-### 3. Process Queue Worker (`process_queue_worker.sh`)
+### 3. Process Queue Worker (`batch_process_file_queue.sh`)
 Processes files from the queue using the specified processor types.
 
 ## Quick Start
@@ -47,16 +47,16 @@ Processes files from the queue using the specified processor types.
 ### Step 3: Process the queue
 ```bash
 # Process a batch of items
-./process_queue_worker.sh --limit 10
+./batch_process_file_queue.sh --limit 10
 
 # Process continuously
-./process_queue_worker.sh --continuous --interval 30
+./batch_process_file_queue.sh --script-args --continuous --interval 30
 
 # Process specific processor type
-./process_queue_worker.sh --processor-type text_processor
+./batch_process_file_queue.sh --processor-type text_processor
 
 # Dry run to see what would be processed
-./process_queue_worker.sh --dry-run --limit 5
+./batch_process_file_queue.sh --dry-run --limit 5
 ```
 
 ## Complete Workflow Examples
@@ -70,7 +70,7 @@ Processes files from the queue using the specified processor types.
 ./queue_file_processing.sh --file-type .pdf --priority 8
 
 # 3. Process the queue
-./process_queue_worker.sh --limit 20
+./batch_process_file_queue.sh --limit 20
 ```
 
 ### Example 2: Process Text Files Continuously
@@ -82,7 +82,7 @@ Processes files from the queue using the specified processor types.
 ./queue_file_processing.sh --file-type .txt --processor-type text_processor
 
 # 3. Process continuously
-./process_queue_worker.sh --processor-type text_processor --continuous --interval 60
+./batch_process_file_queue.sh --processor-type text_processor --script-args --continuous --interval 60
 ```
 
 ### Example 3: Process Large Files Only
@@ -94,7 +94,7 @@ Processes files from the queue using the specified processor types.
 ./queue_file_processing.sh --min-size 1000000 --files-only --priority 7
 
 # 3. Process in batches
-./process_queue_worker.sh --limit 5
+./batch_process_file_queue.sh --limit 5
 ```
 
 ## Features
@@ -267,24 +267,23 @@ python folder_scanner.py /path/to/folder --dry-run
 #### Basic Commands
 ```bash
 # Process a batch of items
-./process_queue_worker.sh --limit 10
+./batch_process_file_queue.sh --limit 10
 
 # Process items with specific processor type
-./process_queue_worker.sh --processor-type text_processor
+./batch_process_file_queue.sh --processor-type text_processor
 
 # Process continuously
-./process_queue_worker.sh --continuous --interval 30
+./batch_process_file_queue.sh --script-args --continuous --interval 30
 
 # Dry run to see what would be processed
-./process_queue_worker.sh --dry-run --limit 5
+./batch_process_file_queue.sh --dry-run --limit 5
 ```
 
 #### Worker Options
 
 - `--processor-type <type>`: Only process items with this processor type
 - `--limit <number>`: Maximum items to process per batch (default: 10)
-- `--continuous`: Run continuously
-- `--interval <seconds>`: Interval between batches in seconds (default: 30)
+- `--script-args <args>`: Additional arguments to pass to the worker script
 - `--dry-run`: Show what would be processed without making changes
 
 ## Priority System

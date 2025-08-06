@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Batch Processor Docker Container
+Batch Process File Queue
 Queries database for files and dynamically mounts folders for processing
 """
 
@@ -25,7 +25,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class BatchProcessorDocker:
+class BatchProcessFileQueue:
     """Docker container for batch processing with dynamic folder mounting"""
     
     def __init__(self, config: Dict[str, Any]):
@@ -177,11 +177,11 @@ class BatchProcessorDocker:
                 "-e", f"MOUNT_POINTS={','.join(mount_points)}"
             ])
             
-            # Add image and command
+            # Add image and entrypoint
             docker_cmd.extend([
-                self.docker_image,
                 "--entrypoint", "python3",
-                "/app/process_queue_worker.py"
+                self.docker_image,
+                "/app/process_file_processing_queue.py"
             ])
             
             # Add script arguments
@@ -239,7 +239,7 @@ class BatchProcessorDocker:
                 json.dump(items, f, indent=2)
             
             # Build command to run the worker script
-            cmd = ["python3", "/app/process_queue_worker.py"]
+            cmd = ["python3", "/app/process_file_processing_queue.py"]
             
             # Add script arguments
             if script_args:
@@ -368,7 +368,7 @@ def load_config() -> Dict[str, Any]:
 
 async def main():
     """Main function"""
-    parser = argparse.ArgumentParser(description="Batch processor Docker container for MEP AI NABOX")
+    parser = argparse.ArgumentParser(description="Batch process file queue for MEP AI NABOX")
     parser.add_argument("--processor-type", help="Only process items with this processor type")
     parser.add_argument("--limit", type=int, default=10, help="Maximum items to process per batch")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without making changes")
@@ -380,7 +380,7 @@ async def main():
     config = load_config()
     
     # Initialize processor
-    processor = BatchProcessorDocker(config)
+    processor = BatchProcessFileQueue(config)
     
     try:
         # Connect to database

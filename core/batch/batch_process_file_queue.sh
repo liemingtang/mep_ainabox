@@ -1,8 +1,8 @@
 #!/bin/bash
 """
-Batch Processor Docker Container Script
+Batch Process File Queue Script
 Queries database and dynamically mounts folders for processing
-Usage: ./batch_processor_docker.sh [options]
+Usage: ./batch_process_file_queue.sh [options]
 """
 
 # Get the directory where this script is located
@@ -83,14 +83,14 @@ DOCKER_CMD="$DOCKER_CMD --entrypoint python3"
 DOCKER_CMD="$DOCKER_CMD $IMAGE_NAME"
 
 # Add the script and arguments
-DOCKER_CMD="$DOCKER_CMD /app/batch_processor_docker.py"
+DOCKER_CMD="$DOCKER_CMD /app/batch_process_file_queue.py"
 
 if [[ ${#ARGS[@]} -gt 0 ]]; then
     DOCKER_CMD="$DOCKER_CMD ${ARGS[*]}"
 fi
 
 # Display information
-echo -e "${BLUE}🔧 Batch Processor Docker Container${NC}"
+echo -e "${BLUE}🔧 Batch Process File Queue${NC}"
 echo "=================================================="
 echo -e "${YELLOW}Docker image:${NC} $IMAGE_NAME"
 echo -e "${YELLOW}Config directory:${NC} $CONFIG_PATH"

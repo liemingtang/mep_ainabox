@@ -8,18 +8,18 @@ The batch processing system provides a Docker-based solution for processing file
 
 ### Components
 
-1. **`batch_processor_docker.py`** - Main Python script that:
+1. **`batch_process_file_queue.py`** - Main Python script that:
    - Queries the database for pending items
    - Groups items by folder for efficient mounting
    - Dynamically mounts folders to Docker containers
    - Manages the processing workflow
 
-2. **`batch_processor_docker.sh`** - Shell script wrapper that:
+2. **`batch_process_file_queue.sh`** - Shell script wrapper that:
    - Builds and runs the Docker container
    - Mounts the Docker socket for Docker-in-Docker capability
    - Passes configuration and arguments
 
-3. **`process_queue_worker.py`** - Worker script that:
+3. **`process_file_processing_queue.py`** - Worker script that:
    - Processes items from JSON file (when running in container)
    - Finds files in mounted folders
    - Runs text processing on files
@@ -51,23 +51,23 @@ The system uses the existing `file_processing_queue` table with the following ke
 
 ```bash
 # Process a batch of items
-./batch_processor_docker.sh --limit 10
+./batch_process_file_queue.sh --limit 10
 
 # Process items with specific processor type
-./batch_processor_docker.sh --processor-type text_processor
+./batch_process_file_queue.sh --processor-type text_processor
 
 # Dry run to see what would be processed
-./batch_processor_docker.sh --dry-run --limit 5
+./batch_process_file_queue.sh --dry-run --limit 5
 ```
 
 ### Advanced Usage
 
 ```bash
 # Process with additional worker arguments
-./batch_processor_docker.sh --limit 5 --script-args --continuous
+./batch_process_file_queue.sh --limit 5 --script-args --continuous
 
 # Process specific processor type with custom arguments
-./batch_processor_docker.sh --processor-type default --script-args --interval 60
+./batch_process_file_queue.sh --processor-type default --script-args --interval 60
 ```
 
 ## How It Works
@@ -107,7 +107,7 @@ docker run --rm --network host \
   -e ITEMS_FILE=/app/items.json \
   -e MOUNT_POINTS=/mnt/ai_scan_folder,/mnt/watch_folder \
   mep-folder-scanner:latest \
-  --entrypoint python3 /app/process_queue_worker.py
+  --entrypoint python3 /app/process_file_processing_queue.py
 ```
 
 ### 4. File Processing
@@ -163,7 +163,7 @@ Items are processed in order of:
 
 ### Process All Pending Items
 ```bash
-./batch_processor_docker.sh --limit 100
+./batch_process_file_queue.sh --limit 100
 ```
 
 ### Process Only Text Files
@@ -172,7 +172,7 @@ Items are processed in order of:
 ./queue_file_processing.sh --file-type .txt --processor-type text_processor
 
 # Then process them
-./batch_processor_docker.sh --processor-type text_processor
+./batch_process_file_queue.sh --processor-type text_processor
 ```
 
 ### Monitor Processing
@@ -191,7 +191,7 @@ ORDER BY created_at DESC LIMIT 10;
 The batch processor works with the folder scanner system:
 1. `scan_folder.sh` scans folders and populates `file_info`
 2. `queue_file_processing.sh` adds files to `file_processing_queue`
-3. `batch_processor_docker.sh` processes the queued files
+3. `batch_process_file_queue.sh` processes the queued files
 
 ### With Text Processor
 The system can be extended with different processors:
@@ -225,7 +225,7 @@ The system can be extended with different processors:
 ### Debug Mode
 Use dry-run mode to see what would be processed:
 ```bash
-./batch_processor_docker.sh --dry-run --limit 5
+./batch_process_file_queue.sh --dry-run --limit 5
 ```
 
 ### Logs

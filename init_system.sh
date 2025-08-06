@@ -28,17 +28,23 @@ show_help() {
     echo "  --skip-build            Skip Docker image building (use existing images)"
     echo "  --skip-services         Skip service startup (build images only)"
     echo "  --admin-only            Start only the dashboard (admin mode)"
+    echo "  --batch-only            Start only services required for batch processing"
     echo ""
     echo "EXAMPLES:"
     echo "  $0                      # Full initialization (recommended for new installs)"
     echo "  $0 --skip-build         # Skip building images (faster restart)"
     echo "  $0 --skip-services      # Build images only, don't start services"
     echo "  $0 --admin-only         # Start only dashboard for admin control"
+    echo "  $0 --batch-only         # Start only batch processing services"
     echo ""
     echo "SERVICES:"
     echo "  Infrastructure: PostgreSQL, Elasticsearch, Kibana, Qdrant, Neo4j, Redis, MinIO, n8n, Flowise"
     echo "  Core: API Gateway, Core Processor, Document Router, Processing Pipeline, Storage Manager, File Watcher"
     echo "  UI: Dashboard (http://localhost:8010), Qdrant UI"
+    echo ""
+    echo "BATCH PROCESSING MODE:"
+    echo "  Infrastructure: All services (PostgreSQL, Elasticsearch, Kibana, Qdrant, Neo4j, Redis, MinIO, n8n, Flowise)"
+    echo "  Core: Dashboard only (for monitoring and control)"
     echo ""
     echo "For more information, see INITIALIZATION_GUIDE.md"
 }
@@ -47,6 +53,7 @@ show_help() {
 SKIP_BUILD=false
 SKIP_SERVICES=false
 ADMIN_ONLY=false
+BATCH_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -66,6 +73,10 @@ while [[ $# -gt 0 ]]; do
             ADMIN_ONLY=true
             shift
             ;;
+        --batch-only)
+            BATCH_ONLY=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Use '$0 --help' for usage information"
@@ -74,8 +85,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo -e "${BLUE}🚀 MEP AI NABOX - Complete System Initialization${NC}"
-echo -e "${BLUE}================================================${NC}"
+if [ "$BATCH_ONLY" = true ]; then
+    echo -e "${BLUE}🚀 MEP AI NABOX - Batch Processing System Initialization${NC}"
+    echo -e "${BLUE}========================================================${NC}"
+    echo -e "${YELLOW}📋 Mode: Batch Processing (Infrastructure + Dashboard only)${NC}"
+else
+    echo -e "${BLUE}🚀 MEP AI NABOX - Complete System Initialization${NC}"
+    echo -e "${BLUE}================================================${NC}"
+fi
 echo ""
 
 # Check if we're in the right directory
@@ -251,68 +268,72 @@ if [ "$SKIP_SERVICES" = false ]; then
     
     cd ..
     
-    # Step 2: Start native core processing services
-    echo -e "${CYAN}🔧 Starting native core processing services...${NC}"
-    cd core
-    
-    # Install Python requirements if not already done
-    echo -e "${BLUE}🐍 Installing Python requirements for native core services...${NC}"
-    if command -v pip3 &> /dev/null; then
-        pip3 install -r requirements_native.txt --user
-        echo -e "${GREEN}✅ Python requirements installed${NC}"
-    else
-        echo -e "${RED}❌ pip3 not found. Please install Python 3 and pip3 first.${NC}"
-        exit 1
-    fi
-    
-    # Initialize database
-    echo -e "${BLUE}🗄️  Initializing database...${NC}"
-    cd core_processor
-    if [ -f "init_database.sh" ]; then
-        chmod +x init_database.sh
-        ./init_database.sh
-        echo -e "${GREEN}✅ Database initialized${NC}"
-    else
-        echo -e "${YELLOW}⚠️  init_database.sh not found. Database may not be properly initialized.${NC}"
-    fi
-    cd ..
-    
-    # Start native services
-    echo -e "${BLUE}🚀 Starting native core processing services...${NC}"
-    ./start_native_services.sh
-    
-    echo -e "${BLUE}⏳ Waiting for native core services to be ready...${NC}"
-    sleep 30
-    
-    # Check native core services health
-    echo -e "${BLUE}🔍 Checking native core services health...${NC}"
-    
-    # Define service ports for native processing
-    declare -A service_ports=(
-        ["api-gateway"]=8011
-        ["core-processor"]=8001
-        ["document-router"]=8002
-        ["processing-pipeline"]=8003
-        ["storage-manager"]=8004
-        ["text-processor"]=8005
-        ["metadata-processor"]=8006
-        ["embedding-processor"]=8007
-        ["entity-processor"]=8008
-        ["file-watcher"]=8009
-    )
-    
-    for service in "${!service_ports[@]}"; do
-        port="${service_ports[$service]}"
-        if curl -f http://localhost:$port/health > /dev/null 2>&1 || curl -f http://localhost:$port/docs > /dev/null 2>&1; then
-            echo -e "${GREEN}✅ $service is healthy (port $port)${NC}"
+    # Step 2: Start native core processing services (skip if batch-only mode)
+    if [ "$BATCH_ONLY" = false ]; then
+        echo -e "${CYAN}🔧 Starting native core processing services...${NC}"
+        cd core
+        
+        # Install Python requirements if not already done
+        echo -e "${BLUE}🐍 Installing Python requirements for native core services...${NC}"
+        if command -v pip3 &> /dev/null; then
+            pip3 install -r requirements_native.txt --user
+            echo -e "${GREEN}✅ Python requirements installed${NC}"
         else
-            echo -e "${YELLOW}⚠️  $service health check failed (port $port)${NC}"
+            echo -e "${RED}❌ pip3 not found. Please install Python 3 and pip3 first.${NC}"
+            exit 1
         fi
-    done
-    
-    cd ..
-    
-    echo -e "${GREEN}✅ All services started successfully${NC}"
+        
+        # Initialize database
+        echo -e "${BLUE}🗄️  Initializing database...${NC}"
+        cd core_processor
+        if [ -f "init_database.sh" ]; then
+            chmod +x init_database.sh
+            ./init_database.sh
+            echo -e "${GREEN}✅ Database initialized${NC}"
+        else
+            echo -e "${YELLOW}⚠️  init_database.sh not found. Database may not be properly initialized.${NC}"
+        fi
+        cd ..
+        
+        # Start native services
+        echo -e "${BLUE}🚀 Starting native core processing services...${NC}"
+        ./start_native_services.sh
+        
+        echo -e "${BLUE}⏳ Waiting for native core services to be ready...${NC}"
+        sleep 30
+        
+        # Check native core services health
+        echo -e "${BLUE}🔍 Checking native core services health...${NC}"
+        
+        # Define service ports for native processing
+        declare -A service_ports=(
+            ["api-gateway"]=8011
+            ["core-processor"]=8001
+            ["document-router"]=8002
+            ["processing-pipeline"]=8003
+            ["storage-manager"]=8004
+            ["text-processor"]=8005
+            ["metadata-processor"]=8006
+            ["embedding-processor"]=8007
+            ["entity-processor"]=8008
+            ["file-watcher"]=8009
+        )
+        
+        for service in "${!service_ports[@]}"; do
+            port="${service_ports[$service]}"
+            if curl -f http://localhost:$port/health > /dev/null 2>&1 || curl -f http://localhost:$port/docs > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ $service is healthy (port $port)${NC}"
+            else
+                echo -e "${YELLOW}⚠️  $service health check failed (port $port)${NC}"
+            fi
+        done
+        
+        cd ..
+        
+        echo -e "${GREEN}✅ All core services started successfully${NC}"
+    else
+        echo -e "${YELLOW}⏭️  Skipping native core processing services (batch-only mode)${NC}"
+    fi
 else
     echo -e "${YELLOW}⏭️  Skipping service startup (--skip-services flag used)${NC}"
 fi
@@ -410,44 +431,78 @@ fi
 cd ..
 
 echo ""
-echo -e "${GREEN}🎉 MEP AI NABOX System Initialization Complete!${NC}"
-echo -e "${GREEN}================================================${NC}"
-echo ""
-echo -e "${BLUE}🌐 Service URLs:${NC}"
-echo -e "${GREEN}  Dashboard:${NC} http://localhost:8010"
-echo -e "${GREEN}  Admin Panel:${NC} http://localhost:8010/admin"
-echo -e "${GREEN}  API Gateway:${NC} http://localhost:8011"
-echo -e "${GREEN}  Core Processor:${NC} http://localhost:8001"
-echo -e "${GREEN}  Document Router:${NC} http://localhost:8002"
-echo -e "${GREEN}  Processing Pipeline:${NC} http://localhost:8003"
-echo -e "${GREEN}  Storage Manager:${NC} http://localhost:8004"
-echo -e "${GREEN}  Text Processor:${NC} http://localhost:8005"
-echo -e "${GREEN}  Metadata Processor:${NC} http://localhost:8006"
-echo -e "${GREEN}  Embedding Processor:${NC} http://localhost:8007"
-echo -e "${GREEN}  Entity Processor:${NC} http://localhost:8008"
-echo -e "${GREEN}  File Watcher:${NC} http://localhost:8009"
-echo ""
-echo -e "${BLUE}🔧 Infrastructure Services:${NC}"
-echo -e "${GREEN}  PostgreSQL:${NC} localhost:5432"
-echo -e "${GREEN}  Elasticsearch:${NC} http://localhost:9200"
-echo -e "${GREEN}  Kibana:${NC} http://localhost:5601"
-echo -e "${GREEN}  Qdrant:${NC} http://localhost:6333"
-echo -e "${GREEN}  Neo4j Browser:${NC} http://localhost:7474"
-echo -e "${GREEN}  Redis:${NC} localhost:6379"
-echo -e "${GREEN}  MinIO Console:${NC} http://localhost:9001"
-echo -e "${GREEN}  n8n:${NC} http://localhost:5678"
-echo -e "${GREEN}  Flowise:${NC} http://localhost:3001"
-echo ""
-echo -e "${BLUE}📊 Useful Commands:${NC}"
-echo -e "${CYAN}  View all containers:${NC} docker ps"
-echo -e "${CYAN}  View logs:${NC} docker compose logs -f"
-echo -e "${CYAN}  Stop all services:${NC} ./stop_system.sh"
-echo -e "${CYAN}  Restart dashboard:${NC} cd core && ./restart_dashboard.sh"
-echo -e "${CYAN}  Health check:${NC} ./health_check.sh"
-echo ""
-echo -e "${YELLOW}💡 Next Steps:${NC}"
-echo "1. Open http://localhost:8010 in your browser"
-echo "2. Go to the Admin panel to monitor services"
-echo "3. Upload documents to start processing"
-echo ""
-echo -e "${GREEN}✅ System is ready for use!${NC}" 
+if [ "$BATCH_ONLY" = true ]; then
+    echo -e "${GREEN}🎉 MEP AI NABOX Batch Processing System Initialization Complete!${NC}"
+    echo -e "${GREEN}==============================================================${NC}"
+    echo ""
+    echo -e "${BLUE}🌐 Service URLs:${NC}"
+    echo -e "${GREEN}  Dashboard:${NC} http://localhost:8010"
+    echo -e "${GREEN}  Admin Panel:${NC} http://localhost:8010/admin"
+    echo ""
+    echo -e "${BLUE}🔧 Infrastructure Services (for batch processing):${NC}"
+    echo -e "${GREEN}  PostgreSQL:${NC} localhost:5432"
+    echo -e "${GREEN}  Elasticsearch:${NC} http://localhost:9200"
+    echo -e "${GREEN}  Kibana:${NC} http://localhost:5601"
+    echo -e "${GREEN}  Qdrant:${NC} http://localhost:6333"
+    echo -e "${GREEN}  Neo4j Browser:${NC} http://localhost:7474"
+    echo -e "${GREEN}  Redis:${NC} localhost:6379"
+    echo -e "${GREEN}  MinIO Console:${NC} http://localhost:9001"
+    echo -e "${GREEN}  n8n:${NC} http://localhost:5678"
+    echo -e "${GREEN}  Flowise:${NC} http://localhost:3001"
+    echo ""
+    echo -e "${BLUE}📊 Useful Commands:${NC}"
+    echo -e "${CYAN}  View all containers:${NC} docker ps"
+    echo -e "${CYAN}  View logs:${NC} docker compose logs -f"
+    echo -e "${CYAN}  Stop all services:${NC} ./stop_system.sh"
+    echo -e "${CYAN}  Restart dashboard:${NC} cd core && ./restart_dashboard.sh"
+    echo -e "${CYAN}  Health check:${NC} ./health_check.sh"
+    echo ""
+    echo -e "${YELLOW}💡 Next Steps:${NC}"
+    echo "1. Open http://localhost:8010 in your browser"
+    echo "2. Go to the Admin panel to monitor batch processing services"
+    echo "3. Use batch processing scripts to process documents"
+    echo ""
+    echo -e "${GREEN}✅ Batch processing system is ready for use!${NC}"
+else
+    echo -e "${GREEN}🎉 MEP AI NABOX System Initialization Complete!${NC}"
+    echo -e "${GREEN}================================================${NC}"
+    echo ""
+    echo -e "${BLUE}🌐 Service URLs:${NC}"
+    echo -e "${GREEN}  Dashboard:${NC} http://localhost:8010"
+    echo -e "${GREEN}  Admin Panel:${NC} http://localhost:8010/admin"
+    echo -e "${GREEN}  API Gateway:${NC} http://localhost:8011"
+    echo -e "${GREEN}  Core Processor:${NC} http://localhost:8001"
+    echo -e "${GREEN}  Document Router:${NC} http://localhost:8002"
+    echo -e "${GREEN}  Processing Pipeline:${NC} http://localhost:8003"
+    echo -e "${GREEN}  Storage Manager:${NC} http://localhost:8004"
+    echo -e "${GREEN}  Text Processor:${NC} http://localhost:8005"
+    echo -e "${GREEN}  Metadata Processor:${NC} http://localhost:8006"
+    echo -e "${GREEN}  Embedding Processor:${NC} http://localhost:8007"
+    echo -e "${GREEN}  Entity Processor:${NC} http://localhost:8008"
+    echo -e "${GREEN}  File Watcher:${NC} http://localhost:8009"
+    echo ""
+    echo -e "${BLUE}🔧 Infrastructure Services:${NC}"
+    echo -e "${GREEN}  PostgreSQL:${NC} localhost:5432"
+    echo -e "${GREEN}  Elasticsearch:${NC} http://localhost:9200"
+    echo -e "${GREEN}  Kibana:${NC} http://localhost:5601"
+    echo -e "${GREEN}  Qdrant:${NC} http://localhost:6333"
+    echo -e "${GREEN}  Neo4j Browser:${NC} http://localhost:7474"
+    echo -e "${GREEN}  Redis:${NC} localhost:6379"
+    echo -e "${GREEN}  MinIO Console:${NC} http://localhost:9001"
+    echo -e "${GREEN}  n8n:${NC} http://localhost:5678"
+    echo -e "${GREEN}  Flowise:${NC} http://localhost:3001"
+    echo ""
+    echo -e "${BLUE}📊 Useful Commands:${NC}"
+    echo -e "${CYAN}  View all containers:${NC} docker ps"
+    echo -e "${CYAN}  View logs:${NC} docker compose logs -f"
+    echo -e "${CYAN}  Stop all services:${NC} ./stop_system.sh"
+    echo -e "${CYAN}  Restart dashboard:${NC} cd core && ./restart_dashboard.sh"
+    echo -e "${CYAN}  Health check:${NC} ./health_check.sh"
+    echo ""
+    echo -e "${YELLOW}💡 Next Steps:${NC}"
+    echo "1. Open http://localhost:8010 in your browser"
+    echo "2. Go to the Admin panel to monitor services"
+    echo "3. Upload documents to start processing"
+    echo ""
+    echo -e "${GREEN}✅ System is ready for use!${NC}"
+fi 

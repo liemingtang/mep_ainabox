@@ -141,55 +141,83 @@ class QueueWorker:
             logger.error(f"❌ Failed to update item status: {e}")
     
     def run_text_processor_docker(self, file_path: str, output_dir: str = None) -> Dict[str, Any]:
-        """Run text_processor.py via Docker"""
+        """Run text_processor.py directly or via Docker"""
         try:
-            # Build Docker command
-            docker_cmd = [
-                "docker", "run", "--rm",
-                "--network", "host",
-                "-v", f"{file_path}:{file_path}:ro"
-            ]
-            
-            # Add output directory if specified
-            if output_dir:
-                docker_cmd.extend(["-v", f"{output_dir}:{output_dir}"])
-            
-            # Add environment variables
-            docker_cmd.extend([
-                "-e", f"INPUT_FILE={file_path}",
-                "-e", f"OUTPUT_DIR={output_dir or '/tmp'}"
-            ])
-            
-            # Add image and command
-            docker_cmd.extend([
-                self.docker_image,
-                "--entrypoint", "python3",
-                "/app/text_processor.py",
-                file_path
-            ])
-            
-            if output_dir:
-                docker_cmd.extend(["--output-dir", output_dir])
-            
-            logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
-            
-            # Execute Docker command
-            result = subprocess.run(
-                docker_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
-            )
-            
-            return {
-                'success': result.returncode == 0,
-                'stdout': result.stdout,
-                'stderr': result.stderr,
-                'returncode': result.returncode
-            }
+            # Check if we're inside a Docker container
+            if os.path.exists('/.dockerenv'):
+                # We're inside Docker, run text processor directly
+                logger.info(f"🐳 Running text processor directly (inside Docker)")
+                
+                cmd = ["python3", "/app/text_processor.py", file_path]
+                if output_dir:
+                    cmd.extend(["--output-dir", output_dir])
+                
+                logger.info(f"🚀 Running command: {' '.join(cmd)}")
+                
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'returncode': result.returncode
+                }
+            else:
+                # We're outside Docker, run via Docker
+                logger.info(f"🐳 Running text processor via Docker")
+                
+                # Build Docker command
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    "--network", "host",
+                    "-v", f"{file_path}:{file_path}:ro"
+                ]
+                
+                # Add output directory if specified
+                if output_dir:
+                    docker_cmd.extend(["-v", f"{output_dir}:{output_dir}"])
+                
+                # Add environment variables
+                docker_cmd.extend([
+                    "-e", f"INPUT_FILE={file_path}",
+                    "-e", f"OUTPUT_DIR={output_dir or '/tmp'}"
+                ])
+                
+                # Add image and command
+                docker_cmd.extend([
+                    "--entrypoint", "python3",
+                    self.docker_image,
+                    "/app/text_processor.py",
+                    file_path
+                ])
+                
+                if output_dir:
+                    docker_cmd.extend(["--output-dir", output_dir])
+                
+                logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
+                
+                # Execute Docker command
+                result = subprocess.run(
+                    docker_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                
+                return {
+                    'success': result.returncode == 0,
+                    'stdout': result.stdout,
+                    'stderr': result.stderr,
+                    'returncode': result.returncode
+                }
             
         except subprocess.TimeoutExpired:
-            logger.error(f"⏰ Docker command timed out for {file_path}")
+            logger.error(f"⏰ Text processor command timed out for {file_path}")
             return {
                 'success': False,
                 'stdout': '',
@@ -197,7 +225,7 @@ class QueueWorker:
                 'returncode': -1
             }
         except Exception as e:
-            logger.error(f"❌ Docker command failed for {file_path}: {e}")
+            logger.error(f"❌ Text processor command failed for {file_path}: {e}")
             return {
                 'success': False,
                 'stdout': '',

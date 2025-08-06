@@ -2,7 +2,7 @@
 """
 Queue Processing Worker Script - Docker-based
 Processes files from file_processing_queue table using text_processor.py
-Usage: ./process_queue_worker.sh [options]
+Usage: ./process_file_processing_queue.sh [options]
 """
 
 # Get the directory where this script is located
@@ -69,31 +69,18 @@ if [[ ! -d "$CONFIG_PATH" ]]; then
     exit 1
 fi
 
-# Build Docker command
-DOCKER_CMD="docker run --rm --name $CONTAINER_NAME --network host"
+# Use the batch processor for proper folder mounting
+echo -e "${BLUE}🔍 Querying database for items to process...${NC}"
 
-# Mount the config directory
-DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
-
-# Override the entrypoint to run the worker script
-DOCKER_CMD="$DOCKER_CMD --entrypoint python3"
-
-# Add the image name
-DOCKER_CMD="$DOCKER_CMD $IMAGE_NAME"
-
-# Add the script and arguments
-DOCKER_CMD="$DOCKER_CMD /app/process_queue_worker.py"
-
-if [[ ${#ARGS[@]} -gt 0 ]]; then
-    DOCKER_CMD="$DOCKER_CMD ${ARGS[*]}"
-fi
+# Run the batch processor which handles folder mounting properly
+cd "$SCRIPT_DIR"
+python3 batch_process_file_queue.py "${ARGS[@]}"
 
 # Display information
 echo -e "${BLUE}🔧 Queue Processing Worker${NC}"
 echo "=================================================="
-echo -e "${YELLOW}Docker image:${NC} $IMAGE_NAME"
+echo -e "${YELLOW}Using batch processor for proper folder mounting${NC}"
 echo -e "${YELLOW}Config directory:${NC} $CONFIG_PATH"
-echo -e "${YELLOW}Container name:${NC} $CONTAINER_NAME"
 
 # Show arguments if any
 if [[ ${#ARGS[@]} -gt 0 ]]; then
@@ -103,8 +90,6 @@ fi
 echo "=================================================="
 echo ""
 
-# Execute the Docker command
-echo -e "${GREEN}🚀 Starting Docker container...${NC}"
-echo ""
-
-eval $DOCKER_CMD 
+# Execute the batch processor
+echo -e "${GREEN}🚀 Starting batch processor...${NC}"
+echo "" 
