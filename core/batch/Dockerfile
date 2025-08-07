@@ -22,16 +22,8 @@ RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the scanner scripts
-COPY folder_scanner.py .
-COPY queue_file_processing.py .
-COPY process_file_processing_queue.py .
-COPY text_processor.py .
-COPY batch_process_file_queue.py .
-COPY check_queue.py .
-COPY test_file_paths.py .
-COPY test_db.py .
-COPY test_elasticsearch.py .
+# Copy all batch processing files
+COPY . .
 
 # Create a non-root user for security
 RUN useradd -m -u 1000 scanner && \
@@ -41,4 +33,4 @@ RUN useradd -m -u 1000 scanner && \
 USER scanner
 
 # Set the entrypoint
-ENTRYPOINT ["python3", "folder_scanner.py"] 
+ENTRYPOINT ["python3"] 

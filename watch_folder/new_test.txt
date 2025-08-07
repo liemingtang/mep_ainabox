@@ -1,0 +1,1 @@
+This is a new test document for Elasticsearch content extraction testing.

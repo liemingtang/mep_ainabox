@@ -76,7 +76,8 @@ class QueueWorker:
                 basic_auth=(
                     es_config.get('username', 'elastic'),
                     es_config.get('password', 'elastic_password')
-                )
+                ),
+                headers={"Accept": "application/vnd.elasticsearch+json; compatible-with=8"}
             )
             
             # Test connection
@@ -181,11 +182,17 @@ class QueueWorker:
         except Exception as e:
             logger.error(f"❌ Failed to update item status: {e}")
     
-    async def index_document_elasticsearch(self, item: Dict, processing_result: Dict[str, Any]) -> bool:
-        """Index document in Elasticsearch"""
+    async def index_document_elasticsearch(self, item: Dict, processing_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Index document in Elasticsearch and return detailed information"""
         if not self.elasticsearch_client:
             logger.warning("⚠️  Elasticsearch not available, skipping indexing")
-            return False
+            return {
+                "success": False,
+                "error": "Elasticsearch not available",
+                "index_name": "documents",
+                "document_id": f"doc_{item['file_info_id']}",
+                "filename": item['filename']
+            }
         
         try:
             # Generate document ID
@@ -213,25 +220,71 @@ class QueueWorker:
             }
             
             # Index the document
-            await self.elasticsearch_client.index(
+            response = await self.elasticsearch_client.index(
                 index="documents",
                 id=doc_id,
                 document=doc_data
             )
             
+            # Get index statistics
+            try:
+                index_stats = await self.elasticsearch_client.indices.stats(index="documents")
+                doc_count = index_stats['indices']['documents']['total']['docs']['count']
+            except Exception as e:
+                doc_count = "unknown"
+                logger.warning(f"⚠️  Could not get index statistics: {e}")
+            
+            indexing_info = {
+                "success": True,
+                "index_name": "documents",
+                "document_id": doc_id,
+                "filename": item['filename'],
+                "elasticsearch_response": {
+                    "_id": response.get('_id'),
+                    "_index": response.get('_index'),
+                    "_version": response.get('_version'),
+                    "result": response.get('result'),
+                    "shards": response.get('_shards', {}),
+                    "seq_no": response.get('_seq_no'),
+                    "primary_term": response.get('_primary_term')
+                },
+                "document_size": len(str(doc_data)),
+                "index_total_documents": doc_count,
+                "indexed_at": datetime.now().isoformat(),
+                "file_info": {
+                    "file_size": item.get('file_size', 0),
+                    "file_type": item.get('file_type', ''),
+                    "mime_type": item.get('mime_type', ''),
+                    "processor_type": item['processor_type'],
+                    "priority": item['priority']
+                }
+            }
+            
             logger.info(f"✅ Indexed document in Elasticsearch: {doc_id}")
-            return True
+            return indexing_info
             
         except Exception as e:
             logger.error(f"❌ Failed to index document in Elasticsearch: {e}")
-            return False
+            return {
+                "success": False,
+                "error": str(e),
+                "index_name": "documents",
+                "document_id": f"doc_{item['file_info_id']}",
+                "filename": item['filename']
+            }
     
     async def store_document_content_elasticsearch(self, item: Dict, text_content: str, 
-                                                 processing_stats: Dict[str, Any]) -> bool:
-        """Store document content in Elasticsearch"""
+                                                 processing_stats: Dict[str, Any]) -> Dict[str, Any]:
+        """Store document content in Elasticsearch and return detailed information"""
         if not self.elasticsearch_client:
             logger.warning("⚠️  Elasticsearch not available, skipping content storage")
-            return False
+            return {
+                "success": False,
+                "error": "Elasticsearch not available",
+                "index_name": "document_content",
+                "content_id": f"content_{item['file_info_id']}",
+                "filename": item['filename']
+            }
         
         try:
             # Generate content ID
@@ -250,18 +303,53 @@ class QueueWorker:
             }
             
             # Store the content
-            await self.elasticsearch_client.index(
+            response = await self.elasticsearch_client.index(
                 index="document_content",
                 id=content_id,
                 document=content_data
             )
             
+            # Get index statistics
+            try:
+                index_stats = await self.elasticsearch_client.indices.stats(index="document_content")
+                content_count = index_stats['indices']['document_content']['total']['docs']['count']
+            except Exception as e:
+                content_count = "unknown"
+                logger.warning(f"⚠️  Could not get content index statistics: {e}")
+            
+            content_info = {
+                "success": True,
+                "index_name": "document_content",
+                "content_id": content_id,
+                "filename": item['filename'],
+                "elasticsearch_response": {
+                    "_id": response.get('_id'),
+                    "_index": response.get('_index'),
+                    "_version": response.get('_version'),
+                    "result": response.get('result'),
+                    "shards": response.get('_shards', {}),
+                    "seq_no": response.get('_seq_no'),
+                    "primary_term": response.get('_primary_term')
+                },
+                "content_size": len(text_content),
+                "content_length": len(text_content),
+                "index_total_content": content_count,
+                "indexed_at": datetime.now().isoformat(),
+                "processing_stats": processing_stats
+            }
+            
             logger.info(f"✅ Stored document content in Elasticsearch: {content_id}")
-            return True
+            return content_info
             
         except Exception as e:
             logger.error(f"❌ Failed to store document content in Elasticsearch: {e}")
-            return False
+            return {
+                "success": False,
+                "error": str(e),
+                "index_name": "document_content",
+                "content_id": f"content_{item['file_info_id']}",
+                "filename": item['filename']
+            }
     
     def run_text_processor_docker(self, file_path: str, output_dir: str = None) -> Dict[str, Any]:
         """Run text_processor.py directly or via Docker"""
@@ -441,9 +529,18 @@ class QueueWorker:
     def extract_text_content_from_output(self, stdout: str) -> str:
         """Extract text content from processor output"""
         try:
-            # Try to parse JSON output
             if stdout.strip():
-                # Look for JSON in the output
+                # Look for CONTENT_START/CONTENT_END markers
+                if "CONTENT_START:" in stdout and "CONTENT_END" in stdout:
+                    start_marker = "CONTENT_START:"
+                    end_marker = "CONTENT_END"
+                    start_pos = stdout.find(start_marker) + len(start_marker)
+                    end_pos = stdout.find(end_marker)
+                    if start_pos >= len(start_marker) and end_pos > start_pos:
+                        content = stdout[start_pos:end_pos]
+                        return content.strip()
+                
+                # Try to parse JSON output
                 lines = stdout.strip().split('\n')
                 for line in lines:
                     if line.strip().startswith('{') and line.strip().endswith('}'):
@@ -456,7 +553,7 @@ class QueueWorker:
                         except json.JSONDecodeError:
                             continue
                 
-                # If no JSON found, return the raw output
+                # If no markers or JSON found, return the raw output
                 return stdout.strip()
             
             return ""
@@ -545,6 +642,10 @@ class QueueWorker:
             # Extract text content from processing result
             text_content = self.extract_text_content_from_output(result['stdout'])
             
+            # Debug: Log the extracted text content
+            logger.info(f"🔍 DEBUG: Extracted text content length: {len(text_content)}")
+            logger.info(f"🔍 DEBUG: Text content preview: {text_content[:100]}{'...' if len(text_content) > 100 else ''}")
+            
             # Generate processing statistics
             processing_stats = self.generate_processing_stats(text_content, result)
             
@@ -554,22 +655,25 @@ class QueueWorker:
                 
                 # Index document metadata
                 logger.info(f"📝 Indexing document metadata for {filename}")
-                await self.index_document_elasticsearch(item, {
+                indexing_info = await self.index_document_elasticsearch(item, {
                     'success': True,
                     'processing_stats': processing_stats,
                     'output_size': len(result['stdout'])
                 })
                 
                 # Store document content if we have text
+                content_info = None
                 if text_content:
                     logger.info(f"📄 Storing document content for {filename}")
-                    await self.store_document_content_elasticsearch(item, text_content, processing_stats)
+                    content_info = await self.store_document_content_elasticsearch(item, text_content, processing_stats)
                 
                 logger.info(f"✅ Successfully stored data in Elasticsearch for {filename}")
                 
                 # Print Elasticsearch statistics for the processed file
                 if show_stats:
                     await self.print_file_elasticsearch_stats(item, text_content, processing_stats, result)
+                    # Print detailed Elasticsearch indexing information
+                    await self.print_elasticsearch_indexing_details(indexing_info, content_info)
                 else:
                     logger.info(f"📊 Skipping detailed statistics for {filename}")
                 
@@ -598,7 +702,7 @@ class QueueWorker:
             
             # Try to store error information in Elasticsearch
             try:
-                await self.index_document_elasticsearch(item, {
+                indexing_info = await self.index_document_elasticsearch(item, {
                     'success': False,
                     'error': error_msg,
                     'return_code': result['returncode']
@@ -1061,6 +1165,100 @@ class QueueWorker:
         except Exception as e:
             logger.error(f"❌ Failed to print Elasticsearch statistics: {e}")
     
+    async def print_elasticsearch_indexing_details(self, indexing_info: Dict[str, Any], content_info: Dict[str, Any] = None):
+        """Print detailed Elasticsearch indexing information for a single file"""
+        try:
+            logger.info("=" * 60)
+            logger.info("🗄️  ELASTICSEARCH INDEXING DETAILS")
+            logger.info("=" * 60)
+
+            filename = indexing_info.get("filename", "Unknown")
+            logger.info(f"📄 File: {filename}")
+            
+            # Document indexing information
+            logger.info("")
+            logger.info("📝 DOCUMENT INDEXING:")
+            logger.info(f"   Document ID: {indexing_info.get('document_id', 'N/A')}")
+            logger.info(f"   Index Name: {indexing_info.get('index_name', 'N/A')}")
+            logger.info(f"   Success: {indexing_info.get('success', False)}")
+            
+            if indexing_info.get('success'):
+                elasticsearch_response = indexing_info.get("elasticsearch_response", {})
+                if elasticsearch_response:
+                    logger.info("   Elasticsearch Response:")
+                    logger.info(f"     _id: {elasticsearch_response.get('_id', 'N/A')}")
+                    logger.info(f"     _index: {elasticsearch_response.get('_index', 'N/A')}")
+                    logger.info(f"     _version: {elasticsearch_response.get('_version', 'N/A')}")
+                    logger.info(f"     result: {elasticsearch_response.get('result', 'N/A')}")
+                    
+                    shards = elasticsearch_response.get('_shards', {})
+                    if shards:
+                        logger.info(f"     shards: total={shards.get('total', 'N/A')}, successful={shards.get('successful', 'N/A')}, failed={shards.get('failed', 'N/A')}")
+                    
+                    logger.info(f"     seq_no: {elasticsearch_response.get('_seq_no', 'N/A')}")
+                    logger.info(f"     primary_term: {elasticsearch_response.get('_primary_term', 'N/A')}")
+                
+                logger.info(f"   Document Size: {indexing_info.get('document_size', 0):,} bytes")
+                logger.info(f"   Index Total Documents: {indexing_info.get('index_total_documents', 'N/A')}")
+                logger.info(f"   Indexed At: {indexing_info.get('indexed_at', 'N/A')}")
+                
+                # File information
+                file_info = indexing_info.get('file_info', {})
+                if file_info:
+                    logger.info("   File Information:")
+                    logger.info(f"     File Size: {file_info.get('file_size', 0):,} bytes")
+                    logger.info(f"     File Type: {file_info.get('file_type', 'N/A')}")
+                    logger.info(f"     MIME Type: {file_info.get('mime_type', 'N/A')}")
+                    logger.info(f"     Processor Type: {file_info.get('processor_type', 'N/A')}")
+                    logger.info(f"     Priority: {file_info.get('priority', 'N/A')}")
+            else:
+                logger.error(f"   Error: {indexing_info.get('error', 'Unknown error')}")
+
+            # Content indexing information
+            if content_info:
+                logger.info("")
+                logger.info("📄 CONTENT INDEXING:")
+                logger.info(f"   Content ID: {content_info.get('content_id', 'N/A')}")
+                logger.info(f"   Index Name: {content_info.get('index_name', 'N/A')}")
+                logger.info(f"   Success: {content_info.get('success', False)}")
+                
+                if content_info.get('success'):
+                    content_elasticsearch_response = content_info.get("elasticsearch_response", {})
+                    if content_elasticsearch_response:
+                        logger.info("   Elasticsearch Response:")
+                        logger.info(f"     _id: {content_elasticsearch_response.get('_id', 'N/A')}")
+                        logger.info(f"     _index: {content_elasticsearch_response.get('_index', 'N/A')}")
+                        logger.info(f"     _version: {content_elasticsearch_response.get('_version', 'N/A')}")
+                        logger.info(f"     result: {content_elasticsearch_response.get('result', 'N/A')}")
+                        
+                        content_shards = content_elasticsearch_response.get('_shards', {})
+                        if content_shards:
+                            logger.info(f"     shards: total={content_shards.get('total', 'N/A')}, successful={content_shards.get('successful', 'N/A')}, failed={content_shards.get('failed', 'N/A')}")
+                    
+                    logger.info(f"   Content Size: {content_info.get('content_size', 0):,} bytes")
+                    logger.info(f"   Content Length: {content_info.get('content_length', 0):,} characters")
+                    logger.info(f"   Index Total Content: {content_info.get('index_total_content', 'N/A')}")
+                    logger.info(f"   Indexed At: {content_info.get('indexed_at', 'N/A')}")
+                    
+                    # Processing statistics
+                    processing_stats = content_info.get('processing_stats', {})
+                    if processing_stats:
+                        logger.info("   Processing Statistics:")
+                        logger.info(f"     Content Length: {processing_stats.get('content_length', 0):,} characters")
+                        logger.info(f"     Word Count: {processing_stats.get('word_count', 0):,} words")
+                        logger.info(f"     Line Count: {processing_stats.get('line_count', 0):,} lines")
+                        logger.info(f"     Processing Success: {processing_stats.get('processing_success', False)}")
+                else:
+                    logger.error(f"   Error: {content_info.get('error', 'Unknown error')}")
+            else:
+                logger.info("")
+                logger.info("📄 CONTENT INDEXING: No content stored")
+
+            logger.info("=" * 60)
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to print Elasticsearch indexing details: {e}")
+
     async def print_elasticsearch_summary_stats(self):
         """Print summary statistics for all documents in Elasticsearch"""
         if not self.elasticsearch_client:

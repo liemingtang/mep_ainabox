@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Docker image name
-IMAGE_NAME="mep-folder-scanner:latest"
+IMAGE_NAME="mep-batch-processor:latest"
 CONTAINER_NAME="mep-queue-processor-$(date +%s)"
 
 # Colors for output
@@ -39,6 +39,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --limit <number>          Maximum number of files to queue"
             echo "  --dry-run                 Show what would be done without making changes"
             echo "  --stats                   Show queue statistics"
+            echo "  --force-requeue           Force requeue completed items in the queue"
             echo "  --help, -h                Show this help message"
             echo ""
             echo "Examples:"
@@ -81,6 +82,8 @@ DOCKER_CMD="docker run --rm --name $CONTAINER_NAME --network host"
 
 # Mount the config directory
 DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
+
+
 
 # Override the entrypoint to run the queue processing script
 DOCKER_CMD="$DOCKER_CMD --entrypoint python3"

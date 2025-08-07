@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY file_watcher/ .
 COPY volume_manager.py .
+COPY ../processors/ /app/processors/
 
 EXPOSE 8009
 

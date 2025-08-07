@@ -9,7 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Docker image name
-IMAGE_NAME="mep-folder-scanner:latest"
+IMAGE_NAME="mep-batch-processor:latest"
 
 # Colors for output
 RED='\033[0;31m'
@@ -120,11 +120,14 @@ DOCKER_CMD="$DOCKER_CMD -e HOST_FOLDER_PATH=\"$FOLDER_PATH\""
 # Mount the config directory
 DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
 
+# Override the entrypoint to run the folder scanner script
+DOCKER_CMD="$DOCKER_CMD --entrypoint python3"
+
 # Add the image name
 DOCKER_CMD="$DOCKER_CMD $IMAGE_NAME"
 
-# Add the scan path (mounted folder)
-DOCKER_CMD="$DOCKER_CMD /scan"
+# Add the folder scanner script and scan path
+DOCKER_CMD="$DOCKER_CMD /app/folder_scanner.py /scan"
 
 # Add optional arguments
 if [[ -n "$MAX_DEPTH" ]]; then

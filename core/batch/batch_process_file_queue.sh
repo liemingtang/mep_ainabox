@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Docker image name
-IMAGE_NAME="mep-folder-scanner:latest"
+IMAGE_NAME="mep-batch-processor:latest"
 CONTAINER_NAME="mep-batch-processor-$(date +%s)"
 
 # Colors for output
@@ -84,6 +84,8 @@ DOCKER_CMD="docker run --rm --name $CONTAINER_NAME --network host"
 # Mount the config directory
 DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
 
+
+
 # Mount Docker socket for Docker-in-Docker capability
 DOCKER_CMD="$DOCKER_CMD -v /var/run/docker.sock:/var/run/docker.sock"
 
@@ -107,7 +109,7 @@ DOCKER_CMD="$DOCKER_CMD --entrypoint python3"
 DOCKER_CMD="$DOCKER_CMD $IMAGE_NAME"
 
 # Add the script and arguments
-DOCKER_CMD="$DOCKER_CMD /app/batch_process_file_queue.py"
+DOCKER_CMD="$DOCKER_CMD /app/process_file_processing_queue.py"
 
 if [[ ${#ARGS[@]} -gt 0 ]]; then
     DOCKER_CMD="$DOCKER_CMD ${ARGS[*]}"

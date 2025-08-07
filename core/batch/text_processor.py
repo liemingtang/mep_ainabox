@@ -80,6 +80,9 @@ def process_text_file(file_path: str, output_dir: str = None) -> bool:
             logger.info(f"Characters: {analysis['statistics']['characters']}")
             logger.info(f"Avg words per line: {analysis['statistics']['average_words_per_line']:.2f}")
             logger.info("=" * 50)
+            
+            # Output the actual content for extraction
+            print(f"CONTENT_START:{content}CONTENT_END")
         
         return True
         

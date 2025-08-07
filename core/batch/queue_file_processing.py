@@ -199,6 +199,51 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ Failed to get queue stats: {e}")
             return {}
+    
+    async def force_requeue_completed_items(self, priority: int = 5, processor_type: str = 'default') -> Dict[str, Any]:
+        """Force requeue completed items by resetting them to pending status"""
+        try:
+            async with self.pool.acquire() as conn:
+                # Get count of completed items
+                completed_count = await conn.fetchval("""
+                    SELECT COUNT(*) FROM file_processing_queue WHERE status = 'completed'
+                """)
+                
+                if completed_count == 0:
+                    logger.info("ℹ️  No completed items to requeue")
+                    return {"requeued": 0, "total_completed": 0}
+                
+                # Reset completed items to pending status
+                result = await conn.execute("""
+                    UPDATE file_processing_queue 
+                    SET status = 'pending',
+                        started_at = NULL,
+                        completed_at = NULL,
+                        error_message = NULL,
+                        retry_count = 0,
+                        priority = $1,
+                        processor_type = $2,
+                        scheduled_at = CURRENT_TIMESTAMP
+                    WHERE status = 'completed'
+                """, priority, processor_type)
+                
+                # Extract the number of affected rows from the result
+                affected_rows = int(result.split()[1]) if result else 0
+                
+                logger.info(f"✅ Force requeued {affected_rows} completed items")
+                logger.info(f"   Priority: {priority}")
+                logger.info(f"   Processor type: {processor_type}")
+                
+                return {
+                    "requeued": affected_rows,
+                    "total_completed": completed_count,
+                    "priority": priority,
+                    "processor_type": processor_type
+                }
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to force requeue completed items: {e}")
+            return {"requeued": 0, "error": str(e)}
 
 def load_config() -> Dict[str, Any]:
     """Load configuration from main.yaml"""
@@ -233,6 +278,7 @@ async def main():
     parser.add_argument("--limit", type=int, help="Maximum number of files to queue")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without making changes")
     parser.add_argument("--stats", action="store_true", help="Show queue statistics")
+    parser.add_argument("--force-requeue", action="store_true", help="Force requeue completed items in the queue")
     
     args = parser.parse_args()
     
@@ -261,6 +307,21 @@ async def main():
             logger.info("=" * 50)
             return
         
+        if args.force_requeue:
+            requeue_result = await db_manager.force_requeue_completed_items(
+                priority=args.priority,
+                processor_type=args.processor_type
+            )
+            logger.info("=" * 50)
+            logger.info("FORCE REQUEUE RESULTS")
+            logger.info("=" * 50)
+            logger.info(f"Total completed items before requeue: {requeue_result['total_completed']}")
+            logger.info(f"Items requeued: {requeue_result['requeued']}")
+            logger.info(f"Priority: {requeue_result['priority']}")
+            logger.info(f"Processor type: {requeue_result['processor_type']}")
+            logger.info("=" * 50)
+            return
+
         # Build filters
         filters = {}
         if args.file_type:
