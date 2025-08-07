@@ -360,8 +360,7 @@ class QueueWorker:
                 logger.info(f"🐳 Running text processor directly (inside Docker)")
                 
                 cmd = ["python3", "/app/text_processor.py", file_path]
-                if output_dir:
-                    cmd.extend(["--output-dir", output_dir])
+                # Don't pass output_dir to get content printed to stdout
                 
                 logger.info(f"🚀 Running command: {' '.join(cmd)}")
                 
@@ -407,8 +406,7 @@ class QueueWorker:
                     file_path
                 ])
                 
-                if output_dir:
-                    docker_cmd.extend(["--output-dir", output_dir])
+                # Don't pass output_dir to get content printed to stdout
                 
                 logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
                 
@@ -625,13 +623,14 @@ class QueueWorker:
         
         # Determine output directory
         output_dir = None
-        if item.get('metadata'):
-            try:
-                metadata = json.loads(item['metadata']) if isinstance(item['metadata'], str) else item['metadata']
-                # You can add logic here to determine output directory based on metadata
-                output_dir = f"/tmp/processed/{filename}"
-            except:
-                pass
+        # Disable output directory to get content printed to stdout
+        # if item.get('metadata'):
+        #     try:
+        #         metadata = json.loads(item['metadata']) if isinstance(item['metadata'], str) else item['metadata']
+        #         # You can add logic here to determine output directory based on metadata
+        #         output_dir = f"/tmp/processed/{filename}"
+        #     except:
+        #         pass
         
         # Run text processor
         result = self.run_text_processor_docker(actual_file_path, output_dir)
