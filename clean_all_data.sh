@@ -27,7 +27,7 @@ elif [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  in the MEP AI NABOX project. It includes:"
     echo "  - Elasticsearch (documents, indices)"
     echo "  - Qdrant (vector embeddings, collections)"
-    echo "  - PostgreSQL (processed data, metadata, processing jobs)"
+    echo "  - PostgreSQL (processed data, metadata, processing jobs, file_info, file_processing_queue)"
     echo "  - Redis (cached data, sessions)"
     echo "  - Neo4j (graph relationships, nodes)"
     echo "  - MinIO (stored files, documents)"
@@ -52,7 +52,7 @@ if [ "$DRY_RUN" = false ]; then
     echo "⚠️  WARNING: This will ACTUALLY delete ALL data from:"
     echo "   - Elasticsearch (documents, indices)"
     echo "   - Qdrant (vector embeddings, collections)"
-    echo "   - PostgreSQL (processed data, metadata, processing jobs)"
+    echo "   - PostgreSQL (processed data, metadata, processing jobs, file_info, file_processing_queue)"
     echo "   - Redis (cached data, sessions)"
     echo "   - Neo4j (graph relationships, nodes)"
     echo "   - MinIO (stored files, documents)"
@@ -142,19 +142,89 @@ else
     echo "✅ Qdrant cleaned"
 fi
 
-# 3. Clean PostgreSQL (including processing jobs)
+# 3. Clean PostgreSQL (including processing jobs and file info)
 echo "🗄️  Cleaning PostgreSQL..."
 # Use environment variables or defaults
 POSTGRES_USER=${POSTGRES_USER:-mep_user}
 POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mep_password}
 POSTGRES_DB=${POSTGRES_DB:-mep_ainabox}
 
+# Check for batch processing tables specifically
+batch_tables=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "
+SELECT table_name FROM information_schema.tables 
+WHERE table_schema = 'public' 
+AND table_name IN ('file_info', 'file_processing_queue', 'scan_sessions', 'processing_jobs', 'document_metadata', 'processing_results');
+" 2>/dev/null | tr -d ' ' || echo "")
+
+if [ -n "$batch_tables" ]; then
+    echo "   Found batch processing tables: $batch_tables"
+    if [ "$DRY_RUN" = true ]; then
+        echo "   [DRY RUN] Would clean batch processing tables:"
+        echo "     - file_info (scanned file metadata)"
+        echo "     - file_processing_queue (processing queue)"
+        echo "     - scan_sessions (folder scan sessions)"
+        echo "     - processing_jobs (job tracking)"
+        echo "     - document_metadata (document info)"
+        echo "     - processing_results (processing results)"
+    else
+        echo "   Cleaning batch processing tables..."
+        
+        # Clean file_info table (scanned files)
+        file_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM file_info;" 2>/dev/null | tr -d ' ' || echo "0")
+        if [ "$file_count" -gt 0 ] 2>/dev/null; then
+            echo "     Deleting $file_count records from file_info..."
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM file_info;" || echo "     file_info cleanup failed"
+        fi
+        
+        # Clean file_processing_queue table (processing queue)
+        queue_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM file_processing_queue;" 2>/dev/null | tr -d ' ' || echo "0")
+        if [ "$queue_count" -gt 0 ] 2>/dev/null; then
+            echo "     Deleting $queue_count records from file_processing_queue..."
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM file_processing_queue;" || echo "     file_processing_queue cleanup failed"
+        fi
+        
+        # Clean scan_sessions table (scan sessions)
+        session_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM scan_sessions;" 2>/dev/null | tr -d ' ' || echo "0")
+        if [ "$session_count" -gt 0 ] 2>/dev/null; then
+            echo "     Deleting $session_count records from scan_sessions..."
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM scan_sessions;" || echo "     scan_sessions cleanup failed"
+        fi
+        
+        # Clean processing_jobs table (job tracking)
+        job_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM processing_jobs;" 2>/dev/null | tr -d ' ' || echo "0")
+        if [ "$job_count" -gt 0 ] 2>/dev/null; then
+            echo "     Deleting $job_count records from processing_jobs..."
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM processing_jobs;" || echo "     processing_jobs cleanup failed"
+        fi
+        
+        # Clean document_metadata table (document info)
+        doc_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM document_metadata;" 2>/dev/null | tr -d ' ' || echo "0")
+        if [ "$doc_count" -gt 0 ] 2>/dev/null; then
+            echo "     Deleting $doc_count records from document_metadata..."
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM document_metadata;" || echo "     document_metadata cleanup failed"
+        fi
+        
+        # Clean processing_results table (processing results)
+        result_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM processing_results;" 2>/dev/null | tr -d ' ' || echo "0")
+        if [ "$result_count" -gt 0 ] 2>/dev/null; then
+            echo "     Deleting $result_count records from processing_results..."
+            PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM processing_results;" || echo "     processing_results cleanup failed"
+        fi
+        
+        echo "     Batch processing tables cleaned"
+    fi
+else
+    echo "   No batch processing tables found"
+fi
+
+# Clean all other PostgreSQL tables (existing functionality)
 tables=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "")
 if [ -n "$tables" ]; then
-    echo "   Found tables: $tables"
+    echo "   Found other tables: $tables"
     if [ "$DRY_RUN" = true ]; then
         echo "   [DRY RUN] Would drop and recreate public schema"
     else
+        echo "   Dropping and recreating public schema..."
         PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public;
@@ -163,7 +233,7 @@ GRANT ALL ON SCHEMA public TO public;
 " || echo "   PostgreSQL cleanup failed (might be expected if no data)"
     fi
 else
-    echo "   No tables found"
+    echo "   No other tables found"
 fi
 
 if [ "$DRY_RUN" = true ]; then
@@ -316,7 +386,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "📋 What would be cleaned:"
     echo "   🔍 Elasticsearch indices and documents"
     echo "   🔍 Qdrant vector collections"
-    echo "   🔍 PostgreSQL database tables (including processing jobs)"
+    echo "   🔍 PostgreSQL database tables (including processing jobs, file_info, file_processing_queue)"
     echo "   🔍 Redis cache and sessions"
     echo "   🔍 Neo4j graph data"
     echo "   🔍 MinIO stored files"
@@ -353,6 +423,22 @@ else
         echo "✅ PostgreSQL is clean"
     fi
     
+    # Check batch processing tables specifically
+    file_info_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM file_info;" 2>/dev/null | tr -d ' ' || echo "0")
+    queue_count=$(PGPASSWORD="$POSTGRES_PASSWORD" psql -h localhost -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c "SELECT COUNT(*) FROM file_processing_queue;" 2>/dev/null | tr -d ' ' || echo "0")
+    
+    if [ "$file_info_count" -gt 0 ] 2>/dev/null; then
+        echo "⚠️  PostgreSQL still has $file_info_count records in file_info"
+    else
+        echo "✅ file_info table is clean"
+    fi
+    
+    if [ "$queue_count" -gt 0 ] 2>/dev/null; then
+        echo "⚠️  PostgreSQL still has $queue_count records in file_processing_queue"
+    else
+        echo "✅ file_processing_queue table is clean"
+    fi
+    
     # Check Redis
     redis_keys=$(redis-cli -h localhost -p 6379 -a "$REDIS_PASSWORD" DBSIZE 2>/dev/null | grep -E '^[0-9]+$' || echo "0")
     if [ "$redis_keys" -gt 0 ] 2>/dev/null; then
@@ -376,7 +462,7 @@ else
     echo "📋 What was cleaned:"
     echo "   ✅ Elasticsearch indices and documents"
     echo "   ✅ Qdrant vector collections"
-    echo "   ✅ PostgreSQL database tables (including processing jobs)"
+    echo "   ✅ PostgreSQL database tables (including processing jobs, file_info, file_processing_queue)"
     echo "   ✅ Redis cache and sessions"
     echo "   ✅ Neo4j graph data"
     echo "   ✅ MinIO stored files"
