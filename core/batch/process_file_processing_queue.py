@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Queue Processing Worker
-Processes files from file_processing_queue table using text_processor.py
+Processes files from file_processing_queue table using batch_text_processor.py
 Generates and stores Elasticsearch data
 """
 
@@ -352,14 +352,14 @@ class QueueWorker:
             }
     
     def run_text_processor_docker(self, file_path: str, output_dir: str = None) -> Dict[str, Any]:
-        """Run text_processor.py directly or via Docker"""
+        """Run batch_text_processor.py directly or via Docker"""
         try:
             # Check if we're inside a Docker container
             if os.path.exists('/.dockerenv'):
                 # We're inside Docker, run text processor directly
                 logger.info(f"🐳 Running text processor directly (inside Docker)")
                 
-                cmd = ["python3", "/app/text_processor.py", file_path]
+                cmd = ["python3", "/app/processors/text_processor/batch_text_processor.py", file_path]
                 # Don't pass output_dir to get content printed to stdout
                 
                 logger.info(f"🚀 Running command: {' '.join(cmd)}")
@@ -402,7 +402,7 @@ class QueueWorker:
                 docker_cmd.extend([
                     "--entrypoint", "python3",
                     self.docker_image,
-                    "/app/text_processor.py",
+                    "/app/processors/text_processor/batch_text_processor.py",
                     file_path
                 ])
                 

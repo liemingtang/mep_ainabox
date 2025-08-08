@@ -25,7 +25,7 @@ The batch processing system provides a Docker-based solution for processing file
    - Runs text processing on files
    - Updates queue status
 
-4. **`text_processor.py`** - Simple text processor that:
+4. **`batch_text_processor.py`** - Simple text processor that:
    - Analyzes text files
    - Extracts basic statistics
    - Saves results to output directory
@@ -114,7 +114,7 @@ docker run --rm --network host \
 The worker script:
 - Loads items from the JSON file
 - Finds files in the mounted folders
-- Runs the appropriate processor (e.g., text_processor.py)
+- Runs the appropriate processor (e.g., batch_text_processor.py)
 - Updates the queue status
 
 ## Docker Configuration
@@ -195,7 +195,7 @@ The batch processor works with the folder scanner system:
 
 ### With Text Processor
 The system can be extended with different processors:
-- `text_processor.py` - Basic text analysis
+- `batch_text_processor.py` - Basic text analysis
 - Custom processors can be added for different file types
 - Processors are called via Docker with mounted folders
 

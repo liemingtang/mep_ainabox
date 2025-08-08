@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Queue Processing Worker Script - Docker-based
-# Processes files from file_processing_queue table using text_processor.py
+# Processes files from file_processing_queue table using batch_text_processor.py
 # Usage: ./process_file_processing_queue.sh [options]
 #
 

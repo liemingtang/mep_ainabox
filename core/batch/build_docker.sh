@@ -28,11 +28,11 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Build the Docker image
+# Build the Docker image (use core as build context so we can include processors)
 echo -e "${YELLOW}📦 Building Docker image: ${FULL_IMAGE_NAME}${NC}"
-cd "$SCRIPT_DIR"
+cd "$PROJECT_ROOT/core"
 
-if docker build -t "$FULL_IMAGE_NAME" .; then
+if docker build -t "$FULL_IMAGE_NAME" -f "$SCRIPT_DIR/Dockerfile" .; then
     echo -e "${GREEN}✅ Docker image built successfully!${NC}"
     echo ""
     echo -e "${BLUE}📋 Usage Examples:${NC}"
