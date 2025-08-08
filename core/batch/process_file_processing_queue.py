@@ -441,6 +441,105 @@ class QueueWorker:
                 'stderr': str(e),
                 'returncode': -1
             }
+
+    def extract_text_from_file_locally(self, file_path: str) -> Optional[str]:
+        """Extract text for common file types without Docker. Returns text or None on failure/unsupported."""
+        try:
+            path_obj = Path(file_path)
+            if not path_obj.exists() or not path_obj.is_file():
+                return None
+
+            extension = path_obj.suffix.lower()
+
+            text_like_extensions = {'.txt', '.md', '.csv', '.tsv', '.json', '.xml', '.html', '.htm', '.yaml', '.yml'}
+            code_like_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.h', '.hpp', '.php', '.rb', '.go', '.rs', '.swift', '.kt'}
+            log_like_extensions = {'.log', '.out', '.err'}
+
+            if extension in text_like_extensions | code_like_extensions | log_like_extensions:
+                try:
+                    return path_obj.read_text(encoding='utf-8')
+                except UnicodeDecodeError:
+                    for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                        try:
+                            return path_obj.read_text(encoding=encoding)
+                        except UnicodeDecodeError:
+                            continue
+                    return None
+
+            if extension == '.pdf':
+                try:
+                    import PyPDF2  # type: ignore
+                except Exception:
+                    return None
+                try:
+                    text_content = ""
+                    with open(path_obj, 'rb') as f:
+                        reader = PyPDF2.PdfReader(f)
+                        for page_index, page in enumerate(reader.pages):
+                            try:
+                                page_text = page.extract_text() or ""
+                            except Exception:
+                                page_text = ""
+                            if page_text:
+                                text_content += f"\n--- Page {page_index + 1} ---\n{page_text}\n"
+                    return text_content if text_content.strip() else "[PDF file with no extractable text content]"
+                except Exception:
+                    return None
+
+            if extension in {'.docx', '.doc'}:
+                try:
+                    from docx import Document  # type: ignore
+                except Exception:
+                    return None
+                try:
+                    doc = Document(str(path_obj))
+                    paragraphs = [p.text for p in doc.paragraphs if isinstance(p.text, str) and p.text.strip()]
+                    return "\n".join(paragraphs)
+                except Exception:
+                    return None
+
+            # Fallback: try reading as text for unknown extensions
+            try:
+                return path_obj.read_text(encoding='utf-8')
+            except UnicodeDecodeError:
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        return path_obj.read_text(encoding=encoding)
+                    except UnicodeDecodeError:
+                        continue
+            except Exception:
+                pass
+            return None
+        except Exception:
+            return None
+
+    def run_text_extraction(self, file_path: str, output_dir: str = None) -> Dict[str, Any]:
+        """Try local extraction for common types first; fallback to Docker processor."""
+        try:
+            local_text = self.extract_text_from_file_locally(file_path)
+            if isinstance(local_text, str):
+                stdout_payload = json.dumps({
+                    'text_content': local_text,
+                    'length': len(local_text),
+                    'source': 'local'
+                })
+                return {
+                    'success': True,
+                    'stdout': stdout_payload,
+                    'stderr': '',
+                    'returncode': 0
+                }
+
+            logger.info("Local extraction unavailable/failed; falling back to Docker text processor")
+            return self.run_text_processor_docker(file_path, output_dir)
+        except Exception as e:
+            logger.error(f"Text extraction failed for {file_path}: {e}")
+            return {
+                'success': False,
+                'stdout': '',
+                'stderr': str(e),
+                'returncode': -1
+            }
     
     def find_file_in_mounted_folders(self, filename: str, parent_directory: str) -> str:
         """Find file in mounted folders"""
@@ -632,8 +731,8 @@ class QueueWorker:
         #     except:
         #         pass
         
-        # Run text processor
-        result = self.run_text_processor_docker(actual_file_path, output_dir)
+        # Run text extraction (local for common types, Docker as fallback)
+        result = self.run_text_extraction(actual_file_path, output_dir)
         
         if result['success']:
             logger.info(f"✅ Successfully processed {filename}")
@@ -1014,7 +1113,7 @@ class QueueWorker:
                         "aggs": {
                             "status_distribution": {
                                 "terms": {
-                                    "field": "status"
+                                    "field": "status.keyword"
                                 }
                             }
                         }
@@ -1291,12 +1390,12 @@ class QueueWorker:
                         "aggs": {
                             "status_distribution": {
                                 "terms": {
-                                    "field": "status"
+                                    "field": "status.keyword"
                                 }
                             },
                             "file_type_distribution": {
                                 "terms": {
-                                    "field": "file_type"
+                                    "field": "file_type.keyword"
                                 }
                             },
                             "avg_file_size": {

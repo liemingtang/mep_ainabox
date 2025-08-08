@@ -211,7 +211,12 @@ class DatabaseManager:
                 
                 if completed_count == 0:
                     logger.info("ℹ️  No completed items to requeue")
-                    return {"requeued": 0, "total_completed": 0}
+                    return {
+                        "requeued": 0,
+                        "total_completed": 0,
+                        "priority": priority,
+                        "processor_type": processor_type
+                    }
                 
                 # Reset completed items to pending status
                 result = await conn.execute("""
@@ -243,6 +248,72 @@ class DatabaseManager:
                 
         except Exception as e:
             logger.error(f"❌ Failed to force requeue completed items: {e}")
+            return {"requeued": 0, "error": str(e)}
+
+    async def force_requeue_failed_items(self, *, include_exceeded: bool = False, priority: int = 5, processor_type: str = 'default') -> Dict[str, Any]:
+        """Force requeue failed items by resetting them to pending status.
+
+        - By default only requeues items where retry_count < max_retries
+        - If include_exceeded=True, requeues all failed items regardless of retry limits
+        - Keeps retry_count to preserve history; clears error_message
+        """
+        try:
+            async with self.pool.acquire() as conn:
+                # Total failed items
+                failed_total = await conn.fetchval("""
+                    SELECT COUNT(*) FROM file_processing_queue WHERE status = 'failed'
+                """)
+
+                # Failed items eligible based on retry_count
+                if include_exceeded:
+                    eligible_condition = "status = 'failed'"
+                else:
+                    eligible_condition = "status = 'failed' AND (retry_count < max_retries OR max_retries IS NULL)"
+
+                eligible_count = await conn.fetchval(f"""
+                    SELECT COUNT(*) FROM file_processing_queue WHERE {eligible_condition}
+                """)
+
+                if eligible_count == 0:
+                    logger.info("ℹ️  No failed items eligible for requeue")
+                    return {
+                        "requeued": 0,
+                        "total_failed": failed_total,
+                        "eligible_failed": 0,
+                        "included_exceeded": include_exceeded,
+                        "priority": priority,
+                        "processor_type": processor_type
+                    }
+
+                # Reset failed items to pending
+                result = await conn.execute(f"""
+                    UPDATE file_processing_queue 
+                    SET status = 'pending',
+                        started_at = NULL,
+                        completed_at = NULL,
+                        error_message = NULL,
+                        priority = $1,
+                        processor_type = $2,
+                        scheduled_at = CURRENT_TIMESTAMP
+                    WHERE {eligible_condition}
+                """, priority, processor_type)
+
+                affected_rows = int(result.split()[1]) if result else 0
+
+                logger.info(f"✅ Force requeued {affected_rows} failed items (include_exceeded={include_exceeded})")
+                logger.info(f"   Priority: {priority}")
+                logger.info(f"   Processor type: {processor_type}")
+
+                return {
+                    "requeued": affected_rows,
+                    "total_failed": failed_total,
+                    "eligible_failed": eligible_count,
+                    "included_exceeded": include_exceeded,
+                    "priority": priority,
+                    "processor_type": processor_type
+                }
+        except Exception as e:
+            logger.error(f"❌ Failed to force requeue failed items: {e}")
             return {"requeued": 0, "error": str(e)}
 
 def load_config() -> Dict[str, Any]:
@@ -279,6 +350,8 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without making changes")
     parser.add_argument("--stats", action="store_true", help="Show queue statistics")
     parser.add_argument("--force-requeue", action="store_true", help="Force requeue completed items in the queue")
+    parser.add_argument("--requeue-failed", action="store_true", help="Force requeue failed items (retry_count < max_retries)")
+    parser.add_argument("--requeue-failed-all", action="store_true", help="Force requeue all failed items regardless of retry limits")
     
     args = parser.parse_args()
     
@@ -317,8 +390,33 @@ async def main():
             logger.info("=" * 50)
             logger.info(f"Total completed items before requeue: {requeue_result['total_completed']}")
             logger.info(f"Items requeued: {requeue_result['requeued']}")
-            logger.info(f"Priority: {requeue_result['priority']}")
-            logger.info(f"Processor type: {requeue_result['processor_type']}")
+            if 'priority' in requeue_result:
+                logger.info(f"Priority: {requeue_result['priority']}")
+            if 'processor_type' in requeue_result:
+                logger.info(f"Processor type: {requeue_result['processor_type']}")
+            logger.info("=" * 50)
+            return
+
+        if args.requeue_failed or args.requeue_failed_all:
+            requeue_failed_result = await db_manager.force_requeue_failed_items(
+                include_exceeded=bool(args.requeue_failed_all),
+                priority=args.priority,
+                processor_type=args.processor_type
+            )
+            logger.info("=" * 50)
+            logger.info("FORCE REQUEUE FAILED RESULTS")
+            logger.info("=" * 50)
+            if 'total_failed' in requeue_failed_result:
+                logger.info(f"Total failed items before requeue: {requeue_failed_result['total_failed']}")
+            if 'eligible_failed' in requeue_failed_result:
+                logger.info(f"Eligible for requeue: {requeue_failed_result['eligible_failed']}")
+            logger.info(f"Items requeued: {requeue_failed_result.get('requeued', 0)}")
+            if 'priority' in requeue_failed_result:
+                logger.info(f"Priority: {requeue_failed_result['priority']}")
+            if 'processor_type' in requeue_failed_result:
+                logger.info(f"Processor type: {requeue_failed_result['processor_type']}")
+            if 'included_exceeded' in requeue_failed_result:
+                logger.info(f"Included exceeded max retries: {requeue_failed_result['included_exceeded']}")
             logger.info("=" * 50)
             return
 

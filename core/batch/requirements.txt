@@ -4,3 +4,6 @@ python-magic>=0.4.27
 pathlib2>=2.3.7
 elasticsearch[async]==8.11.0
 httpx>=0.24.0 
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+chardet>=5.2.0
