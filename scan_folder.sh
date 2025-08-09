@@ -116,29 +116,38 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Ensure the correct scanner image is available (mep-folder-scanner)
+IMAGE_NAME="mep-folder-scanner:latest"
+if ! docker image inspect "$IMAGE_NAME" > /dev/null 2>&1; then
+    echo "⚠️  Docker image $IMAGE_NAME not found. Building it now..."
+    if ! "$SCRIPT_DIR/core/batch/build_docker.sh"; then
+        echo "❌ Failed to build $IMAGE_NAME"
+        exit 1
+    fi
+fi
+
 # Build the Docker run command
 DOCKER_CMD="docker run --rm --name $CONTAINER_NAME"
 
-# Add network if we need to connect to other services
-if [[ "$PROCESSOR_URL" == *"localhost"* ]]; then
-    # Use host network for localhost access
-    DOCKER_CMD="$DOCKER_CMD --network host"
-else
-    # Use bridge network and set processor URL
-    DOCKER_CMD="$DOCKER_CMD --network mep-ainabox_default"
+# Always use host network so DB/services on localhost are reachable
+DOCKER_CMD="$DOCKER_CMD --network host"
+
+# Mount scan folder at /scan (expected by folder_scanner converter)
+DOCKER_CMD="$DOCKER_CMD -v \"$FOLDER_PATH:/scan:ro\""
+
+# Mount core config so scanner can read DB settings
+if [[ -d "$SCRIPT_DIR/core/config" ]]; then
+  DOCKER_CMD="$DOCKER_CMD -v \"$SCRIPT_DIR/core/config:/app/config\""
 fi
 
-# Add volume mount for the folder
-DOCKER_CMD="$DOCKER_CMD -v \"$FOLDER_PATH:/app/scan_folder:ro\""
-
-# Add environment variables
-DOCKER_CMD="$DOCKER_CMD -e CORE_PROCESSOR_URL=$PROCESSOR_URL"
+# Add environment variables (HOST_FOLDER_PATH used to convert container -> host paths)
+DOCKER_CMD="$DOCKER_CMD -e CORE_PROCESSOR_URL=$PROCESSOR_URL -e HOST_FOLDER_PATH=\"$FOLDER_PATH\""
 
 # Add the image and command
-DOCKER_CMD="$DOCKER_CMD mep-file-watcher:latest"
+DOCKER_CMD="$DOCKER_CMD $IMAGE_NAME"
 
-# Build the Python command
-PYTHON_CMD="python3 /app/folder_scanner.py /app/scan_folder"
+# Build the Python command. The image ENTRYPOINT is already python3.
+PYTHON_CMD="/app/folder_scanner.py /scan"
 
 if [[ "$DRY_RUN" == true ]]; then
     PYTHON_CMD="$PYTHON_CMD --dry-run"
@@ -152,9 +161,7 @@ if [[ -n "$MAX_DEPTH" ]]; then
     PYTHON_CMD="$PYTHON_CMD --max-depth $MAX_DEPTH"
 fi
 
-if [[ -n "$CONCURRENT" ]]; then
-    PYTHON_CMD="$PYTHON_CMD --concurrent $CONCURRENT"
-fi
+# Note: current folder_scanner.py does not support --concurrent; omit it
 
 if [[ -n "$SAVE_REPORT" ]]; then
     PYTHON_CMD="$PYTHON_CMD --save-report /app/scan_folder/$SAVE_REPORT"

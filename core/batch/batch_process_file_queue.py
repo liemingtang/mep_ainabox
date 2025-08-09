@@ -142,15 +142,12 @@ class BatchProcessFileQueue:
             # Group items by folder
             folder_groups = self.group_items_by_folder(items)
             
-            # Create temporary file with items to process
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                json.dump(items, f, indent=2)
-                temp_file = f.name
+            # Do not use an items file; let the worker read directly from DB
+            temp_file = None
             
-            # Check if we're running inside Docker
-            if os.path.exists('/.dockerenv'):
-                # We're inside Docker, run the worker directly
-                logger.info("🐳 Running inside Docker container, executing worker directly")
+            # Prefer Docker worker with bind mounts; fallback to direct only if docker.sock is unavailable
+            if os.path.exists('/.dockerenv') and not os.path.exists('/var/run/docker.sock'):
+                logger.info("🐳 Inside Docker without docker.sock, executing worker directly")
                 return self.run_worker_direct(items, script_args)
             
             # Build Docker command
@@ -159,31 +156,49 @@ class BatchProcessFileQueue:
                 "--network", "host"
             ]
             
-            # Mount each folder group
+            # Mount each folder group (normalize paths; do not require paths to exist inside this container)
             mount_points = []
             for folder_path in folder_groups.keys():
-                if folder_path and os.path.exists(folder_path):
-                    # Create a more descriptive mount point that preserves the path structure
-                    folder_name = os.path.basename(folder_path)
-                    mount_point = f"/mnt/{folder_name}"
-                    docker_cmd.extend(["-v", f"{folder_path}:{mount_point}:ro"])
-                    mount_points.append(mount_point)
-                    logger.info(f"📁 Mounting folder: {folder_path} -> {mount_point}")
-                    
-                    # Also mount the parent directory if it exists
-                    parent_dir = os.path.dirname(folder_path)
-                    if parent_dir and parent_dir != folder_path and os.path.exists(parent_dir):
-                        parent_mount = f"/mnt/parent_{folder_name}"
-                        docker_cmd.extend(["-v", f"{parent_dir}:{parent_mount}:ro"])
-                        mount_points.append(parent_mount)
-                        logger.info(f"📁 Mounting parent folder: {parent_dir} -> {parent_mount}")
+                if not folder_path:
+                    continue
+                normalized_path = os.path.normpath(folder_path)
+                # Use the last segment of the normalized path; guard against empty names
+                folder_name = os.path.basename(normalized_path) or "folder"
+                mount_point = f"/mnt/{folder_name}"
+                docker_cmd.extend(["-v", f"{normalized_path}:{mount_point}:ro"])
+                mount_points.append(mount_point)
+                logger.info(f"📁 Mounting folder: {normalized_path} -> {mount_point}")
+
+                # Also mount the true parent directory (of the normalized path) if distinct
+                parent_dir = os.path.dirname(normalized_path)
+                if parent_dir and parent_dir != normalized_path:
+                    parent_folder_name = os.path.basename(parent_dir) or "parent"
+                    parent_mount = f"/mnt/parent_{parent_folder_name}"
+                    docker_cmd.extend(["-v", f"{parent_dir}:{parent_mount}:ro"])
+                    mount_points.append(parent_mount)
+                    logger.info(f"📁 Mounting parent folder: {parent_dir} -> {parent_mount}")
             
-            # Mount the temporary file with items
-            docker_cmd.extend(["-v", f"{temp_file}:/app/items.json:ro"])
+            # No items file mount needed when worker reads from DB
             
+            # Mount config into worker if available (works both when orchestrator runs in container or on host)
+            try:
+                host_core = os.getenv('DOCKER_HOST_CORE_PATH')
+                if host_core:
+                    # Mount host core config directly into worker (path validity is evaluated by Docker daemon)
+                    docker_cmd.extend(["-v", f"{host_core}/config:/app/config:ro"])
+                    # Also mount entire core so worker uses latest host code without rebuilding image
+                    docker_cmd.extend(["-v", f"{host_core}:/app"])
+                elif os.path.exists("/app/config"):
+                    docker_cmd.extend(["-v", "/app/config:/app/config:ro"])
+                else:
+                    host_config = Path(__file__).parent.parent / "config"
+                    if host_config.exists():
+                        docker_cmd.extend(["-v", f"{str(host_config)}:/app/config:ro"])
+            except Exception:
+                pass
+
             # Add environment variables
             docker_cmd.extend([
-                "-e", "ITEMS_FILE=/app/items.json",
                 "-e", f"MOUNT_POINTS={','.join(mount_points)}"
             ])
 
@@ -218,7 +233,7 @@ class BatchProcessFileQueue:
             docker_cmd.extend([
                 "--entrypoint", "python3",
                 self.docker_image,
-                "/app/process_file_processing_queue.py"
+                "/app/batch/process_file_processing_queue.py"
             ])
             
             # Add script arguments
@@ -234,6 +249,15 @@ class BatchProcessFileQueue:
                 text=True,
                 timeout=600  # 10 minute timeout
             )
+
+            # Log worker output preview for diagnostics
+            try:
+                if result.stdout:
+                    logger.info("🧾 Worker stdout (preview): %s", (result.stdout[:4000] + ('…' if len(result.stdout) > 4000 else '')))
+                if result.stderr:
+                    logger.warning("⚠️  Worker stderr (preview): %s", (result.stderr[:4000] + ('…' if len(result.stderr) > 4000 else '')))
+            except Exception:
+                pass
             
             # Clean up temporary file
             try:
@@ -380,13 +404,7 @@ class BatchProcessFileQueue:
             
             logger.info("=" * 60)
             
-            # Update items to processing status and show status change
-            logger.info("🔄 UPDATING STATUS TO PROCESSING:")
-            logger.info("=" * 60)
-            for item in items:
-                logger.info(f"📄 {item['filename']} (ID: {item['id']}) - Status: pending → processing")
-                await self.update_item_status(item['id'], 'processing')
-            logger.info("=" * 60)
+            # Let the worker update item statuses; do not change status here
             
             # Run worker in Docker
             logger.info("🚀 STARTING PROCESSING:")
@@ -394,12 +412,7 @@ class BatchProcessFileQueue:
             result = self.run_worker_docker(items, script_args)
             
             if result['success']:
-                logger.info("✅ PROCESSING COMPLETED SUCCESSFULLY:")
-                logger.info("=" * 60)
-                # Update items to completed status and show final status
-                for item in items:
-                    logger.info(f"📄 {item['filename']} (ID: {item['id']}) - Status: processing → completed ✅")
-                    await self.update_item_status(item['id'], 'completed')
+                logger.info("✅ PROCESSING COMPLETED (worker handled statuses)")
                 logger.info("=" * 60)
                 return True
             else:
@@ -442,9 +455,12 @@ async def main():
     parser.add_argument("--processor-type", help="Only process items with this processor type")
     parser.add_argument("--limit", type=int, default=10, help="Maximum items to process per batch")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without making changes")
-    parser.add_argument("--script-args", nargs='*', help="Additional arguments to pass to the worker script")
+    # Accept all remaining args after --script-args (including options starting with '-')
+    import argparse as _argparse  # alias to avoid confusion with top-level import
+    parser.add_argument("--script-args", nargs=_argparse.REMAINDER, help="Additional arguments to pass to the worker script")
     
-    args = parser.parse_args()
+    # Parse known and unknown args so we can forward any extra flags to the worker
+    args, unknown_args = parser.parse_known_args()
     
     # Load configuration
     config = load_config()
@@ -482,11 +498,17 @@ async def main():
             logger.info("=" * 60)
             return
         
+        # Determine worker script args from --script-args or any unknown args
+        forward_args = args.script_args if args.script_args else []
+        if unknown_args:
+            # If user provided extra flags without --script-args, forward them
+            forward_args = list(forward_args) + unknown_args
+
         # Process batch
         success = await processor.process_batch(
             processor_type=args.processor_type,
             limit=args.limit,
-            script_args=args.script_args
+            script_args=forward_args
         )
         
         if not success:

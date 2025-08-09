@@ -9,8 +9,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Docker image name
-IMAGE_NAME="mep-batch-processor:latest"
+# Docker image name (unified scanner/worker image)
+IMAGE_NAME="mep-folder-scanner:latest"
 CONTAINER_NAME="mep-batch-processor-$(date +%s)"
 
 # Colors for output
@@ -81,8 +81,19 @@ fi
 # Build Docker command
 DOCKER_CMD="docker run --rm --name $CONTAINER_NAME --network host"
 
-# Mount the config directory
-DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
+# Add docker.sock group to allow non-root access to Docker inside container
+if [[ -S "/var/run/docker.sock" ]]; then
+  DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "")
+  if [[ -n "$DOCKER_SOCK_GID" ]]; then
+    DOCKER_CMD="$DOCKER_CMD --group-add $DOCKER_SOCK_GID"
+  fi
+fi
+
+# Mount the entire core directory so container uses latest host code (/app mirrors core)
+DOCKER_CMD="$DOCKER_CMD -v \"$PROJECT_ROOT/core:/app\""
+
+# Pass host core path so orchestrator can mount config into the worker
+DOCKER_CMD="$DOCKER_CMD -e DOCKER_HOST_CORE_PATH=\"$PROJECT_ROOT/core\""
 
 
 
@@ -102,14 +113,14 @@ if [[ -d "$PROJECT_ROOT/core/test_files" ]]; then
     echo -e "${YELLOW}📁 Mounting local test files: $PROJECT_ROOT/core/test_files -> /mnt/test_files${NC}"
 fi
 
-# Override the entrypoint to run the batch processor script
+# Override the entrypoint to run the orchestrator script (python3 is image entrypoint by default, but set explicitly)
 DOCKER_CMD="$DOCKER_CMD --entrypoint python3"
 
 # Add the image name
 DOCKER_CMD="$DOCKER_CMD $IMAGE_NAME"
 
-# Add the script and arguments
-DOCKER_CMD="$DOCKER_CMD /app/process_file_processing_queue.py"
+# Run the orchestrator that dynamically mounts parent folders and spawns the worker
+DOCKER_CMD="$DOCKER_CMD /app/batch/batch_process_file_queue.py"
 
 if [[ ${#ARGS[@]} -gt 0 ]]; then
     DOCKER_CMD="$DOCKER_CMD ${ARGS[*]}"

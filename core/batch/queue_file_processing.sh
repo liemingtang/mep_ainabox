@@ -9,8 +9,8 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Docker image name
-IMAGE_NAME="mep-batch-processor:latest"
+# Docker image name (unified scanner/worker image)
+IMAGE_NAME="mep-folder-scanner:latest"
 CONTAINER_NAME="mep-queue-processor-$(date +%s)"
 
 # Colors for output

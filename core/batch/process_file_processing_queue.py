@@ -667,6 +667,20 @@ class QueueWorker:
                         return potential_path
                     else:
                         logger.info(f"❌ File not found at: {potential_path}")
+                    # Also try to reconstruct full path relative to mount point if parent_directory maps under it
+                    try:
+                        if parent_directory and parent_directory.endswith(os.path.basename(mount_point)):
+                            base = mount_point
+                        else:
+                            base = mount_point
+                        rel = os.path.basename(parent_directory.rstrip(os.sep)) if parent_directory else ''
+                        candidate = os.path.join(mount_point, rel, filename) if rel else os.path.join(mount_point, filename)
+                        logger.info(f"🔍 Checking (relative): {candidate}")
+                        if os.path.exists(candidate):
+                            logger.info(f"✅ Found file via relative path in mount: {candidate}")
+                            return candidate
+                    except Exception:
+                        pass
             
             # If not found in mount points, try the original path
             if parent_directory and os.path.exists(parent_directory):
@@ -923,7 +937,7 @@ class QueueWorker:
                                     logger.warning("⚠️  HF embedding service failed: status=%s body=%s", resp.status_code, (resp.text or "")[:300])
                         except Exception as e:
                             logger.warning(f"⚠️  HF embedding call failed: {e}")
-                    else:
+                    elif provider == "ollama":
                         # Ollama path (existing)
                         import tempfile
                         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tf:
@@ -957,6 +971,8 @@ class QueueWorker:
                             logger.warning(
                                 f"⚠️  Embedding generation failed for {filename}: returncode={emb_result.get('returncode')}, stderr={emb_result.get('stderr', '')[:400]}"
                             )
+                    else:
+                        logger.warning(f"⚠️  Unknown EMBEDDING_PROVIDER '{provider}', skipping embeddings")
                 else:
                     logger.info("ℹ️  No text content available; skipping embeddings")
             except Exception as e:

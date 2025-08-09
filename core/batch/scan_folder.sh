@@ -8,8 +8,8 @@ Usage: ./scan_folder.sh <folder_path> [options]
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Docker image name
-IMAGE_NAME="mep-batch-processor:latest"
+# Docker image name (use the unified scanner image)
+IMAGE_NAME="mep-folder-scanner:latest"
 
 # Colors for output
 RED='\033[0;31m'
