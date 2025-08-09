@@ -190,10 +190,17 @@ if [ "$SKIP_BUILD" = false ]; then
     docker compose build --no-cache
     cd ..
     
-    # Build core services
+    # Build core services (prefer HF embedding service; skip legacy embed build by default)
     echo -e "${CYAN}📦 Building core services...${NC}"
     cd core
-    docker compose build --no-cache
+    if [ "${USE_HF_EMBEDDINGS:-true}" = true ]; then
+        echo -e "${YELLOW}↪️  Using Hugging Face embedding service; skipping legacy embedding-processor build${NC}"
+        docker compose build --no-cache api-gateway core-processor document-router processing-pipeline storage-manager text-processor metadata-processor entity-processor file-watcher
+        echo -e "${CYAN}📦 Building Hugging Face embedding service...${NC}"
+        docker compose -f docker-compose.huggingface.yml build embedding-processor-hf
+    else
+        docker compose build --no-cache
+    fi
     cd ..
     
     echo -e "${GREEN}✅ All Docker images built successfully${NC}"
@@ -207,6 +214,12 @@ if ! docker images | grep -q "mep-file-watcher"; then
     echo -e "${YELLOW}⚠️  File-watcher image not found. Building...${NC}"
     cd core
     docker compose build file-watcher
+    cd ..
+
+    # Start Hugging Face embedding service container (available in both batch and full modes)
+    echo -e "${CYAN}🔧 Starting Hugging Face embedding processor...${NC}"
+    cd core
+    docker compose -f docker-compose.huggingface.yml up -d embedding-processor-hf
     cd ..
     echo -e "${GREEN}✅ File-watcher image built successfully${NC}"
 else

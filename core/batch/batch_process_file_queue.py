@@ -186,6 +186,33 @@ class BatchProcessFileQueue:
                 "-e", "ITEMS_FILE=/app/items.json",
                 "-e", f"MOUNT_POINTS={','.join(mount_points)}"
             ])
+
+            # Pass embedding/Qdrant/Ollama environment (fall back to localhost for host networking)
+            env_defaults = {
+                'EMBEDDING_PROVIDER': os.getenv('EMBEDDING_PROVIDER', 'huggingface'),
+                'OLLAMA_HOST': os.getenv('OLLAMA_HOST', 'localhost'),
+                'OLLAMA_PORT': os.getenv('OLLAMA_PORT', '11434'),
+                'OLLAMA_DEFAULT_MODEL': os.getenv('OLLAMA_DEFAULT_MODEL', 'nomic-embed-text'),
+                'QDRANT_HOST': os.getenv('QDRANT_HOST', 'localhost'),
+                'QDRANT_PORT': os.getenv('QDRANT_PORT', '6333'),
+                'QDRANT_COLLECTION': os.getenv('QDRANT_COLLECTION', 'documents'),
+                'QDRANT_API_KEY': os.getenv('QDRANT_API_KEY', ''),
+                'EMBEDDING_PROCESSOR_URL': os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8007/process')
+            }
+            # Log what we're passing (mask the API key)
+            try:
+                logger.info(
+                    "🧩 Passing embedding env -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                    env_defaults['EMBEDDING_PROVIDER'], env_defaults['QDRANT_HOST'], env_defaults['QDRANT_PORT'],
+                    env_defaults['QDRANT_COLLECTION'], env_defaults['OLLAMA_HOST'], env_defaults['OLLAMA_PORT'],
+                    env_defaults['OLLAMA_DEFAULT_MODEL'], 'set' if env_defaults['QDRANT_API_KEY'] else 'not_set'
+                )
+            except Exception:
+                pass
+            for key, value in env_defaults.items():
+                if key == 'QDRANT_API_KEY' and not value:
+                    continue  # do not pass empty key
+                docker_cmd.extend(["-e", f"{key}={value}"])
             
             # Add image and entrypoint
             docker_cmd.extend([
@@ -259,6 +286,27 @@ class BatchProcessFileQueue:
             # Set the MOUNT_POINTS environment variable
             os.environ['MOUNT_POINTS'] = ','.join(mount_points)
             logger.info(f"🔧 Set mount points for direct execution: {mount_points}")
+
+            # Ensure embedding/Qdrant/Ollama env are present (defaults suitable for --network host)
+            os.environ.setdefault('EMBEDDING_PROVIDER', 'huggingface')
+            os.environ.setdefault('OLLAMA_HOST', os.getenv('OLLAMA_HOST', 'localhost'))
+            os.environ.setdefault('OLLAMA_PORT', os.getenv('OLLAMA_PORT', '11434'))
+            os.environ.setdefault('OLLAMA_DEFAULT_MODEL', os.getenv('OLLAMA_DEFAULT_MODEL', 'nomic-embed-text'))
+            os.environ.setdefault('QDRANT_HOST', os.getenv('QDRANT_HOST', 'localhost'))
+            os.environ.setdefault('QDRANT_PORT', os.getenv('QDRANT_PORT', '6333'))
+            os.environ.setdefault('QDRANT_COLLECTION', os.getenv('QDRANT_COLLECTION', 'documents'))
+            os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8007/process'))
+            if os.getenv('QDRANT_API_KEY') and not os.environ.get('QDRANT_API_KEY'):
+                os.environ['QDRANT_API_KEY'] = os.getenv('QDRANT_API_KEY')  # forward if set
+            try:
+                logger.info(
+                    "🧩 Embedding env (direct) -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                    os.environ.get('EMBEDDING_PROVIDER'), os.environ.get('QDRANT_HOST'), os.environ.get('QDRANT_PORT'),
+                    os.environ.get('QDRANT_COLLECTION'), os.environ.get('OLLAMA_HOST'), os.environ.get('OLLAMA_PORT'),
+                    os.environ.get('OLLAMA_DEFAULT_MODEL'), 'set' if os.environ.get('QDRANT_API_KEY') else 'not_set'
+                )
+            except Exception:
+                pass
             
             # Build command to run the worker script
             cmd = ["python3", "/app/process_file_processing_queue.py"]

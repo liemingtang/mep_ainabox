@@ -173,6 +173,17 @@ SERVICE_INFO = {
         "docker_container": "mep-embedding-processor",
         "admin_ui": None
     },
+    "embedding-processor-hf": {
+        "name": "Embedding Processor (HF)",
+        "description": "Vector embedding generation service (Hugging Face)",
+        "port": 8007,
+        "url": "http://localhost:8007",
+        "endpoints": ["/health", "/process", "/embed", "/models"],
+        "config_paths": ["/app/config/main.yaml"],
+        "log_paths": ["/app/logs/embedding-processor.log", "/app/logs/app.log"],
+        "docker_container": "mep-embedding-processor-hf",
+        "admin_ui": None
+    },
     "entity-processor": {
         "name": "Entity Processor",
         "description": "Entity extraction and relationship mapping",
@@ -416,6 +427,7 @@ SERVICES = {
     "text-processor": "http://localhost:8005/health",
     "metadata-processor": "http://localhost:8006/health",
     "embedding-processor": "http://localhost:8007/health",
+    "embedding-processor-hf": "http://localhost:8007/health",
     "entity-processor": "http://localhost:8008/health",
     "processing-pipeline": "http://localhost:8003/health",
     "document-router": "http://localhost:8002/health",
@@ -1534,6 +1546,7 @@ async def get_service_detail(service_name: str):
             "text-processor": "text-processor",
             "metadata-processor": "metadata-processor",
             "embedding-processor": "embedding-processor",
+            "embedding-processor-hf": "embedding-processor-hf",
             "entity-processor": "entity-processor",
             "file-watcher": "file-watcher",
             "ollama": "ollama",

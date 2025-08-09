@@ -9,4 +9,8 @@ COPY . .
 
 EXPOSE 8007
 
-CMD ["python", "main.py"] 
+# Make entrypoint executable
+RUN chmod +x /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD []

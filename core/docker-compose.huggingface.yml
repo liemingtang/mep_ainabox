@@ -23,6 +23,11 @@ services:
       - HF_CACHE_DIR=/app/cache/huggingface
       - HF_DEVICE=cpu
       - HF_BATCH_SIZE=32
+      # Init toggles
+      - RUN_INIT_HF=true
+      - RUN_INIT_QDRANT=true
+      # Batch processor defaults (used by /process internally)
+      - QDRANT_COLLECTION=documents
     volumes:
       - ./config:/app/config:ro
       - ./logs:/app/logs
@@ -30,6 +35,9 @@ services:
       - huggingface_cache:/app/cache/huggingface
     depends_on:
       - processing-pipeline
+    networks:
+      - default
+      - mep-services-network
     # Qdrant is managed externally
     healthcheck:
       test: ["CMD", "python3", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 8007)); s.close(); print('Health check passed')"]
@@ -66,3 +74,8 @@ services:
 volumes:
   huggingface_cache:
     driver: local 
+
+networks:
+  default:
+  mep-services-network:
+    external: true

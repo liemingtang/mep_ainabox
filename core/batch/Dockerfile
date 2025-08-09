@@ -25,9 +25,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy batch files into /app
 COPY batch/ ./
 
-# Also copy the text processor used by the worker into expected path
-RUN mkdir -p /app/processors/text_processor
+# Also copy the processors used by the worker into expected paths
+RUN mkdir -p /app/processors/text_processor /app/processors/embedding_processor
 COPY processors/text_processor/batch_text_processor.py /app/processors/text_processor/batch_text_processor.py
+COPY processors/embedding_processor/batch_embedding_processor.py /app/processors/embedding_processor/batch_embedding_processor.py
 
 # Create a non-root user for security
 RUN useradd -m -u 1000 scanner && \

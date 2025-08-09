@@ -357,20 +357,148 @@ class QueueWorker:
             # Check if we're inside a Docker container
             if os.path.exists('/.dockerenv'):
                 # We're inside Docker, run text processor directly
-                logger.info(f"🐳 Running text processor directly (inside Docker)")
-                
-                cmd = ["python3", "/app/processors/text_processor/batch_text_processor.py", file_path]
-                # Don't pass output_dir to get content printed to stdout
-                
+                logger.info("🐳 Running text processor directly (inside Docker)")
+                cmd = [
+                    "python3",
+                    "/app/processors/text_processor/batch_text_processor.py",
+                    file_path,
+                ]
                 logger.info(f"🚀 Running command: {' '.join(cmd)}")
-                
                 result = subprocess.run(
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=300  # 5 minute timeout
+                    timeout=300,  # 5 minute timeout
                 )
-                
+                return {
+                    "success": result.returncode == 0,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode,
+                }
+            else:
+                # We're outside Docker, run via Docker
+                logger.info("🐳 Running text processor via Docker")
+                docker_cmd = [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--network",
+                    "host",
+                    "-v",
+                    f"{file_path}:{file_path}:ro",
+                ]
+                if output_dir:
+                    docker_cmd.extend(["-v", f"{output_dir}:{output_dir}"])
+                docker_cmd.extend([
+                    "-e",
+                    f"INPUT_FILE={file_path}",
+                    "-e",
+                    f"OUTPUT_DIR={output_dir or '/tmp'}",
+                ])
+                docker_cmd.extend([
+                    "--entrypoint",
+                    "python3",
+                    self.docker_image,
+                    "/app/processors/text_processor/batch_text_processor.py",
+                    file_path,
+                ])
+                logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
+                result = subprocess.run(
+                    docker_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,  # 5 minute timeout
+                )
+                return {
+                    "success": result.returncode == 0,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "returncode": result.returncode,
+                }
+        except subprocess.TimeoutExpired:
+            logger.error(f"⏰ Text processor command timed out for {file_path}")
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": "Command timed out",
+                "returncode": -1,
+            }
+        except Exception as e:
+            logger.error(f"❌ Text processor command failed for {file_path}: {e}")
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": str(e),
+                "returncode": -1,
+            }
+    def run_embedding_processor_docker(self, document_id: str, text_file_path: str) -> Dict[str, Any]:
+        """Run batch_embedding_processor.py directly or via Docker to generate embeddings and store in Qdrant"""
+        try:
+            env_passthrough = []
+            for var in [
+                'QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY', 'QDRANT_COLLECTION',
+                'EMBEDDING_PROVIDER', 'OLLAMA_HOST', 'OLLAMA_PORT', 'OLLAMA_DEFAULT_MODEL'
+            ]:
+                if os.getenv(var) is not None:
+                    env_passthrough.extend(["-e", f"{var}={os.getenv(var)}"])
+
+            # Log the effective embedding environment (mask sensitive values)
+            try:
+                eff_qdrant_host = os.getenv('QDRANT_HOST', 'qdrant')
+                eff_qdrant_port = os.getenv('QDRANT_PORT', '6333')
+                eff_qdrant_collection = os.getenv('QDRANT_COLLECTION', 'documents')
+                eff_provider = os.getenv('EMBEDDING_PROVIDER', 'ollama')
+                eff_ollama_host = os.getenv('OLLAMA_HOST', 'ollama')
+                eff_ollama_port = os.getenv('OLLAMA_PORT', '11434')
+                eff_ollama_model = os.getenv('OLLAMA_DEFAULT_MODEL', 'nomic-embed-text')
+                has_qdrant_key = bool(os.getenv('QDRANT_API_KEY'))
+                logger.info(
+                    "🧩 Embedding config -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                    eff_provider, eff_qdrant_host, eff_qdrant_port, eff_qdrant_collection,
+                    eff_ollama_host, eff_ollama_port, eff_ollama_model,
+                    'set' if has_qdrant_key else 'not_set'
+                )
+            except Exception:
+                pass
+
+            if os.path.exists('/.dockerenv'):
+                # Inside Docker: run directly
+                # Ensure embedding/Qdrant/Ollama env defaults suitable for --network host
+                try:
+                    # Force localhost endpoints when running with --network host
+                    os.environ['EMBEDDING_PROVIDER'] = os.getenv('EMBEDDING_PROVIDER', 'huggingface')
+                    os.environ['OLLAMA_HOST'] = 'localhost'
+                    os.environ['OLLAMA_PORT'] = os.getenv('OLLAMA_PORT', '11434')
+                    os.environ['OLLAMA_DEFAULT_MODEL'] = os.getenv('OLLAMA_DEFAULT_MODEL', 'nomic-embed-text')
+                    os.environ['QDRANT_HOST'] = 'localhost'
+                    os.environ['QDRANT_PORT'] = os.getenv('QDRANT_PORT', '6333')
+                    os.environ['QDRANT_COLLECTION'] = os.getenv('QDRANT_COLLECTION', 'documents')
+                    os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8007/process'))
+                    if os.getenv('QDRANT_API_KEY'):
+                        os.environ['QDRANT_API_KEY'] = os.getenv('QDRANT_API_KEY')
+                    logger.info(
+                        "🧩 Embedding env (direct run) -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                        os.environ.get('EMBEDDING_PROVIDER'), os.environ.get('QDRANT_HOST'), os.environ.get('QDRANT_PORT'),
+                        os.environ.get('QDRANT_COLLECTION'), os.environ.get('OLLAMA_HOST'), os.environ.get('OLLAMA_PORT'),
+                        os.environ.get('OLLAMA_DEFAULT_MODEL'), 'set' if os.environ.get('QDRANT_API_KEY') else 'not_set'
+                    )
+                except Exception:
+                    pass
+                cmd = [
+                    "python3", 
+                    "/app/processors/embedding_processor/batch_embedding_processor.py",
+                    "--text-file", text_file_path,
+                    "--document-id", document_id
+                ]
+                logger.info(f"🚀 Running embedding processor directly: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                logger.info(
+                    "🧪 Embedding run (direct) -> returncode=%s, stdout=%s, stderr=%s",
+                    result.returncode,
+                    (result.stdout[:400] + ('…' if len(result.stdout) > 400 else '')) if result.stdout else '',
+                    (result.stderr[:400] + ('…' if len(result.stderr) > 400 else '')) if result.stderr else ''
+                )
                 return {
                     'success': result.returncode == 0,
                     'stdout': result.stdout,
@@ -378,55 +506,33 @@ class QueueWorker:
                     'returncode': result.returncode
                 }
             else:
-                # We're outside Docker, run via Docker
-                logger.info(f"🐳 Running text processor via Docker")
-                
-                # Build Docker command
+                # Outside Docker: run via Docker with bind mount for the temp text file
                 docker_cmd = [
-                    "docker", "run", "--rm",
-                    "--network", "host",
-                    "-v", f"{file_path}:{file_path}:ro"
-                ]
-                
-                # Add output directory if specified
-                if output_dir:
-                    docker_cmd.extend(["-v", f"{output_dir}:{output_dir}"])
-                
-                # Add environment variables
-                docker_cmd.extend([
-                    "-e", f"INPUT_FILE={file_path}",
-                    "-e", f"OUTPUT_DIR={output_dir or '/tmp'}"
-                ])
-                
-                # Add image and command
-                docker_cmd.extend([
+                    "docker", "run", "--rm", "--network", "host",
+                    "-v", f"{text_file_path}:{text_file_path}:ro",
+                    *env_passthrough,
                     "--entrypoint", "python3",
                     self.docker_image,
-                    "/app/processors/text_processor/batch_text_processor.py",
-                    file_path
-                ])
-                
-                # Don't pass output_dir to get content printed to stdout
-                
-                logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
-                
-                # Execute Docker command
-                result = subprocess.run(
-                    docker_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=300  # 5 minute timeout
+                    "/app/processors/embedding_processor/batch_embedding_processor.py",
+                    "--text-file", text_file_path,
+                    "--document-id", document_id
+                ]
+                logger.info(f"🚀 Running embedding processor via Docker: {' '.join(docker_cmd)}")
+                result = subprocess.run(docker_cmd, capture_output=True, text=True, timeout=600)
+                logger.info(
+                    "🧪 Embedding run (docker) -> returncode=%s, stdout=%s, stderr=%s",
+                    result.returncode,
+                    (result.stdout[:400] + ('…' if len(result.stdout) > 400 else '')) if result.stdout else '',
+                    (result.stderr[:400] + ('…' if len(result.stderr) > 400 else '')) if result.stderr else ''
                 )
-                
                 return {
                     'success': result.returncode == 0,
                     'stdout': result.stdout,
                     'stderr': result.stderr,
                     'returncode': result.returncode
                 }
-            
         except subprocess.TimeoutExpired:
-            logger.error(f"⏰ Text processor command timed out for {file_path}")
+            logger.error(f"⏰ Embedding processor timed out for {document_id}")
             return {
                 'success': False,
                 'stdout': '',
@@ -434,13 +540,14 @@ class QueueWorker:
                 'returncode': -1
             }
         except Exception as e:
-            logger.error(f"❌ Text processor command failed for {file_path}: {e}")
+            logger.error(f"❌ Embedding processor failed for {document_id}: {e}")
             return {
                 'success': False,
                 'stdout': '',
                 'stderr': str(e),
                 'returncode': -1
             }
+        
 
     def extract_text_from_file_locally(self, file_path: str) -> Optional[str]:
         """Extract text for common file types without Docker. Returns text or None on failure/unsupported."""
@@ -793,6 +900,67 @@ class QueueWorker:
                 logger.warning(f"⚠️  Failed to store in Elasticsearch for {filename}: {e}")
             
             await self.update_item_status(item_id, 'completed')
+
+            # After successful text extraction, generate embeddings and store in Qdrant
+            try:
+                if text_content:
+                    provider = os.getenv("EMBEDDING_PROVIDER", "huggingface").lower()
+                    if provider == "huggingface":
+                        # Use HuggingFace embedding service API
+                        try:
+                            embedding_url = os.getenv("EMBEDDING_PROCESSOR_URL", "http://localhost:8007/process")
+                            payload = {
+                                "document_id": str(item["file_info_id"]),
+                                "text_content": text_content,
+                                "model": os.getenv("HF_DEFAULT_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+                                "provider": "huggingface",
+                            }
+                            async with httpx.AsyncClient(timeout=120.0) as client:
+                                resp = await client.post(embedding_url, json=payload)
+                                if resp.status_code == 200:
+                                    logger.info("✅ HF embeddings stored in Qdrant via service")
+                                else:
+                                    logger.warning("⚠️  HF embedding service failed: status=%s body=%s", resp.status_code, (resp.text or "")[:300])
+                        except Exception as e:
+                            logger.warning(f"⚠️  HF embedding call failed: {e}")
+                    else:
+                        # Ollama path (existing)
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tf:
+                            tf.write(text_content)
+                            temp_text_file = tf.name
+                        logger.info(
+                            f"🧠 Generating embeddings for {filename} (document_id={item['file_info_id']}), text_file={temp_text_file}"
+                        )
+                        emb_result = self.run_embedding_processor_docker(str(item['file_info_id']), temp_text_file)
+                        try:
+                            if emb_result.get('stdout'):
+                                for line in emb_result['stdout'].splitlines():
+                                    if line.strip().startswith('{') and line.strip().endswith('}'):
+                                        try:
+                                            payload = json.loads(line)
+                                            if isinstance(payload, dict) and payload.get('success') is True:
+                                                logger.info(
+                                                    "📦 Embedding summary -> vectors=%s, dims=%s, collection=%s, provider=%s, model=%s",
+                                                    payload.get('embeddings_count'), payload.get('vector_dimensions'),
+                                                    payload.get('collection'), payload.get('provider_used'), payload.get('model_used')
+                                                )
+                                                break
+                                        except json.JSONDecodeError:
+                                            continue
+                        except Exception:
+                            pass
+
+                        if emb_result['success']:
+                            logger.info(f"✅ Embeddings generated and stored in Qdrant for {filename}")
+                        else:
+                            logger.warning(
+                                f"⚠️  Embedding generation failed for {filename}: returncode={emb_result.get('returncode')}, stderr={emb_result.get('stderr', '')[:400]}"
+                            )
+                else:
+                    logger.info("ℹ️  No text content available; skipping embeddings")
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to generate/store embeddings for {filename}: {e}")
             return True
         else:
             error_msg = f"Processing failed: {result['stderr']}"
