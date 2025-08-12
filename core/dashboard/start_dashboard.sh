@@ -59,6 +59,7 @@ export STORAGE_MANAGER_URL=${STORAGE_MANAGER_URL:-"http://localhost:8004"}
 export ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-"http://localhost:9200"}
 export QDRANT_URL=${QDRANT_URL:-"http://localhost:6333"}
 export NEO4J_URL=${NEO4J_URL:-"http://localhost:7474"}
+export HUGGINGFACE_EMBEDDING_URL=${HUGGINGFACE_EMBEDDING_URL:-"http://localhost:8082"}
 
 echo "🌐 Dashboard will be available at: http://localhost:8010"
 echo "📊 API endpoints will be available at: http://localhost:8010/api/"

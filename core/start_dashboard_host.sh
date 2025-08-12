@@ -79,6 +79,7 @@ export STORAGE_MANAGER_URL=http://localhost:8004
 export ELASTICSEARCH_URL=http://localhost:9200
 export QDRANT_URL=http://localhost:6333
 export NEO4J_URL=http://localhost:7474
+export HUGGINGFACE_EMBEDDING_URL=http://localhost:8082
 export QDRANT_API_KEY=qdrant_api_key
 export NEO4J_USER=neo4j
 export NEO4J_PASSWORD=neo4j_password

@@ -65,6 +65,12 @@
       "value": "http://localhost:7474",
       "description": "Neo4j graph database URL",
       "category": "service_endpoints"
+    },
+    {
+      "key": "HUGGINGFACE_EMBEDDING_URL",
+      "value": "http://localhost:8082",
+      "description": "HuggingFace embedding service URL",
+      "category": "service_endpoints"
     }
   ],
   "database_credentials": [

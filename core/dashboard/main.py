@@ -43,6 +43,7 @@ HOST_VOLUME_MANAGER_URL = os.getenv("HOST_VOLUME_MANAGER_URL", "http://localhost
 ELASTICSEARCH_URL = os.getenv("ELASTICSEARCH_URL", "http://localhost:9200")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 NEO4J_URL = os.getenv("NEO4J_URL", "http://localhost:7474")
+HUGGINGFACE_EMBEDDING_URL = os.getenv("HUGGINGFACE_EMBEDDING_URL", "http://localhost:8082")
 
 # Authentication credentials
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
@@ -68,6 +69,7 @@ DEFAULT_CONFIG = {
         {"key": "ELASTICSEARCH_URL", "value": ELASTICSEARCH_URL, "description": "Elasticsearch service URL", "category": "service_endpoints"},
         {"key": "QDRANT_URL", "value": QDRANT_URL, "description": "Qdrant vector database URL", "category": "service_endpoints"},
         {"key": "NEO4J_URL", "value": NEO4J_URL, "description": "Neo4j graph database URL", "category": "service_endpoints"},
+        {"key": "HUGGINGFACE_EMBEDDING_URL", "value": HUGGINGFACE_EMBEDDING_URL, "description": "HuggingFace embedding service URL", "category": "service_endpoints"},
     ],
     "database_credentials": [
         {"key": "POSTGRES_HOST", "value": "localhost", "description": "PostgreSQL database host", "category": "database_credentials"},
@@ -2869,53 +2871,186 @@ async def llm_search(request: Request):
     if not query:
         return {"results": [], "llm_response": "No query provided."}
 
-    # 1. Generate embedding for the query (reuse embedding_processor logic)
+    # 1. Generate embedding for the query using HuggingFace embedding service
     # 2. Search Qdrant for similar vectors
     # 3. Send top results as context to DeepSeek API
     # 4. Return results
     try:
-        # --- Step 1: Generate embedding using HuggingFace (or your embedding provider) ---
-        # Call the embedding_processor API to get the embedding
-        embedding_resp = await httpx.AsyncClient().post(
-            f"http://localhost:8007/embed?text={query}&provider=huggingface"
-        )
-        embedding_data = embedding_resp.json()
-        embedding = embedding_data.get("embedding")
-        if not embedding:
-            return {"results": [], "llm_response": "Failed to generate embedding."}
+        # --- Step 1: Generate embedding using HuggingFace embedding service ---
+        # Call the HuggingFace embedding service API to get the embedding
+        huggingface_url = os.getenv("HUGGINGFACE_EMBEDDING_URL", "http://localhost:8082")
+        embedding_payload = {
+            "inputs": [query]
+        }
+        
+        try:
+            logger.info(f"Calling HuggingFace embedding service at {huggingface_url}")
+            embedding_resp = await httpx.AsyncClient().post(
+                f"{huggingface_url}/embed",
+                headers={"Content-Type": "application/json"},
+                json=embedding_payload,
+                timeout=30.0
+            )
+            embedding_resp.raise_for_status()
+            embedding_data = embedding_resp.json()
+            
+            # HuggingFace service returns embeddings as a list of lists
+            # We need the first (and only) embedding from the response
+            if not embedding_data or not isinstance(embedding_data, list) or len(embedding_data) == 0:
+                logger.error("HuggingFace service returned empty or invalid embedding data")
+                return {"results": [], "llm_response": "Failed to generate embedding from HuggingFace service - no valid data returned."}
+            
+            embedding = embedding_data[0]  # Get the first embedding from the response
+            if not embedding:
+                logger.error("HuggingFace service returned empty embedding")
+                return {"results": [], "llm_response": "Failed to generate embedding - empty embedding returned."}
+                
+            logger.info(f"Successfully generated embedding with {len(embedding)} dimensions")
+            
+        except httpx.ConnectError as e:
+            logger.error(f"Failed to connect to HuggingFace embedding service at {huggingface_url}: {e}")
+            return {"results": [], "llm_response": f"Failed to connect to HuggingFace embedding service. Please ensure the service is running at {huggingface_url}"}
+        except httpx.TimeoutException as e:
+            logger.error(f"Timeout calling HuggingFace embedding service: {e}")
+            return {"results": [], "llm_response": "Timeout while generating embedding. Please try again."}
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP error from HuggingFace embedding service: {e.response.status_code} - {e.response.text}")
+            return {"results": [], "llm_response": f"Error from HuggingFace embedding service: HTTP {e.response.status_code}"}
+        except Exception as e:
+            logger.error(f"Unexpected error calling HuggingFace embedding service: {e}")
+            return {"results": [], "llm_response": f"Unexpected error generating embedding: {str(e)}"}
 
         # --- Step 2: Search Qdrant ---
         qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
         qdrant_api_key = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
-        search_payload = {
-            "vector": embedding,
-            "top": 5,
-            "with_payload": True
-        }
-        qdrant_resp = await httpx.AsyncClient().post(
-            f"{qdrant_url}/collections/documents/points/search",
+        
+        # Check if we have vector embeddings available
+        qdrant_stats_resp = await httpx.AsyncClient().get(
+            f"{qdrant_url}/collections/documents",
             headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
-            json=search_payload
+            timeout=10.0
         )
-        qdrant_results = qdrant_resp.json().get("result", [])
-        # Get Qdrant database statistics
-        try:
-            qdrant_stats_resp = await httpx.AsyncClient().get(
-                f"{qdrant_url}/collections/documents",
+        qdrant_stats = qdrant_stats_resp.json()
+        collection_info = qdrant_stats.get("result", {})
+        total_vectors = collection_info.get("vectors_count", 0)
+        
+        if total_vectors > 0:
+            # Use vector search if embeddings are available
+            logger.info(f"Using vector search with {total_vectors} embeddings available")
+            search_payload = {
+                "vector": embedding,
+                "top": 5,
+                "with_payload": True
+            }
+            qdrant_resp = await httpx.AsyncClient().post(
+                f"{qdrant_url}/collections/documents/points/search",
                 headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
-                timeout=10.0
+                json=search_payload
             )
-            qdrant_stats = qdrant_stats_resp.json()
-            collection_info = qdrant_stats.get("result", {})
-            total_points = collection_info.get("points_count", 0)
-            total_vectors = collection_info.get("vectors_count", 0)
-        except:
-            total_points = len(qdrant_results)
-            total_vectors = len(qdrant_results)
+            qdrant_results = qdrant_resp.json().get("result", [])
+        else:
+            # Fallback to text-based search using scroll API
+            logger.info("No vector embeddings available, using text-based search")
+            # Get all documents and filter by content
+            scroll_payload = {
+                "limit": 100,  # Get more documents for better search results
+                "with_payload": True
+            }
+            qdrant_resp = await httpx.AsyncClient().post(
+                f"{qdrant_url}/collections/documents/points/scroll",
+                headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+                json=scroll_payload
+            )
+            all_docs = qdrant_resp.json().get("result", {}).get("points", [])
+            logger.info(f"Retrieved {len(all_docs)} documents for text-based search")
+            
+            # Simple text-based filtering (case-insensitive)
+            query_lower = query.lower()
+            logger.info(f"Searching for query: '{query_lower}'")
+            filtered_docs = []
+            
+            # Split query into words for more flexible matching
+            query_words = query_lower.split()
+            
+            for i, doc in enumerate(all_docs):
+                content = doc.get("payload", {}).get("content", "").lower()
+                metadata = doc.get("payload", {}).get("metadata", {})
+                
+                # Check both content and metadata
+                content_match = query_lower in content
+                metadata_match = False
+                word_matches = 0
+                
+                # Check for individual word matches
+                for word in query_words:
+                    if word in content:
+                        word_matches += 1
+                
+                            # Check metadata for CSV-related terms
+            metadata_match = False
+            metadata_text = ""
+            
+            # Check blobType for CSV
+            blob_type = metadata.get("blobType", "").lower()
+            if "csv" in blob_type:
+                metadata_match = True
+                metadata_text += f"File type: {blob_type}; "
+            
+            # Check for any metadata fields that might contain search terms
+            for key, value in metadata.items():
+                if isinstance(value, str) and any(word in value.lower() for word in query_words):
+                    metadata_match = True
+                    metadata_text += f"{key}: {value}; "
+            
+            # Check for specific terms in metadata
+            if any(word in ["csv", "cdp", "data"] for word in query_words):
+                if "csv" in blob_type:
+                    metadata_match = True
+                
+                # Match if any word is found or metadata matches
+                if content_match or metadata_match or word_matches > 0:
+                    # Calculate score based on content match and word frequency
+                    score = content.count(query_lower) / len(content) if content and content_match else 0
+                    # Add score for individual word matches
+                    score += (word_matches / len(query_words)) * 0.05
+                    # Boost score for metadata matches
+                    if metadata_match:
+                        score += 0.1
+                    
+                    filtered_docs.append({
+                        **doc,
+                        "score": score
+                    })
+                    logger.info(f"Found match in document {i}: score={score:.4f}, content_match={content_match}, metadata_match={metadata_match}, word_matches={word_matches}, content preview: {content[:100]}...")
+            
+            logger.info(f"Found {len(filtered_docs)} matching documents")
+            # Sort by score and take top 5
+            qdrant_results = sorted(filtered_docs, key=lambda x: x.get("score", 0), reverse=True)[:5]
+        # Get total points count
+        total_points = collection_info.get("points_count", 0)
 
         # Prepare enhanced context for LLM
-        context_texts = [r["payload"].get("text", "") for r in qdrant_results]
-        context = "\n---\n".join(context_texts)
+        context_parts = []
+        for r in qdrant_results:
+            content = r["payload"].get("content", "")
+            metadata = r["payload"].get("metadata", {})
+            
+            # Create metadata summary
+            metadata_summary = ""
+            if metadata:
+                metadata_summary = "File Metadata: "
+                for key, value in metadata.items():
+                    if isinstance(value, str):
+                        metadata_summary += f"{key}={value}, "
+                    elif isinstance(value, dict):
+                        metadata_summary += f"{key}={str(value)}, "
+                metadata_summary = metadata_summary.rstrip(", ") + "\n"
+            
+            # Combine metadata and content
+            full_context = metadata_summary + content
+            context_parts.append(full_context)
+        
+        context = "\n---\n".join(context_parts)
         
         # Add database metadata to context
         db_metadata = f"""
@@ -2980,14 +3115,28 @@ Always be helpful and informative."""},
                 print(f"Traceback: {traceback.format_exc()}")
                 llm_answer = f"Error calling DeepSeek API: {str(e)}"
         # --- Step 4: Return results ---
-        results = [
-            {
+        results = []
+        for r in qdrant_results:
+            content = r["payload"].get("content", "")
+            metadata = r["payload"].get("metadata", {})
+            
+            # Create enhanced text that includes metadata
+            enhanced_text = content
+            if metadata:
+                metadata_info = "File Info: "
+                for key, value in metadata.items():
+                    if isinstance(value, str):
+                        metadata_info += f"{key}={value}, "
+                    elif isinstance(value, dict):
+                        metadata_info += f"{key}={str(value)}, "
+                metadata_info = metadata_info.rstrip(", ")
+                enhanced_text = f"{metadata_info}\n\n{content}"
+            
+            results.append({
                 "score": r.get("score"),
-                "text": r["payload"].get("text", ""),
-                "metadata": r["payload"].get("metadata", {})
-            }
-            for r in qdrant_results
-        ]
+                "text": enhanced_text,
+                "metadata": metadata
+            })
         return {"results": results, "llm_response": llm_answer}
     except Exception as e:
         return {"results": [], "llm_response": f"Error: {str(e)}"}
@@ -3031,7 +3180,7 @@ async def database_query(request: Request):
         sample_docs = sample_data.get("result", {}).get("points", [])
         
         # Prepare context
-        sample_texts = [doc["payload"].get("text", "")[:200] for doc in sample_docs]
+        sample_texts = [doc["payload"].get("content", "")[:200] for doc in sample_docs]
         sample_context = "\n---\n".join(sample_texts)
         
         # Create database context
