@@ -370,6 +370,21 @@ SERVICE_INFO = {
             "description": "Workflow automation platform"
         }
     },
+    "huggingface-embeddings": {
+        "name": "HuggingFace Embeddings",
+        "description": "Text embeddings inference service",
+        "port": 8082,
+        "url": "http://localhost:8082",
+        "endpoints": ["/", "/embed", "/models"],
+        "config_paths": ["/app/config"],
+        "log_paths": ["/app/logs"],
+        "docker_container": "mep-huggingface-embeddings",
+        "admin_ui": {
+            "url": "http://localhost:8082",
+            "name": "HuggingFace Embeddings",
+            "description": "Text embeddings inference service"
+        }
+    },
     "prometheus": {
         "name": "Prometheus",
         "description": "Metrics collection and monitoring",
@@ -442,7 +457,8 @@ SERVICES = {
     "n8n": "http://localhost:5678/healthz",
     "prometheus": "http://localhost:9090/",
     "grafana": "http://localhost:3002/",
-    "qdrantui": "http://localhost:7070/"
+    "qdrantui": "http://localhost:7070/",
+    "huggingface-embeddings": "http://localhost:8082/"
 }
 
 app = FastAPI(title="MDIS Dashboard", version="1.0.0")
@@ -1563,7 +1579,8 @@ async def get_service_detail(service_name: str):
             "n8n": "n8n",
             "prometheus": "prometheus",
             "grafana": "grafana",
-            "qdrantui": "qdrantui"
+            "qdrantui": "qdrantui",
+            "huggingface-embeddings": "huggingface-embeddings"
         }
         
         service_key = service_key_mapping.get(service_name)
@@ -1622,7 +1639,8 @@ def check_infrastructure_services() -> bool:
             ("postgres", 5432),
             ("elasticsearch", 9200),
             ("qdrant", 6333),
-            ("redis", 6379)
+            ("redis", 6379),
+            ("huggingface-embeddings", 8082)
         ]
         
         for service_name, port in services_to_check:
@@ -2299,7 +2317,8 @@ async def get_service_status():
         {"name": "Neo4j", "port": 7474, "endpoint": "/", "description": "Graph database", "service_key": "neo4j", "admin_url": "http://localhost:7474"},
         {"name": "Kibana", "port": 5601, "endpoint": "/", "description": "Elasticsearch management and visualization", "service_key": "kibana", "admin_url": "http://localhost:5601"},
         {"name": "Flowise", "port": 3001, "endpoint": "/", "description": "LLM Flow Builder", "service_key": "flowise", "admin_url": "http://localhost:3001"},
-        {"name": "n8n", "port": 5678, "endpoint": "/", "description": "Workflow automation platform", "service_key": "n8n", "admin_url": "http://localhost:5678"}
+        {"name": "n8n", "port": 5678, "endpoint": "/", "description": "Workflow automation platform", "service_key": "n8n", "admin_url": "http://localhost:5678"},
+        {"name": "HuggingFace Embeddings", "port": 8082, "endpoint": "/", "description": "Text embeddings inference service", "service_key": "huggingface-embeddings", "admin_url": "http://localhost:8082"}
     ]
     
     # Admin UI Services (including pgAdmin and Redis Commander)
@@ -2442,7 +2461,7 @@ async def start_individual_service(service_key: str):
                     return {"message": f"Failed to start native service {service_key}: {result.stderr}", "status": "failed"}
             
             # Handle infrastructure services (still use Docker)
-            elif service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
+            elif service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n", "huggingface-embeddings"]:
                 # Infrastructure service - use services docker-compose
                 compose_file = "services/docker-compose.yml"
                 service_name = service_key
@@ -2509,7 +2528,7 @@ async def stop_individual_service(service_key: str):
                     return {"message": f"Failed to stop native service {service_key}: {result.stderr}", "status": "failed"}
             
             # Handle infrastructure services (still use Docker)
-            elif service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n"]:
+            elif service_key in ["postgres", "elasticsearch", "qdrant", "redis", "minio", "neo4j", "kibana", "flowise", "n8n", "huggingface-embeddings"]:
                 # Infrastructure service - use services docker-compose
                 compose_file = "services/docker-compose.yml"
                 service_name = service_key

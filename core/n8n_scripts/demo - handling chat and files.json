@@ -1,0 +1,443 @@
+{
+  "name": "demo - handling chat and files",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "authentication": "basicAuth",
+        "options": {
+          "allowFileUploads": true,
+          "responseMode": "responseNodes"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -144,
+        -192
+      ],
+      "id": "40008a66-a089-4778-9b51-0a34405ba658",
+      "name": "When chat message received",
+      "webhookId": "a780c287-5924-4a0f-906b-aba730481bcc",
+      "notesInFlow": true,
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "M1Tfden7asKjXu3a",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        256,
+        48
+      ],
+      "id": "d817cbc7-b10d-4ae1-8ba1-f6a91e2688c7",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "VevuRVLkkZOVDU25",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "binaryMode": "specificField",
+        "binaryDataKey": "={{ Object.keys($binary || {})[0] }}",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        240
+      ],
+      "id": "00613e13-3faa-4aa4-bcab-f6f0504fabe4",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "chunkSize": 200,
+        "chunkOverlap": 20,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        224,
+        400
+      ],
+      "id": "0de444bc-dbca-4c1a-8785-793f1cd1fab2",
+      "name": "Recursive Character Text Splitter"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.chatInput }}",
+        "options": {
+          "systemMessage": "You are a helpful assistant that looks at the vector db to answer questions about the data there."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        768,
+        -208
+      ],
+      "id": "936e4ac0-7469-4a18-90f4-641d53a59a89",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        704,
+        32
+      ],
+      "id": "d30cb2b8-0cbd-48eb-9aea-2f26ce0a46cc",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "pRPLeeIwRg9GU89K",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        864,
+        32
+      ],
+      "id": "678b91df-d371-4fe9-8d10-f7005bf000f5",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "={{\"Answer questions about data in vector db.  If user has uploaded files, include that in the answer.\"}}",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "topK": 100,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        1024,
+        48
+      ],
+      "id": "ddf0aeaa-3f1d-4f4b-b33a-d9e56be8a282",
+      "name": "Qdrant Vector Store1",
+      "credentials": {
+        "qdrantApi": {
+          "id": "VevuRVLkkZOVDU25",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e88ae9f6-f8c8-42b9-8345-871732e15e0f",
+              "leftValue": "={{ !$json.files || $json.files.length === 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        64,
+        -192
+      ],
+      "id": "b95a7631-61dc-4c81-a94e-c27a47798e2c",
+      "name": "if no attachment"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1454081a-e3b6-45eb-85c8-256ce67977f3",
+              "name": "=chatInput",
+              "value": "={{ $json.chatInput || $json.text || $json.message }}",
+              "type": "string"
+            },
+            {
+              "id": "feddc6ae-a723-4133-ae2b-505268e656d4",
+              "name": "files",
+              "value": "={{ $json.files }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        64,
+        -16
+      ],
+      "id": "5e23bfed-af6a-4cb3-9a23-2567d806422f",
+      "name": "Stash Chat Data"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        416,
+        -112
+      ],
+      "id": "98462873-870a-4368-96e3-139bd4c5c547",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "model": "={{\"sentence-transformers/all-MiniLM-L6-v2\"}}",
+        "options": {
+          "dimensions": "={{ 384 }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        592,
+        256
+      ],
+      "id": "e4ecaffa-8e21-4359-978b-5c336a8fc5ca",
+      "name": "Embeddings HF local (OpenAI)",
+      "credentials": {
+        "openAiApi": {
+          "id": "LRVs76gB1D9fz5l2",
+          "name": "OpenAi - hf embedding local"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "message": "={{ $json.output }}",
+        "waitUserReply": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chat",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        -208
+      ],
+      "id": "aabfd122-13e0-46c6-9401-b66740a3a008",
+      "name": "Respond to Chat"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "if no attachment",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stash Chat Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "main": [
+        []
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store1": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "if no attachment": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stash Chat Data": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings HF local (OpenAI)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          },
+          {
+            "node": "Qdrant Vector Store1",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false
+  },
+  "versionId": "b2bcfd9e-44df-452f-bc90-3f8cd7d4719f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7fe2b3062df1146906ca5dfc5875657dddc56a4ba36c533a820e93e65f8651b"
+  },
+  "id": "tgIy4HoyxLB4jcOn",
+  "tags": []
+}

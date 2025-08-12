@@ -208,23 +208,27 @@ else
     echo -e "${YELLOW}⏭️  Skipping Docker build (--skip-build flag used)${NC}"
 fi
 
-# Check and build file-watcher image specifically (always build if missing)
-echo -e "${CYAN}📦 Checking file-watcher image...${NC}"
-if ! docker images | grep -q "mep-file-watcher"; then
-    echo -e "${YELLOW}⚠️  File-watcher image not found. Building...${NC}"
-    cd core
-    docker compose build file-watcher
-    cd ..
-
-    # Start Hugging Face embedding service container (available in both batch and full modes)
-    echo -e "${CYAN}🔧 Starting Hugging Face embedding processor...${NC}"
-    cd core
-    docker compose -f docker-compose.huggingface.yml up -d embedding-processor-hf
-    cd ..
-    echo -e "${GREEN}✅ File-watcher image built successfully${NC}"
+# Check and build file-watcher image specifically (only if not skipping build)
+if [ "$SKIP_BUILD" = false ]; then
+    echo -e "${CYAN}📦 Checking file-watcher image...${NC}"
+    if ! docker images | grep -q "mep-file-watcher"; then
+        echo -e "${YELLOW}⚠️  File-watcher image not found. Building...${NC}"
+        cd core
+        docker compose build file-watcher
+        cd ..
+        echo -e "${GREEN}✅ File-watcher image built successfully${NC}"
+    else
+        echo -e "${GREEN}✅ File-watcher image already exists${NC}"
+    fi
 else
-    echo -e "${GREEN}✅ File-watcher image already exists${NC}"
+    echo -e "${YELLOW}⏭️  Skipping file-watcher image check (--skip-build flag used)${NC}"
 fi
+
+# Start Hugging Face embedding service container (available in both batch and full modes)
+echo -e "${CYAN}🔧 Starting Hugging Face embedding processor...${NC}"
+cd core
+docker compose -f docker-compose.huggingface.yml up -d embedding-processor-hf
+cd ..
 
 
 
@@ -238,6 +242,9 @@ if [ "$SKIP_SERVICES" = false ]; then
     echo -e "${CYAN}🔧 Starting infrastructure services...${NC}"
     cd services
     docker compose up -d postgres elasticsearch kibana qdrant neo4j redis minio n8n flowise
+    
+    echo -e "${CYAN}🔧 Starting HuggingFace embedding service...${NC}"
+    docker compose up -d huggingface-embeddings
     
     echo -e "${CYAN}🔧 Starting development admin UIs...${NC}"
     docker compose --profile dev up -d pgadmin redis-commander
@@ -270,6 +277,13 @@ if [ "$SKIP_SERVICES" = false ]; then
         echo -e "${GREEN}✅ Qdrant is ready${NC}"
     else
         echo -e "${YELLOW}⚠️  Qdrant is starting...${NC}"
+    fi
+    
+    # HuggingFace Embeddings health check
+    if curl -f http://localhost:8082/ > /dev/null 2>&1; then
+        echo -e "${GREEN}✅ HuggingFace Embeddings is ready${NC}"
+    else
+        echo -e "${YELLOW}⚠️  HuggingFace Embeddings is starting...${NC}"
     fi
     
     # Neo4j health check
@@ -462,6 +476,7 @@ if [ "$BATCH_ONLY" = true ]; then
     echo -e "${GREEN}  MinIO Console:${NC} http://localhost:9001"
     echo -e "${GREEN}  n8n:${NC} http://localhost:5678"
     echo -e "${GREEN}  Flowise:${NC} http://localhost:3001"
+    echo -e "${GREEN}  HuggingFace Embeddings:${NC} http://localhost:8082"
     echo ""
     echo -e "${BLUE}📊 Useful Commands:${NC}"
     echo -e "${CYAN}  View all containers:${NC} docker ps"
@@ -493,6 +508,7 @@ else
     echo -e "${GREEN}  Embedding Processor:${NC} http://localhost:8007"
     echo -e "${GREEN}  Entity Processor:${NC} http://localhost:8008"
     echo -e "${GREEN}  File Watcher:${NC} http://localhost:8009"
+    echo -e "${GREEN}  HuggingFace Embeddings:${NC} http://localhost:8082"
     echo ""
     echo -e "${BLUE}🔧 Infrastructure Services:${NC}"
     echo -e "${GREEN}  PostgreSQL:${NC} localhost:5432"

@@ -97,6 +97,31 @@ services:
       retries: 3
       start_period: 30s
 
+  # HuggingFace Text Embeddings Inference Service
+  huggingface-embeddings:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
+    container_name: mep-huggingface-embeddings
+    restart: unless-stopped
+    environment:
+      - MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
+    ports:
+      - "8082:80"
+    volumes:
+      - huggingface_cache:/data
+    command:
+      - "--model-id"
+      - "sentence-transformers/all-MiniLM-L6-v2"
+      - "--max-client-batch-size"
+      - "200"
+      - "--max-batch-requests"
+      - "50"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   # Neo4j - Graph database for relationships
   neo4j:
     image: neo4j:5.15-community
@@ -199,7 +224,7 @@ services:
       - ./volumes/n8n:/home/node/.n8n
       - ${N8N_WATCH_FOLDER:-./watch_folder}:/home/node/watch_folder:ro
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5678/healthz"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5678/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -449,4 +474,6 @@ volumes:
   prometheus_data:
     driver: local
   grafana_data:
+    driver: local
+  huggingface_cache:
     driver: local 

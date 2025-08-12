@@ -273,6 +273,12 @@ if [ "$CONTAINERS_ONLY" = false ]; then
             echo -e "${RED}❌ Flowise is not responding${NC}"
         fi
 
+        if curl -f http://localhost:8082/ > /dev/null 2>&1; then
+            echo -e "${GREEN}✅ HuggingFace Embeddings is healthy${NC}"
+        else
+            echo -e "${RED}❌ HuggingFace Embeddings is not responding${NC}"
+        fi
+
         # Check admin UIs
         if curl -f http://localhost:8080/ > /dev/null 2>&1; then
             echo -e "${GREEN}✅ pgAdmin is healthy${NC}"
@@ -330,6 +336,7 @@ echo -e "${GREEN}  Neo4j Browser:${NC} http://localhost:7474"
 echo -e "${GREEN}  MinIO Console:${NC} http://localhost:9001"
 echo -e "${GREEN}  n8n:${NC} http://localhost:5678"
 echo -e "${GREEN}  Flowise:${NC} http://localhost:3001"
+echo -e "${GREEN}  HuggingFace Embeddings:${NC} http://localhost:8082"
 echo -e "${GREEN}  pgAdmin:${NC} http://localhost:8080"
 echo -e "${GREEN}  Redis Commander:${NC} http://localhost:8081"
 echo -e "${GREEN}  Prometheus:${NC} http://localhost:9090"

@@ -1,0 +1,156 @@
+{
+  "name": "demo test huggingface",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Upload File",
+        "formDescription": "Upload a file to generate embedding and store in vector db",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "file",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "d9c26ae4-2402-4461-88a0-d1c5c648b482",
+      "name": "Upload file",
+      "webhookId": "18fd404a-8361-4381-848f-0d2dfec620ff"
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "textSplittingMode": "custom",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        208
+      ],
+      "id": "249edbe6-b3aa-4a81-ad8e-420b56065c25",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "chunkOverlap": 200,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        400,
+        400
+      ],
+      "id": "24525f84-1fa1-4e31-b60f-74f7362ccd4e",
+      "name": "Recursive Character Text Splitter"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "memoryKey": {
+          "__rl": true,
+          "mode": "list",
+          "value": "vector_store_key"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1.3,
+      "position": [
+        288,
+        0
+      ],
+      "id": "81bc2530-465b-4c50-8f75-78f8c8726051",
+      "name": "Simple Vector Store"
+    },
+    {
+      "parameters": {
+        "model": "={{\"sentence-transformers/all-MiniLM-L6-v2\"}}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        80,
+        208
+      ],
+      "id": "ff8e6e16-128f-4b94-a144-153628bed88e",
+      "name": "Embeddings OpenAI - huggingface local",
+      "credentials": {
+        "openAiApi": {
+          "id": "LRVs76gB1D9fz5l2",
+          "name": "OpenAi - hf embedding local"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Simple Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Simple Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI - huggingface local": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Simple Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6db785d8-a925-4a6f-b801-ad883ad400ed",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7fe2b3062df1146906ca5dfc5875657dddc56a4ba36c533a820e93e65f8651b"
+  },
+  "id": "pjhrp6hIkY4otWqn",
+  "tags": []
+}

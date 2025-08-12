@@ -1,0 +1,180 @@
+{
+  "name": "demo - query qdrant db",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "allowFileUploads": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -208,
+        0
+      ],
+      "id": "b8aafcf8-eec1-4297-85ba-b80b9d010fa3",
+      "name": "When chat message received",
+      "webhookId": "6f62595f-183d-401f-99eb-33e0c5f22af6"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "fc5c6115-74a5-4fb4-a2d1-dd1da3f6ce58",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        128,
+        256
+      ],
+      "id": "422aecf8-6c1e-4990-b4ea-a6c87e7809bb",
+      "name": "DeepSeek Chat Model",
+      "credentials": {
+        "deepSeekApi": {
+          "id": "pRPLeeIwRg9GU89K",
+          "name": "DeepSeek account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        272,
+        256
+      ],
+      "id": "bec21fb1-2dd3-4540-a9e8-e1dea0c6c99f",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Work with my local qdrant data and respond to user chat messages.",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        464,
+        192
+      ],
+      "id": "d3bcf470-f78f-476b-a774-2d3223b51498",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "VevuRVLkkZOVDU25",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "={{\"sentence-transformers/all-MiniLM-L6-v2\"}}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        368
+      ],
+      "id": "dc304f30-badb-40b4-aa91-6c4c2391d866",
+      "name": "Embeddings OpenAI / HF - local",
+      "credentials": {
+        "openAiApi": {
+          "id": "LRVs76gB1D9fz5l2",
+          "name": "OpenAi - hf embedding local"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI / HF - local": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "15da702f-0e38-4a07-819c-724520ebc56d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b7fe2b3062df1146906ca5dfc5875657dddc56a4ba36c533a820e93e65f8651b"
+  },
+  "id": "9h7vvmVXiKmyrLgu",
+  "tags": []
+}

@@ -144,6 +144,44 @@ else
     echo "Network mep-services-network already exists."
 fi
 
+# Start infrastructure services for admin mode
+echo "🔧 Starting infrastructure services for admin mode..."
+cd services
+
+# Start essential services for admin functionality
+echo "🚀 Starting PostgreSQL, Qdrant, and HuggingFace Embeddings..."
+docker compose up -d postgres qdrant huggingface-embeddings
+
+# Wait for infrastructure services to be ready
+echo "⏳ Waiting for infrastructure services to start..."
+sleep 30
+
+# Check infrastructure services health
+echo "🔍 Checking infrastructure services health..."
+
+# PostgreSQL health check
+if docker compose exec -T postgres pg_isready -U mep_user -d mep_ainabox > /dev/null 2>&1; then
+    echo "✅ PostgreSQL is ready"
+else
+    echo "⚠️  PostgreSQL is starting..."
+fi
+
+# Qdrant health check
+if curl -f http://localhost:6333/health > /dev/null 2>&1; then
+    echo "✅ Qdrant is ready"
+else
+    echo "⚠️  Qdrant is starting..."
+fi
+
+    # HuggingFace Embeddings health check
+    if curl -f http://localhost:8082/ > /dev/null 2>&1; then
+        echo "✅ HuggingFace Embeddings is ready"
+    else
+        echo "⚠️  HuggingFace Embeddings is starting..."
+    fi
+
+cd ..
+
 # Start only the dashboard service on host
 echo "🎛️  Starting Dashboard (Admin Interface) on host..."
 cd core
@@ -192,6 +230,7 @@ echo "========================================"
 echo ""
 echo "🌐 Dashboard URL: http://localhost:8010"
 echo "🔧 Admin Panel: http://localhost:8010/admin"
+echo "🧠 HuggingFace Embeddings: http://localhost:8082"
 echo ""
 echo "📋 Next Steps:"
 echo "1. Open http://localhost:8010 in your browser"

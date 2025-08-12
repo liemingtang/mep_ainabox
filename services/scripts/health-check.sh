@@ -129,6 +129,13 @@ if check_service_status "flowise"; then
 fi
 ((total_count++))
 
+# Check HuggingFace Embeddings
+echo -n "HuggingFace Embeddings Status: "
+if check_service_status "huggingface-embeddings"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
 echo -e "\n${BLUE}🔍 Service Health Check${NC}"
 echo "------------------------"
 
@@ -187,6 +194,12 @@ fi
 
 # Flowise Health Check
 if check_service "flowise" "curl -f http://localhost:3001/" "Flowise"; then
+    ((healthy_count++))
+fi
+((total_count++))
+
+# HuggingFace Embeddings Health Check
+if check_service "huggingface-embeddings" "curl -f http://localhost:8082/" "HuggingFace Embeddings"; then
     ((healthy_count++))
 fi
 ((total_count++))
