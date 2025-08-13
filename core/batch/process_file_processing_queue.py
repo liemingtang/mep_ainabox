@@ -439,7 +439,8 @@ class QueueWorker:
             for var in [
                 'QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY', 'QDRANT_COLLECTION',
                 'EMBEDDING_PROVIDER', 'OLLAMA_HOST', 'OLLAMA_PORT', 'OLLAMA_DEFAULT_MODEL',
-                'HUGGINGFACE_HOST', 'HUGGINGFACE_PORT', 'HUGGINGFACE_MODEL'
+                'HUGGINGFACE_HOST', 'HUGGINGFACE_PORT', 'HUGGINGFACE_MODEL',
+                'EMBEDDING_CHUNK_SIZE', 'EMBEDDING_CHUNK_OVERLAP', 'EMBEDDING_BATCH_SIZE'
             ]:
                 if os.getenv(var) is not None:
                     env_passthrough.extend(["-e", f"{var}={os.getenv(var)}"])
@@ -479,13 +480,18 @@ class QueueWorker:
                     os.environ['HUGGINGFACE_HOST'] = 'localhost'
                     os.environ['HUGGINGFACE_PORT'] = os.getenv('HUGGINGFACE_PORT', '8082')
                     os.environ['HUGGINGFACE_MODEL'] = os.getenv('HUGGINGFACE_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
+                    # Set chunking parameters
+                    os.environ.setdefault('EMBEDDING_CHUNK_SIZE', os.getenv('EMBEDDING_CHUNK_SIZE', '300'))
+                    os.environ.setdefault('EMBEDDING_CHUNK_OVERLAP', os.getenv('EMBEDDING_CHUNK_OVERLAP', '50'))
+                    os.environ.setdefault('EMBEDDING_BATCH_SIZE', os.getenv('EMBEDDING_BATCH_SIZE', '100'))
                     if os.getenv('QDRANT_API_KEY'):
                         os.environ['QDRANT_API_KEY'] = os.getenv('QDRANT_API_KEY')
                     logger.info(
-                        "🧩 Embedding env (direct run) -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                        "🧩 Embedding env (direct run) -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s, chunk_size=%s, chunk_overlap=%s",
                         os.environ.get('EMBEDDING_PROVIDER'), os.environ.get('QDRANT_HOST'), os.environ.get('QDRANT_PORT'),
                         os.environ.get('QDRANT_COLLECTION'), os.environ.get('OLLAMA_HOST'), os.environ.get('OLLAMA_PORT'),
-                        os.environ.get('OLLAMA_DEFAULT_MODEL'), 'set' if os.environ.get('QDRANT_API_KEY') else 'not_set'
+                        os.environ.get('OLLAMA_DEFAULT_MODEL'), 'set' if os.environ.get('QDRANT_API_KEY') else 'not_set',
+                        os.environ.get('EMBEDDING_CHUNK_SIZE', '300'), os.environ.get('EMBEDDING_CHUNK_OVERLAP', '50')
                     )
                 except Exception:
                     pass
@@ -511,6 +517,39 @@ class QueueWorker:
                 }
             else:
                 # Outside Docker: run via Docker with bind mount for the temp text file
+                # Set environment variables for Docker container
+                env_passthrough = []
+                for var in [
+                    'QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY', 'QDRANT_COLLECTION',
+                    'EMBEDDING_PROVIDER', 'OLLAMA_HOST', 'OLLAMA_PORT', 'OLLAMA_DEFAULT_MODEL',
+                    'HUGGINGFACE_HOST', 'HUGGINGFACE_PORT', 'HUGGINGFACE_MODEL',
+                    'EMBEDDING_CHUNK_SIZE', 'EMBEDDING_CHUNK_OVERLAP', 'EMBEDDING_BATCH_SIZE'
+                ]:
+                    if os.getenv(var) is not None:
+                        env_passthrough.extend(["-e", f"{var}={os.getenv(var)}"])
+                    else:
+                        # Set default values for missing environment variables
+                        if var == 'EMBEDDING_PROVIDER':
+                            env_passthrough.extend(["-e", "EMBEDDING_PROVIDER=huggingface"])
+                        elif var == 'QDRANT_HOST':
+                            env_passthrough.extend(["-e", "QDRANT_HOST=localhost"])
+                        elif var == 'QDRANT_PORT':
+                            env_passthrough.extend(["-e", "QDRANT_PORT=6333"])
+                        elif var == 'QDRANT_COLLECTION':
+                            env_passthrough.extend(["-e", "QDRANT_COLLECTION=documents"])
+                        elif var == 'HUGGINGFACE_HOST':
+                            env_passthrough.extend(["-e", "HUGGINGFACE_HOST=localhost"])
+                        elif var == 'HUGGINGFACE_PORT':
+                            env_passthrough.extend(["-e", "HUGGINGFACE_PORT=8082"])
+                        elif var == 'HUGGINGFACE_MODEL':
+                            env_passthrough.extend(["-e", "HUGGINGFACE_MODEL=sentence-transformers/all-MiniLM-L6-v2"])
+                        elif var == 'EMBEDDING_CHUNK_SIZE':
+                            env_passthrough.extend(["-e", "EMBEDDING_CHUNK_SIZE=200"])
+                        elif var == 'EMBEDDING_CHUNK_OVERLAP':
+                            env_passthrough.extend(["-e", "EMBEDDING_CHUNK_OVERLAP=20"])
+                        elif var == 'EMBEDDING_BATCH_SIZE':
+                            env_passthrough.extend(["-e", "EMBEDDING_BATCH_SIZE=100"])
+                
                 docker_cmd = [
                     "docker", "run", "--rm", "--network", "host",
                     "-v", f"{text_file_path}:{text_file_path}:ro",
@@ -1405,26 +1444,35 @@ class QueueWorker:
                 logger.info(f"   Line Count: {len(text_content.splitlines()):,} lines")
                 logger.info(f"   Average Line Length: {len(text_content) // max(len(text_content.splitlines()), 1):,} characters")
                 
-                # Character frequency analysis
-                char_freq = {}
-                for char in text_content.lower():
-                    if char.isalpha():
-                        char_freq[char] = char_freq.get(char, 0) + 1
+                # Character frequency analysis (simplified to avoid issues)
+                try:
+                    char_freq = {}
+                    # Limit analysis to first 1000 characters to avoid performance issues
+                    sample_text = text_content[:1000].lower()
+                    for char in sample_text:
+                        if char.isalpha():
+                            char_freq[char] = char_freq.get(char, 0) + 1
+                    
+                    if char_freq:
+                        top_chars = sorted(char_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+                        logger.info(f"   Top 5 Characters (sample): {', '.join([f'{char}({count})' for char, count in top_chars])}")
+                except Exception as e:
+                    logger.warning(f"   Character analysis failed: {e}")
                 
-                if char_freq:
-                    top_chars = sorted(char_freq.items(), key=lambda x: x[1], reverse=True)[:5]
-                    logger.info(f"   Top 5 Characters: {', '.join([f'{char}({count})' for char, count in top_chars])}")
-                
-                # Word frequency analysis
-                words = text_content.lower().split()
-                word_freq = {}
-                for word in words:
-                    if len(word) > 2:  # Skip very short words
-                        word_freq[word] = word_freq.get(word, 0) + 1
-                
-                if word_freq:
-                    top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
-                    logger.info(f"   Top 5 Words: {', '.join([f'{word}({count})' for word, count in top_words])}")
+                # Word frequency analysis (simplified to avoid issues)
+                try:
+                    words = text_content.lower().split()
+                    word_freq = {}
+                    # Limit analysis to first 100 words to avoid performance issues
+                    for word in words[:100]:
+                        if len(word) > 2:  # Skip very short words
+                            word_freq[word] = word_freq.get(word, 0) + 1
+                    
+                    if word_freq:
+                        top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+                        logger.info(f"   Top 5 Words (sample): {', '.join([f'{word}({count})' for word, count in top_words])}")
+                except Exception as e:
+                    logger.warning(f"   Word analysis failed: {e}")
             
             # Elasticsearch Storage Information
             logger.info("")

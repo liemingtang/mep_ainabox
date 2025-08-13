@@ -17,6 +17,9 @@ Environment variables:
   - HUGGINGFACE_HOST (default: localhost)
   - HUGGINGFACE_PORT (default: 8082)
   - HUGGINGFACE_MODEL (default: sentence-transformers/all-MiniLM-L6-v2)
+  - EMBEDDING_CHUNK_SIZE (default: 300)  # Character limit per chunk
+  - EMBEDDING_CHUNK_OVERLAP (default: 50)  # Character overlap between chunks
+  - EMBEDDING_BATCH_SIZE (default: 150)  # Maximum chunks per batch for HuggingFace
 """
 
 import argparse
@@ -35,7 +38,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-def chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
+def chunk_text(text: str, chunk_size: int = None, chunk_overlap: int = None) -> List[str]:
+    # Get chunk size and overlap from environment variables with defaults
+    if chunk_size is None:
+        chunk_size = int(os.getenv("EMBEDDING_CHUNK_SIZE", "200"))
+    if chunk_overlap is None:
+        chunk_overlap = int(os.getenv("EMBEDDING_CHUNK_OVERLAP", "20"))
     if len(text) <= chunk_size:
         return [text]
     chunks: List[str] = []
@@ -86,39 +94,51 @@ async def generate_ollama_embeddings(texts: List[str], base_url: str, model_name
 async def generate_huggingface_embeddings(texts: List[str], base_url: str, model_name: str) -> List[List[float]]:
     embeddings: List[List[float]] = []
     async with httpx.AsyncClient() as client:
-        # HuggingFace Text Embeddings Inference service expects a list of texts
-        # The service is configured to use sentence-transformers/all-MiniLM-L6-v2
-        payload = {
-            "inputs": texts
-        }
-        resp = await client.post(
-            f"{base_url}/embed",
-            json=payload,
-            timeout=120.0,  # Longer timeout for HuggingFace
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        # Process chunks in batches to avoid exceeding the batch size limit
+        batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "150"))  # Default to 150 to be safe
+        logger.info(f"Processing {len(texts)} chunks in batches of {batch_size}")
         
-        # The new HuggingFace Text Embeddings Inference service returns embeddings directly
-        if isinstance(data, list):
-            # Direct list of embeddings
-            embeddings = data
-        elif isinstance(data, dict) and "embeddings" in data:
-            # Response with embeddings key
-            embeddings = data["embeddings"]
-        else:
-            # Try to extract embeddings from the response
-            embeddings = data.get("embeddings", [])
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i + batch_size]
+            logger.info(f"Processing batch {i//batch_size + 1}/{(len(texts) + batch_size - 1)//batch_size} ({len(batch_texts)} chunks)")
             
-        if not embeddings:
-            raise RuntimeError("No embeddings returned from HuggingFace service")
+            # HuggingFace Text Embeddings Inference service expects a list of texts
+            # The service is configured to use sentence-transformers/all-MiniLM-L6-v2
+            payload = {
+                "inputs": batch_texts
+            }
+            resp = await client.post(
+                f"{base_url}/embed",
+                json=payload,
+                timeout=120.0,  # Longer timeout for HuggingFace
+            )
+            resp.raise_for_status()
+            data = resp.json()
             
-        # Ensure all embeddings are lists of floats
-        for i, emb in enumerate(embeddings):
-            if not isinstance(emb, list):
-                raise RuntimeError(f"Invalid embedding format at index {i}")
-            if not all(isinstance(x, (int, float)) for x in emb):
-                raise RuntimeError(f"Invalid embedding values at index {i}")
+            # The new HuggingFace Text Embeddings Inference service returns embeddings directly
+            batch_embeddings = []
+            if isinstance(data, list):
+                # Direct list of embeddings
+                batch_embeddings = data
+            elif isinstance(data, dict) and "embeddings" in data:
+                # Response with embeddings key
+                batch_embeddings = data["embeddings"]
+            else:
+                # Try to extract embeddings from the response
+                batch_embeddings = data.get("embeddings", [])
+                
+            if not batch_embeddings:
+                raise RuntimeError(f"No embeddings returned from HuggingFace service for batch {i//batch_size + 1}")
+                
+            # Ensure all embeddings are lists of floats
+            for j, emb in enumerate(batch_embeddings):
+                if not isinstance(emb, list):
+                    raise RuntimeError(f"Invalid embedding format at batch {i//batch_size + 1}, index {j}")
+                if not all(isinstance(x, (int, float)) for x in emb):
+                    raise RuntimeError(f"Invalid embedding values at batch {i//batch_size + 1}, index {j}")
+            
+            embeddings.extend(batch_embeddings)
+            logger.info(f"Successfully processed batch {i//batch_size + 1} ({len(batch_embeddings)} embeddings)")
                 
     return embeddings
 
@@ -228,7 +248,9 @@ async def main_async(args: argparse.Namespace) -> int:
     logger.info(f"Generated {len(embeddings)} embeddings of dimension {dims} using {provider}")
 
     # Ensure collection and store
-    await ensure_qdrant_collection(q_host, q_port, q_api, q_collection, dims or 768)
+    # Use appropriate default dimensions based on provider
+    default_dims = 384 if provider == "huggingface" else 768
+    await ensure_qdrant_collection(q_host, q_port, q_api, q_collection, dims or default_dims)
     await store_embeddings_qdrant(q_host, q_port, q_api, q_collection, args.document_id, chunks, embeddings, model_used, provider)
 
     # Emit a concise JSON summary to stdout

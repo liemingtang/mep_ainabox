@@ -369,7 +369,7 @@ class OllamaEmbeddingGenerator:
     
     def get_model_dimensions(self, model_name: str) -> int:
         """Get the expected dimensions for a model"""
-        return self.model_dimensions.get(model_name, 768)  # Default to 768
+        return self.model_dimensions.get(model_name, 768)  # Default to 768 for Ollama
     
     async def list_available_models(self) -> List[Dict[str, Any]]:
         """List available Ollama models"""
@@ -402,8 +402,11 @@ class QdrantClient:
         self.api_key = api_key
         self.base_url = f"http://{host}:{port}"
     
-    async def create_collection(self, dimensions: int = 768) -> bool:
+    async def create_collection(self, dimensions: int = None) -> bool:
         """Create a collection in Qdrant if it doesn't exist"""
+        # Use appropriate default dimensions based on provider
+        if dimensions is None:
+            dimensions = 384 if EMBEDDING_PROVIDER == "huggingface" else 768
         try:
             collection_name = "documents"
             
@@ -448,7 +451,9 @@ class QdrantClient:
         """Store embeddings in Qdrant"""
         try:
             # Ensure collection exists with correct dimensions
-            dimensions = len(embeddings[0]) if embeddings else 768
+            # Use appropriate default dimensions based on provider
+            default_dims = 384 if EMBEDDING_PROVIDER == "huggingface" else 768
+            dimensions = len(embeddings[0]) if embeddings else default_dims
             await self.create_collection(dimensions)
             
             # Prepare points for insertion

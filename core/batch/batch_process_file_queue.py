@@ -215,7 +215,10 @@ class BatchProcessFileQueue:
                 'HUGGINGFACE_HOST': os.getenv('HUGGINGFACE_HOST', 'localhost'),
                 'HUGGINGFACE_PORT': os.getenv('HUGGINGFACE_PORT', '8082'),
                 'HUGGINGFACE_MODEL': os.getenv('HUGGINGFACE_MODEL', 'sentence-transformers/all-MiniLM-L6-v2'),
-                'EMBEDDING_PROCESSOR_URL': os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8082/embed')
+                'EMBEDDING_PROCESSOR_URL': os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8082/embed'),
+                'EMBEDDING_CHUNK_SIZE': os.getenv('EMBEDDING_CHUNK_SIZE', '200'),
+                'EMBEDDING_CHUNK_OVERLAP': os.getenv('EMBEDDING_CHUNK_OVERLAP', '20'),
+                'EMBEDDING_BATCH_SIZE': os.getenv('EMBEDDING_BATCH_SIZE', '100')
             }
             # Log what we're passing (mask the API key)
             try:
@@ -243,6 +246,9 @@ class BatchProcessFileQueue:
             # Add script arguments
             if script_args:
                 docker_cmd.extend(script_args)
+            else:
+                # Add --no-stats by default to avoid the statistics printing issue
+                docker_cmd.extend(["--no-stats"])
  
             logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
             
@@ -327,6 +333,9 @@ class BatchProcessFileQueue:
             os.environ.setdefault('HUGGINGFACE_PORT', os.getenv('HUGGINGFACE_PORT', '8082'))
             os.environ.setdefault('HUGGINGFACE_MODEL', os.getenv('HUGGINGFACE_MODEL', 'sentence-transformers/all-MiniLM-L6-v2'))
             os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8082/embed'))
+            os.environ.setdefault('EMBEDDING_CHUNK_SIZE', os.getenv('EMBEDDING_CHUNK_SIZE', '200'))
+            os.environ.setdefault('EMBEDDING_CHUNK_OVERLAP', os.getenv('EMBEDDING_CHUNK_OVERLAP', '20'))
+            os.environ.setdefault('EMBEDDING_BATCH_SIZE', os.getenv('EMBEDDING_BATCH_SIZE', '100'))
             if os.getenv('QDRANT_API_KEY') and not os.environ.get('QDRANT_API_KEY'):
                 os.environ['QDRANT_API_KEY'] = os.getenv('QDRANT_API_KEY')  # forward if set
             try:
@@ -346,6 +355,9 @@ class BatchProcessFileQueue:
             # Add script arguments
             if script_args:
                 cmd.extend(script_args)
+            else:
+                # Add --no-stats by default to avoid the statistics printing issue
+                cmd.extend(["--no-stats"])
             
             logger.info(f"🚀 Running worker directly: {' '.join(cmd)}")
             

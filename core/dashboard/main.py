@@ -2986,26 +2986,25 @@ async def llm_search(request: Request):
                     if word in content:
                         word_matches += 1
                 
-                            # Check metadata for CSV-related terms
-            metadata_match = False
-            metadata_text = ""
-            
-            # Check blobType for CSV
-            blob_type = metadata.get("blobType", "").lower()
-            if "csv" in blob_type:
-                metadata_match = True
-                metadata_text += f"File type: {blob_type}; "
-            
-            # Check for any metadata fields that might contain search terms
-            for key, value in metadata.items():
-                if isinstance(value, str) and any(word in value.lower() for word in query_words):
-                    metadata_match = True
-                    metadata_text += f"{key}: {value}; "
-            
-            # Check for specific terms in metadata
-            if any(word in ["csv", "cdp", "data"] for word in query_words):
+                # Check metadata for CSV-related terms
+                metadata_text = ""
+                
+                # Check blobType for CSV
+                blob_type = metadata.get("blobType", "").lower()
                 if "csv" in blob_type:
                     metadata_match = True
+                    metadata_text += f"File type: {blob_type}; "
+                
+                # Check for any metadata fields that might contain search terms
+                for key, value in metadata.items():
+                    if isinstance(value, str) and any(word in value.lower() for word in query_words):
+                        metadata_match = True
+                        metadata_text += f"{key}: {value}; "
+                
+                # Check for specific terms in metadata
+                if any(word in ["csv", "cdp", "data"] for word in query_words):
+                    if "csv" in blob_type:
+                        metadata_match = True
                 
                 # Match if any word is found or metadata matches
                 if content_match or metadata_match or word_matches > 0:
