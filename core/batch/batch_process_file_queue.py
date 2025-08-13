@@ -155,7 +155,7 @@ class BatchProcessFileQueue:
                 "docker", "run", "--rm",
                 "--network", "host"
             ]
-            
+
             # Mount each folder group (normalize paths; do not require paths to exist inside this container)
             mount_points = []
             for folder_path in folder_groups.keys():
@@ -211,16 +211,20 @@ class BatchProcessFileQueue:
                 'QDRANT_HOST': os.getenv('QDRANT_HOST', 'localhost'),
                 'QDRANT_PORT': os.getenv('QDRANT_PORT', '6333'),
                 'QDRANT_COLLECTION': os.getenv('QDRANT_COLLECTION', 'documents'),
-                'QDRANT_API_KEY': os.getenv('QDRANT_API_KEY', ''),
-                'EMBEDDING_PROCESSOR_URL': os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8007/process')
+                'QDRANT_API_KEY': os.getenv('QDRANT_API_KEY', 'qdrant_api_key'),
+                'HUGGINGFACE_HOST': os.getenv('HUGGINGFACE_HOST', 'localhost'),
+                'HUGGINGFACE_PORT': os.getenv('HUGGINGFACE_PORT', '8082'),
+                'HUGGINGFACE_MODEL': os.getenv('HUGGINGFACE_MODEL', 'sentence-transformers/all-MiniLM-L6-v2'),
+                'EMBEDDING_PROCESSOR_URL': os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8082/embed')
             }
             # Log what we're passing (mask the API key)
             try:
                 logger.info(
-                    "🧩 Passing embedding env -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                    "🧩 Passing embedding env -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, hf=%s:%s, hf_model=%s, api_key=%s",
                     env_defaults['EMBEDDING_PROVIDER'], env_defaults['QDRANT_HOST'], env_defaults['QDRANT_PORT'],
                     env_defaults['QDRANT_COLLECTION'], env_defaults['OLLAMA_HOST'], env_defaults['OLLAMA_PORT'],
-                    env_defaults['OLLAMA_DEFAULT_MODEL'], 'set' if env_defaults['QDRANT_API_KEY'] else 'not_set'
+                    env_defaults['OLLAMA_DEFAULT_MODEL'], env_defaults['HUGGINGFACE_HOST'], env_defaults['HUGGINGFACE_PORT'],
+                    env_defaults['HUGGINGFACE_MODEL'], 'set' if env_defaults['QDRANT_API_KEY'] else 'not_set'
                 )
             except Exception:
                 pass
@@ -239,7 +243,7 @@ class BatchProcessFileQueue:
             # Add script arguments
             if script_args:
                 docker_cmd.extend(script_args)
-            
+ 
             logger.info(f"🚀 Running Docker command: {' '.join(docker_cmd)}")
             
             # Execute Docker command
@@ -319,15 +323,19 @@ class BatchProcessFileQueue:
             os.environ.setdefault('QDRANT_HOST', os.getenv('QDRANT_HOST', 'localhost'))
             os.environ.setdefault('QDRANT_PORT', os.getenv('QDRANT_PORT', '6333'))
             os.environ.setdefault('QDRANT_COLLECTION', os.getenv('QDRANT_COLLECTION', 'documents'))
-            os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8007/process'))
+            os.environ.setdefault('HUGGINGFACE_HOST', os.getenv('HUGGINGFACE_HOST', 'localhost'))
+            os.environ.setdefault('HUGGINGFACE_PORT', os.getenv('HUGGINGFACE_PORT', '8082'))
+            os.environ.setdefault('HUGGINGFACE_MODEL', os.getenv('HUGGINGFACE_MODEL', 'sentence-transformers/all-MiniLM-L6-v2'))
+            os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8082/embed'))
             if os.getenv('QDRANT_API_KEY') and not os.environ.get('QDRANT_API_KEY'):
                 os.environ['QDRANT_API_KEY'] = os.getenv('QDRANT_API_KEY')  # forward if set
             try:
                 logger.info(
-                    "🧩 Embedding env (direct) -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, api_key=%s",
+                    "🧩 Embedding env (direct) -> provider=%s, qdrant=%s:%s, collection=%s, ollama=%s:%s, model=%s, hf=%s:%s, hf_model=%s, api_key=%s",
                     os.environ.get('EMBEDDING_PROVIDER'), os.environ.get('QDRANT_HOST'), os.environ.get('QDRANT_PORT'),
                     os.environ.get('QDRANT_COLLECTION'), os.environ.get('OLLAMA_HOST'), os.environ.get('OLLAMA_PORT'),
-                    os.environ.get('OLLAMA_DEFAULT_MODEL'), 'set' if os.environ.get('QDRANT_API_KEY') else 'not_set'
+                    os.environ.get('OLLAMA_DEFAULT_MODEL'), os.environ.get('HUGGINGFACE_HOST'), os.environ.get('HUGGINGFACE_PORT'),
+                    os.environ.get('HUGGINGFACE_MODEL'), 'set' if os.environ.get('QDRANT_API_KEY') else 'not_set'
                 )
             except Exception:
                 pass
@@ -523,4 +531,4 @@ async def main():
         await processor.disconnect()
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

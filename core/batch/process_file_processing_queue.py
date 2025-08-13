@@ -438,7 +438,8 @@ class QueueWorker:
             env_passthrough = []
             for var in [
                 'QDRANT_HOST', 'QDRANT_PORT', 'QDRANT_API_KEY', 'QDRANT_COLLECTION',
-                'EMBEDDING_PROVIDER', 'OLLAMA_HOST', 'OLLAMA_PORT', 'OLLAMA_DEFAULT_MODEL'
+                'EMBEDDING_PROVIDER', 'OLLAMA_HOST', 'OLLAMA_PORT', 'OLLAMA_DEFAULT_MODEL',
+                'HUGGINGFACE_HOST', 'HUGGINGFACE_PORT', 'HUGGINGFACE_MODEL'
             ]:
                 if os.getenv(var) is not None:
                     env_passthrough.extend(["-e", f"{var}={os.getenv(var)}"])
@@ -474,7 +475,10 @@ class QueueWorker:
                     os.environ['QDRANT_HOST'] = 'localhost'
                     os.environ['QDRANT_PORT'] = os.getenv('QDRANT_PORT', '6333')
                     os.environ['QDRANT_COLLECTION'] = os.getenv('QDRANT_COLLECTION', 'documents')
-                    os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8007/process'))
+                    os.environ.setdefault('EMBEDDING_PROCESSOR_URL', os.getenv('EMBEDDING_PROCESSOR_URL', 'http://localhost:8082/embed'))
+                    os.environ['HUGGINGFACE_HOST'] = 'localhost'
+                    os.environ['HUGGINGFACE_PORT'] = os.getenv('HUGGINGFACE_PORT', '8082')
+                    os.environ['HUGGINGFACE_MODEL'] = os.getenv('HUGGINGFACE_MODEL', 'sentence-transformers/all-MiniLM-L6-v2')
                     if os.getenv('QDRANT_API_KEY'):
                         os.environ['QDRANT_API_KEY'] = os.getenv('QDRANT_API_KEY')
                     logger.info(
@@ -913,28 +917,45 @@ class QueueWorker:
             except Exception as e:
                 logger.warning(f"⚠️  Failed to store in Elasticsearch for {filename}: {e}")
             
-            await self.update_item_status(item_id, 'completed')
-
             # After successful text extraction, generate embeddings and store in Qdrant
             try:
                 if text_content:
                     provider = os.getenv("EMBEDDING_PROVIDER", "huggingface").lower()
                     if provider == "huggingface":
-                        # Use HuggingFace embedding service API
+                        # Use batch_embedding_processor.py to call HuggingFace service on port 8082
                         try:
-                            embedding_url = os.getenv("EMBEDDING_PROCESSOR_URL", "http://localhost:8007/process")
-                            payload = {
-                                "document_id": str(item["file_info_id"]),
-                                "text_content": text_content,
-                                "model": os.getenv("HF_DEFAULT_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
-                                "provider": "huggingface",
-                            }
-                            async with httpx.AsyncClient(timeout=120.0) as client:
-                                resp = await client.post(embedding_url, json=payload)
-                                if resp.status_code == 200:
-                                    logger.info("✅ HF embeddings stored in Qdrant via service")
-                                else:
-                                    logger.warning("⚠️  HF embedding service failed: status=%s body=%s", resp.status_code, (resp.text or "")[:300])
+                            import tempfile
+                            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt') as tf:
+                                tf.write(text_content)
+                                temp_text_file = tf.name
+                            logger.info(
+                                f"🧠 Generating embeddings for {filename} (document_id={item['file_info_id']}), text_file={temp_text_file}"
+                            )
+                            emb_result = self.run_embedding_processor_docker(str(item['file_info_id']), temp_text_file)
+                            try:
+                                if emb_result.get('stdout'):
+                                    for line in emb_result['stdout'].splitlines():
+                                        if line.strip().startswith('{') and line.strip().endswith('}'):
+                                            try:
+                                                payload = json.loads(line)
+                                                if isinstance(payload, dict) and payload.get('success') is True:
+                                                    logger.info(
+                                                        "📦 Embedding summary -> vectors=%s, dims=%s, collection=%s, provider=%s, model=%s",
+                                                        payload.get('embeddings_count'), payload.get('vector_dimensions'),
+                                                        payload.get('collection'), payload.get('provider_used'), payload.get('model_used')
+                                                    )
+                                                    break
+                                            except json.JSONDecodeError:
+                                                continue
+                            except Exception:
+                                pass
+
+                            if emb_result['success']:
+                                logger.info(f"✅ Embeddings generated and stored in Qdrant for {filename}")
+                            else:
+                                logger.warning(
+                                    f"⚠️  Embedding generation failed for {filename}: returncode={emb_result.get('returncode')}, stderr={emb_result.get('stderr', '')[:400]}"
+                                )
                         except Exception as e:
                             logger.warning(f"⚠️  HF embedding call failed: {e}")
                     elif provider == "ollama":
@@ -977,6 +998,9 @@ class QueueWorker:
                     logger.info("ℹ️  No text content available; skipping embeddings")
             except Exception as e:
                 logger.warning(f"⚠️  Failed to generate/store embeddings for {filename}: {e}")
+            
+            # Mark item as completed after all processing (including embeddings) is done
+            await self.update_item_status(item_id, 'completed')
             return True
         else:
             error_msg = f"Processing failed: {result['stderr']}"
@@ -1642,6 +1666,37 @@ class QueueWorker:
             
         except Exception as e:
             logger.error(f"❌ Failed to print summary statistics: {e}")
+
+    async def store_embeddings_qdrant(self, host: str, port: int, api_key: str, collection: str,
+                                      document_id: str, texts: List[str], embeddings: List[List[float]],
+                                      model_used: str, provider_used: str) -> None:
+        """Store embeddings in Qdrant vector database"""
+        headers = {"api-key": api_key, "Content-Type": "application/json"} if api_key else {"Content-Type": "application/json"}
+        base_url = f"http://{host}:{port}"
+        points: List[Dict[str, Any]] = []
+        for i, (emb, txt) in enumerate(zip(embeddings, texts)):
+            pid = int.from_bytes(f"{document_id}_{i}".encode("utf-8"), byteorder="big", signed=False) % (2**63)
+            points.append({
+                "id": pid,
+                "vector": emb,
+                "payload": {
+                    "document_id": document_id,
+                    "chunk_index": i,
+                    "text": txt[:1000],
+                    "text_length": len(txt),
+                    "model_used": model_used,
+                    "provider_used": provider_used,
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+            })
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(
+                f"{base_url}/collections/{collection}/points",
+                headers=headers,
+                json={"points": points},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
 
 def load_config() -> Dict[str, Any]:
     """Load configuration from main.yaml"""

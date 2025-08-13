@@ -2,7 +2,7 @@
 """
 Batch Embedding Processor
 
-Reads text content from a file, generates vector embeddings (via Ollama by default),
+Reads text content from a file, generates vector embeddings (via Ollama or HuggingFace),
 and stores them into Qdrant using environment variables for connection details.
 
 Environment variables:
@@ -10,10 +10,13 @@ Environment variables:
   - QDRANT_PORT (default: 6333)
   - QDRANT_API_KEY (optional)
   - QDRANT_COLLECTION (default: documents)
-  - EMBEDDING_PROVIDER (default: ollama)  # Only 'ollama' supported in this batch script
+  - EMBEDDING_PROVIDER (default: ollama)  # 'ollama' or 'huggingface'
   - OLLAMA_HOST (default: ollama)
   - OLLAMA_PORT (default: 11434)
   - OLLAMA_DEFAULT_MODEL (default: nomic-embed-text)
+  - HUGGINGFACE_HOST (default: localhost)
+  - HUGGINGFACE_PORT (default: 8082)
+  - HUGGINGFACE_MODEL (default: sentence-transformers/all-MiniLM-L6-v2)
 """
 
 import argparse
@@ -80,6 +83,46 @@ async def generate_ollama_embeddings(texts: List[str], base_url: str, model_name
     return embeddings
 
 
+async def generate_huggingface_embeddings(texts: List[str], base_url: str, model_name: str) -> List[List[float]]:
+    embeddings: List[List[float]] = []
+    async with httpx.AsyncClient() as client:
+        # HuggingFace Text Embeddings Inference service expects a list of texts
+        # The service is configured to use sentence-transformers/all-MiniLM-L6-v2
+        payload = {
+            "inputs": texts
+        }
+        resp = await client.post(
+            f"{base_url}/embed",
+            json=payload,
+            timeout=120.0,  # Longer timeout for HuggingFace
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        
+        # The new HuggingFace Text Embeddings Inference service returns embeddings directly
+        if isinstance(data, list):
+            # Direct list of embeddings
+            embeddings = data
+        elif isinstance(data, dict) and "embeddings" in data:
+            # Response with embeddings key
+            embeddings = data["embeddings"]
+        else:
+            # Try to extract embeddings from the response
+            embeddings = data.get("embeddings", [])
+            
+        if not embeddings:
+            raise RuntimeError("No embeddings returned from HuggingFace service")
+            
+        # Ensure all embeddings are lists of floats
+        for i, emb in enumerate(embeddings):
+            if not isinstance(emb, list):
+                raise RuntimeError(f"Invalid embedding format at index {i}")
+            if not all(isinstance(x, (int, float)) for x in emb):
+                raise RuntimeError(f"Invalid embedding values at index {i}")
+                
+    return embeddings
+
+
 async def ensure_qdrant_collection(host: str, port: int, api_key: str, collection: str, dimensions: int) -> None:
     headers = {"api-key": api_key} if api_key else {}
     base_url = f"http://{host}:{port}"
@@ -143,10 +186,18 @@ async def main_async(args: argparse.Namespace) -> int:
     q_collection = os.getenv("QDRANT_COLLECTION", "documents")
 
     provider = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
+    
+    # Ollama configuration
     ollama_host = os.getenv("OLLAMA_HOST", "ollama")
     ollama_port = os.getenv("OLLAMA_PORT", "11434")
     ollama_model = os.getenv("OLLAMA_DEFAULT_MODEL", "nomic-embed-text")
     ollama_base = f"http://{ollama_host}:{ollama_port}"
+    
+    # HuggingFace configuration (Text Embeddings Inference service)
+    hf_host = os.getenv("HUGGINGFACE_HOST", "localhost")
+    hf_port = os.getenv("HUGGINGFACE_PORT", "8082")
+    hf_model = os.getenv("HUGGINGFACE_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+    hf_base = f"http://{hf_host}:{hf_port}"
 
     # Read text
     text_path = Path(args.text_file)
@@ -162,17 +213,23 @@ async def main_async(args: argparse.Namespace) -> int:
     chunks = chunk_text(text_content)
     logger.info(f"Chunked text into {len(chunks)} chunks")
 
-    # Generate embeddings
-    if provider != "ollama":
-        logger.error("Only EMBEDDING_PROVIDER=ollama is supported in batch script. Set env accordingly.")
+    # Generate embeddings based on provider
+    if provider == "ollama":
+        embeddings = await generate_ollama_embeddings(chunks, ollama_base, ollama_model)
+        model_used = ollama_model
+    elif provider == "huggingface":
+        embeddings = await generate_huggingface_embeddings(chunks, hf_base, hf_model)
+        model_used = hf_model
+    else:
+        logger.error(f"Unsupported EMBEDDING_PROVIDER: {provider}. Use 'ollama' or 'huggingface'")
         return 2
-    embeddings = await generate_ollama_embeddings(chunks, ollama_base, ollama_model)
+        
     dims = len(embeddings[0]) if embeddings else 0
-    logger.info(f"Generated {len(embeddings)} embeddings of dimension {dims}")
+    logger.info(f"Generated {len(embeddings)} embeddings of dimension {dims} using {provider}")
 
     # Ensure collection and store
     await ensure_qdrant_collection(q_host, q_port, q_api, q_collection, dims or 768)
-    await store_embeddings_qdrant(q_host, q_port, q_api, q_collection, args.document_id, chunks, embeddings, ollama_model, provider)
+    await store_embeddings_qdrant(q_host, q_port, q_api, q_collection, args.document_id, chunks, embeddings, model_used, provider)
 
     # Emit a concise JSON summary to stdout
     print(json.dumps({
@@ -181,7 +238,7 @@ async def main_async(args: argparse.Namespace) -> int:
         "vector_dimensions": dims,
         "collection": q_collection,
         "provider_used": provider,
-        "model_used": ollama_model
+        "model_used": model_used
     }))
     return 0
 
