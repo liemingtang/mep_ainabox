@@ -370,6 +370,96 @@
             color: #0c4a6e;
             margin-bottom: 5px;
         }
+        
+        .indexing-progress {
+            background: #f1f5f9;
+            border-radius: 4px;
+            height: 20px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .indexing-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #059669);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .indexing-status-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        
+        .indexing-status-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .indexing-status-name {
+            font-weight: 600;
+            color: #374151;
+        }
+        
+        .indexing-status-indicator {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .indexing-active {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .indexing-complete {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .indexing-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .indexing-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .indexing-stat {
+            text-align: center;
+            padding: 8px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .indexing-stat-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2563eb;
+        }
+        
+        .indexing-stat-label {
+            font-size: 10px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
     </style>
 </head>
 <body>
@@ -416,6 +506,13 @@
             </div>
             
             <div class="card">
+                <h2>🔧 Indexing Status</h2>
+                <div id="indexing-status">
+                    <div class="loading">Loading indexing information...</div>
+                </div>
+            </div>
+            
+            <div class="card">
                 <h2>📈 Collection Statistics</h2>
                 <div id="collections-stats">
                     <div class="loading">Loading collection statistics...</div>
@@ -434,6 +531,9 @@
                 <div class="grid">
                     <div>
                         <button class="btn" onclick="loadOverviewData()">🔄 Refresh All Data</button>
+                    </div>
+                    <div>
+                        <button class="btn btn-secondary" onclick="triggerIndexing()">🔧 Trigger Indexing</button>
                     </div>
                     <div>
                         <button class="btn btn-secondary" onclick="showTab('collections')">Manage Collections</button>
@@ -578,6 +678,13 @@ curl -X PUT http://localhost:6333/collections/test \
             // Test connection and load data
             testConnection();
             console.log('testConnection() called');
+            
+            // Set up periodic refresh of indexing status (every 30 seconds)
+            setInterval(() => {
+                if (document.getElementById('indexing-status')) {
+                    loadIndexingStatus();
+                }
+            }, 30000);
         });
         
         // Get headers for API requests
@@ -702,12 +809,163 @@ curl -X PUT http://localhost:6333/collections/test \
                 await Promise.all([
                     loadStatus(),
                     loadCollectionsOverview(),
+                    loadIndexingStatus(),
                     loadCollectionsStats(),
                     loadCollectionsDetails()
                 ]);
                 console.log('=== loadOverviewData() completed successfully ===');
             } catch (error) {
                 console.error('Error in loadOverviewData():', error);
+            }
+        }
+        
+        // Load indexing status for all collections
+        async function loadIndexingStatus() {
+            console.log('=== loadIndexingStatus() called ===');
+            try {
+                const response = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                if (data.result && data.result.collections) {
+                    const collections = data.result.collections;
+                    let totalPoints = 0;
+                    let totalIndexedVectors = 0;
+                    let indexingInProgress = 0;
+                    let fullyIndexed = 0;
+                    
+                    const indexingDetails = [];
+                    
+                    for (const collection of collections) {
+                        try {
+                            const detailResponse = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                                headers: getHeaders()
+                            });
+                            
+                            if (detailResponse.ok) {
+                                const detailData = await detailResponse.json();
+                                const collectionInfo = detailData.result;
+                                
+                                const pointsCount = collectionInfo.points_count || 0;
+                                const indexedVectorsCount = collectionInfo.indexed_vectors_count || 0;
+                                const segmentsCount = collectionInfo.segments_count || 0;
+                                
+                                totalPoints += pointsCount;
+                                totalIndexedVectors += indexedVectorsCount;
+                                
+                                // Calculate indexing progress
+                                let indexingProgress = 0;
+                                let indexingStatus = 'pending';
+                                
+                                if (pointsCount > 0) {
+                                    indexingProgress = (indexedVectorsCount / pointsCount) * 100;
+                                    
+                                    if (indexingProgress >= 100) {
+                                        indexingStatus = 'complete';
+                                        fullyIndexed++;
+                                    } else if (indexingProgress > 0) {
+                                        indexingStatus = 'active';
+                                        indexingInProgress++;
+                                    }
+                                }
+                                
+                                indexingDetails.push({
+                                    name: collection.name,
+                                    pointsCount: pointsCount,
+                                    indexedVectorsCount: indexedVectorsCount,
+                                    segmentsCount: segmentsCount,
+                                    indexingProgress: indexingProgress,
+                                    indexingStatus: indexingStatus,
+                                    optimizerStatus: collectionInfo.optimizer_status || 'unknown'
+                                });
+                            }
+                        } catch (error) {
+                            console.log(`Error fetching indexing details for ${collection.name}:`, error);
+                        }
+                    }
+                    
+                    const overallProgress = totalPoints > 0 ? (totalIndexedVectors / totalPoints) * 100 : 0;
+                    
+                    let html = `
+                        <div class="overview-summary">
+                            <h3>🔧 Overall Indexing Status</h3>
+                            <div class="indexing-progress">
+                                <div class="indexing-progress-bar" style="width: ${overallProgress}%">
+                                    ${overallProgress.toFixed(1)}%
+                                </div>
+                            </div>
+                            <p><strong>Total Points:</strong> ${totalPoints.toLocaleString()}</p>
+                            <p><strong>Indexed Vectors:</strong> ${totalIndexedVectors.toLocaleString()}</p>
+                            <p><strong>Fully Indexed Collections:</strong> ${fullyIndexed} / ${collections.length}</p>
+                            <p><strong>Indexing in Progress:</strong> ${indexingInProgress}</p>
+                        </div>
+                    `;
+                    
+                    // Add individual collection indexing status
+                    if (indexingDetails.length > 0) {
+                        html += '<h4 style="margin: 20px 0 10px 0; color: #374151;">Collection Indexing Details</h4>';
+                        
+                        for (const detail of indexingDetails) {
+                            const statusClass = detail.indexingStatus === 'complete' ? 'indexing-complete' : 
+                                              detail.indexingStatus === 'active' ? 'indexing-active' : 'indexing-pending';
+                            
+                            html += `
+                                <div class="indexing-status-card">
+                                    <div class="indexing-status-header">
+                                        <div class="indexing-status-name">${detail.name}</div>
+                                        <div class="indexing-status-indicator ${statusClass}">
+                                            ${detail.indexingStatus.toUpperCase()}
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="indexing-progress">
+                                        <div class="indexing-progress-bar" style="width: ${detail.indexingProgress}%">
+                                            ${detail.indexingProgress.toFixed(1)}%
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="indexing-stats">
+                                        <div class="indexing-stat">
+                                            <div class="indexing-stat-value">${detail.pointsCount}</div>
+                                            <div class="indexing-stat-label">Points</div>
+                                        </div>
+                                        <div class="indexing-stat">
+                                            <div class="indexing-stat-value">${detail.indexedVectorsCount}</div>
+                                            <div class="indexing-stat-label">Indexed</div>
+                                        </div>
+                                        <div class="indexing-stat">
+                                            <div class="indexing-stat-value">${detail.segmentsCount}</div>
+                                            <div class="indexing-stat-label">Segments</div>
+                                        </div>
+                                        <div class="indexing-stat">
+                                            <div class="indexing-stat-value">${detail.optimizerStatus}</div>
+                                            <div class="indexing-stat-label">Optimizer</div>
+                                        </div>
+                                        <div class="indexing-stat">
+                                            <div class="indexing-stat-value">100</div>
+                                            <div class="indexing-stat-label">Threshold</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    document.getElementById('indexing-status').innerHTML = html;
+                } else {
+                    document.getElementById('indexing-status').innerHTML = `
+                        <div class="warning">
+                            No collections found or unable to load indexing data.
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('indexing-status').innerHTML = `
+                    <div class="error">
+                        <strong>Error loading indexing status:</strong> ${error.message}
+                    </div>
+                `;
             }
         }
         
@@ -776,6 +1034,13 @@ curl -X PUT http://localhost:6333/collections/test \
                                 <div class="stat-number">${activeCollections}</div>
                                 <div class="stat-label">Active</div>
                             </div>
+                        </div>
+                        
+                        <div style="margin-top: 20px; padding: 15px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 6px;">
+                            <h4 style="margin: 0 0 10px 0; color: #0369a1;">🔧 Indexing Overview</h4>
+                            <p style="margin: 5px 0; color: #0c4a6e;"><strong>Note:</strong> This section shows basic indexing information. For detailed indexing status, see the "Indexing Status" section above.</p>
+                            <p style="margin: 5px 0; color: #0c4a6e;"><strong>Indexing Threshold:</strong> Collections are automatically indexed when they reach the configured threshold (usually 100 points).</p>
+                            <p style="margin: 5px 0; color: #0c4a6e;"><strong>Manual Trigger:</strong> Use the "Trigger Indexing" button to force indexing for all collections.</p>
                         </div>
                     `;
                 } else {
@@ -881,6 +1146,87 @@ curl -X PUT http://localhost:6333/collections/test \
             }
         }
         
+        // Trigger indexing for all collections
+        async function triggerIndexing() {
+            console.log('=== triggerIndexing() called ===');
+            try {
+                const response = await fetch(`${QDRANT_URL}/collections`, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                if (data.result && data.result.collections) {
+                    const collections = data.result.collections;
+                    const results = [];
+                    
+                    for (const collection of collections) {
+                        try {
+                            // Trigger indexing by updating optimizer config
+                            const updateResponse = await fetch(`${QDRANT_URL}/collections/${collection.name}`, {
+                                method: 'PATCH',
+                                headers: getHeaders(),
+                                body: JSON.stringify({
+                                    optimizer_config: {
+                                        indexing_threshold: 100
+                                    }
+                                })
+                            });
+                            
+                            if (updateResponse.ok) {
+                                results.push({
+                                    collection: collection.name,
+                                    status: 'success',
+                                    message: 'Indexing threshold updated to 100'
+                                });
+                            } else {
+                                const errorText = await updateResponse.text();
+                                results.push({
+                                    collection: collection.name,
+                                    status: 'error',
+                                    message: `Failed to update: ${errorText}`
+                                });
+                            }
+                        } catch (error) {
+                            results.push({
+                                collection: collection.name,
+                                status: 'error',
+                                message: `Exception: ${error.message}`
+                            });
+                        }
+                    }
+                    
+                    // Show results
+                    let resultHtml = '<div class="success"><h4>Indexing Trigger Results:</h4>';
+                    for (const result of results) {
+                        const statusClass = result.status === 'success' ? 'success' : 'error';
+                        resultHtml += `<div class="${statusClass}">${result.collection}: ${result.message}</div>`;
+                    }
+                    resultHtml += '</div>';
+                    
+                    // Update the indexing status section
+                    document.getElementById('indexing-status').innerHTML = resultHtml;
+                    
+                    // Refresh indexing status after a short delay
+                    setTimeout(() => {
+                        loadIndexingStatus();
+                    }, 2000);
+                    
+                } else {
+                    document.getElementById('indexing-status').innerHTML = `
+                        <div class="error">
+                            No collections found to trigger indexing.
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('indexing-status').innerHTML = `
+                    <div class="error">
+                        <strong>Error triggering indexing:</strong> ${error.message}
+                    </div>
+                `;
+            }
+        }
+        
         // Load detailed collection information
         async function loadCollectionsDetails() {
             console.log('=== loadCollectionsDetails() called ===');
@@ -918,8 +1264,8 @@ curl -X PUT http://localhost:6333/collections/test \
                                         <div class="detail-label">Points</div>
                                     </div>
                                     <div class="detail-item">
-                                        <div class="detail-value">${collectionInfo.points_count || 0}</div>
-                                        <div class="detail-label">Vectors</div>
+                                        <div class="detail-value">${collectionInfo.indexed_vectors_count || 0}</div>
+                                        <div class="detail-label">Indexed Vectors</div>
                                     </div>
                                     <div class="detail-item">
                                         <div class="detail-value">${infoData.result && infoData.result.config && infoData.result.config.params ? infoData.result.config.params.vectors.size : 'N/A'}</div>
@@ -929,6 +1275,50 @@ curl -X PUT http://localhost:6333/collections/test \
                                         <div class="detail-value">${infoData.result && infoData.result.config && infoData.result.config.params ? infoData.result.config.params.vectors.distance : 'N/A'}</div>
                                         <div class="detail-label">Distance</div>
                                     </div>
+                                </div>
+                                
+                                <!-- Indexing Progress Section -->
+                                <div style="margin: 15px 0; padding: 15px; background: #f8fafc; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                    <h4 style="margin: 0 0 10px 0; color: #374151; font-size: 14px;">🔧 Indexing Status</h4>
+                                    ${(() => {
+                                        const pointsCount = collectionInfo.points_count || 0;
+                                        const indexedVectorsCount = collectionInfo.indexed_vectors_count || 0;
+                                        const indexingProgress = pointsCount > 0 ? (indexedVectorsCount / pointsCount) * 100 : 0;
+                                        const indexingStatus = indexingProgress >= 100 ? 'complete' : 
+                                                              indexingProgress > 0 ? 'active' : 'pending';
+                                        const statusClass = indexingStatus === 'complete' ? 'indexing-complete' : 
+                                                          indexingStatus === 'active' ? 'indexing-active' : 'indexing-pending';
+                                        
+                                        return `
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                                <span style="font-weight: 600; color: #374151;">Progress</span>
+                                                <span class="indexing-status-indicator ${statusClass}">${indexingStatus.toUpperCase()}</span>
+                                            </div>
+                                            <div class="indexing-progress">
+                                                <div class="indexing-progress-bar" style="width: ${indexingProgress}%">
+                                                    ${indexingProgress.toFixed(1)}%
+                                                </div>
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px;">
+                                                <div style="text-align: center;">
+                                                    <div style="font-size: 14px; font-weight: 600; color: #2563eb;">${pointsCount}</div>
+                                                    <div style="font-size: 10px; color: #666;">Total Points</div>
+                                                </div>
+                                                <div style="text-align: center;">
+                                                    <div style="font-size: 14px; font-weight: 600; color: #2563eb;">${indexedVectorsCount}</div>
+                                                    <div style="font-size: 10px; color: #666;">Indexed</div>
+                                                </div>
+                                                <div style="text-align: center;">
+                                                    <div style="font-size: 14px; font-weight: 600; color: #2563eb;">${collectionInfo.segments_count || 0}</div>
+                                                    <div style="font-size: 10px; color: #666;">Segments</div>
+                                                </div>
+                                                <div style="text-align: center;">
+                                                    <div style="font-size: 14px; font-weight: 600; color: #2563eb;">${collectionInfo.config && collectionInfo.config.optimizer_config && collectionInfo.config.optimizer_config.indexing_threshold ? collectionInfo.config.optimizer_config.indexing_threshold : '100'}</div>
+                                                    <div style="font-size: 10px; color: #666;">Threshold</div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    })()}
                                 </div>
                                 
                                 <div class="collection-detail-actions">
