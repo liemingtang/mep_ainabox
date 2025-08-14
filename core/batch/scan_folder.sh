@@ -120,6 +120,10 @@ DOCKER_CMD="$DOCKER_CMD -e HOST_FOLDER_PATH=\"$FOLDER_PATH\""
 # Mount the config directory
 DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
 
+# Mount the services directory for .env file access
+DOCKER_CMD="$DOCKER_CMD -v \"$PROJECT_ROOT/services:/services:ro\""
+echo -e "${YELLOW}📁 Mounting services directory: $PROJECT_ROOT/services -> /services${NC}"
+
 # Override the entrypoint to run the folder scanner script
 DOCKER_CMD="$DOCKER_CMD --entrypoint python3"
 
@@ -175,5 +179,7 @@ echo ""
 # Execute the Docker command
 echo -e "${GREEN}🚀 Starting Docker container...${NC}"
 echo ""
+
+echo "docker cmd: " $DOCKER_CMD
 
 eval $DOCKER_CMD 

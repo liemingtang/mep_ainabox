@@ -237,7 +237,7 @@ app.add_middleware(
 # Service URLs
 CORE_PROCESSOR_URL = os.getenv("CORE_PROCESSOR_URL", "http://localhost:8001")
 PROCESSING_PIPELINE_URL = os.getenv("PROCESSING_PIPELINE_URL", "http://localhost:8003")
-EMBEDDING_PROCESSOR_URL = os.getenv("EMBEDDING_PROCESSOR_URL", "http://localhost:8007")
+EMBEDDING_PROCESSOR_URL = os.getenv("EMBEDDING_PROCESSOR_URL", "http://localhost:8082")
 STORAGE_MANAGER_URL = os.getenv("STORAGE_MANAGER_URL", "http://storage-manager:8004")
 
 # Embedding provider configuration

@@ -28,6 +28,52 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def load_env_from_services():
+    """Load environment variables from services/.env file"""
+    try:
+        # Try multiple possible paths for the services directory (same logic as embedding processor)
+        possible_paths = [
+            "/services/.env",  # When mounted in Docker container
+            Path(__file__).parent.parent.parent / "services" / ".env",  # Relative to script
+            Path(__file__).parent.parent.parent.parent / "mep_ainabox" / "services" / ".env",  # Alternative relative path
+        ]
+        
+        services_env_path = None
+        for path in possible_paths:
+            if Path(path).exists():
+                services_env_path = path
+                break
+        
+        if services_env_path:
+            logger.info(f"📁 Loading environment variables from {services_env_path}")
+            with open(services_env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if line and not line.startswith('#'):
+                        # Handle key=value format
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip()
+                            # Remove quotes if present
+                            if value.startswith('"') and value.endswith('"'):
+                                value = value[1:-1]
+                            elif value.startswith("'") and value.endswith("'"):
+                                value = value[1:-1]
+                            
+                            # Set environment variable if not already set
+                            if key and value and key not in os.environ:
+                                os.environ[key] = value
+                                logger.debug(f"  Set {key}={value}")
+            
+            logger.info("✅ Environment variables loaded from services/.env")
+        else:
+            logger.warning(f"⚠️  Services .env file not found at any of: {possible_paths}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error loading environment variables: {e}")
+
 class QueueWorker:
     """Worker for processing files from the queue"""
     
@@ -502,7 +548,8 @@ class QueueWorker:
                     "--document-id", document_id
                 ]
                 logger.info(f"🚀 Running embedding processor directly: {' '.join(cmd)}")
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                # Pass the current environment to the subprocess
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=os.environ.copy())
                 logger.info(
                     "🧪 Embedding run (direct) -> returncode=%s, stdout=%s, stderr=%s",
                     result.returncode,
@@ -1780,6 +1827,9 @@ async def main():
     parser.add_argument("--debug-paths", action="store_true", help="Enable detailed path debugging")
     
     args = parser.parse_args()
+    
+    # Load environment variables from services/.env
+    load_env_from_services()
     
     # Load configuration
     config = load_config()

@@ -92,6 +92,10 @@ fi
 # Mount the entire core directory so container uses latest host code (/app mirrors core)
 DOCKER_CMD="$DOCKER_CMD -v \"$PROJECT_ROOT/core:/app\""
 
+# Mount the services directory for .env file access
+DOCKER_CMD="$DOCKER_CMD -v \"$PROJECT_ROOT/services:/services:ro\""
+echo -e "${YELLOW}📁 Mounting services directory: $PROJECT_ROOT/services -> /services${NC}"
+
 # Pass host core path so orchestrator can mount config into the worker
 DOCKER_CMD="$DOCKER_CMD -e DOCKER_HOST_CORE_PATH=\"$PROJECT_ROOT/core\""
 
@@ -154,5 +158,7 @@ echo ""
 # Execute the Docker command
 echo -e "${GREEN}🚀 Starting Docker container...${NC}"
 echo ""
+
+echo "docker cmd: " $DOCKER_CMD
 
 eval $DOCKER_CMD 

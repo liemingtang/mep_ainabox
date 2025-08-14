@@ -34,6 +34,47 @@ from typing import List, Dict, Any
 import httpx
 
 
+def load_env_from_services():
+    """Load environment variables from services/.env file"""
+    try:
+        # Try multiple possible paths for the services directory
+        possible_paths = [
+            "/services/.env",  # When mounted in Docker container
+            Path(__file__).parent.parent.parent / "services" / ".env",  # Relative to script
+            Path(__file__).parent.parent.parent.parent / "mep_ainabox" / "services" / ".env",  # Alternative relative path
+        ]
+        
+        services_env_path = None
+        for path in possible_paths:
+            if Path(path).exists():
+                services_env_path = path
+                break
+        
+        if services_env_path:
+            logger.info(f"📁 Loading environment variables from {services_env_path}")
+            with open(services_env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip()
+                            if value.startswith('"') and value.endswith('"'):
+                                value = value[1:-1]
+                            elif value.startswith("'") and value.endswith("'"):
+                                value = value[1:-1]
+                            
+                            if key and value and key not in os.environ:
+                                os.environ[key] = value
+                                logger.debug(f"  Set {key}={value}")
+            logger.info("✅ Environment variables loaded from services/.env")
+        else:
+            logger.warning(f"⚠️  Services .env file not found at any of: {possible_paths}")
+    except Exception as e:
+        logger.error(f"❌ Error loading environment variables: {e}")
+
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -144,7 +185,7 @@ async def generate_huggingface_embeddings(texts: List[str], base_url: str, model
 
 
 async def ensure_qdrant_collection(host: str, port: int, api_key: str, collection: str, dimensions: int) -> None:
-    headers = {"api-key": api_key} if api_key else {}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     base_url = f"http://{host}:{port}"
     async with httpx.AsyncClient() as client:
         # Check
@@ -156,6 +197,13 @@ async def ensure_qdrant_collection(host: str, port: int, api_key: str, collectio
             "vectors": {
                 "size": dimensions,
                 "distance": "Cosine"
+            },
+            "optimizer_config": {
+                "indexing_threshold": 100,
+                "memmap_threshold": 10000,
+                "vacuum_min_vector_number": 1000,
+                "deleted_threshold": 0.2,
+                "flush_interval_sec": 5
             }
         }
         rc = await client.put(
@@ -170,7 +218,7 @@ async def ensure_qdrant_collection(host: str, port: int, api_key: str, collectio
 async def store_embeddings_qdrant(host: str, port: int, api_key: str, collection: str,
                                   document_id: str, texts: List[str], embeddings: List[List[float]],
                                   model_used: str, provider_used: str) -> None:
-    headers = {"api-key": api_key, "Content-Type": "application/json"} if api_key else {"Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"} if api_key else {"Content-Type": "application/json"}
     base_url = f"http://{host}:{port}"
     points: List[Dict[str, Any]] = []
     for i, (emb, txt) in enumerate(zip(embeddings, texts)):
@@ -199,6 +247,9 @@ async def store_embeddings_qdrant(host: str, port: int, api_key: str, collection
 
 
 async def main_async(args: argparse.Namespace) -> int:
+    # Load environment variables from services/.env
+    load_env_from_services()
+    
     # Load envs
     q_host = os.getenv("QDRANT_HOST", "qdrant")
     q_port = int(os.getenv("QDRANT_PORT", "6333"))

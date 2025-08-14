@@ -83,6 +83,10 @@ DOCKER_CMD="docker run --rm --name $CONTAINER_NAME --network host"
 # Mount the config directory
 DOCKER_CMD="$DOCKER_CMD -v \"$CONFIG_PATH:/app/config\""
 
+# Mount the services directory for .env file access
+DOCKER_CMD="$DOCKER_CMD -v \"$PROJECT_ROOT/services:/services:ro\""
+echo -e "${YELLOW}📁 Mounting services directory: $PROJECT_ROOT/services -> /services${NC}"
+
 
 
 # Override the entrypoint to run the queue processing script

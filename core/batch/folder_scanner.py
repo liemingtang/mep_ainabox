@@ -26,6 +26,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def load_env_from_services():
+    """Load environment variables from services/.env file"""
+    try:
+        # Try to find the services/.env file relative to this script
+        script_dir = Path(__file__).parent
+        services_env_path = script_dir.parent.parent / "services" / ".env"
+        
+        if services_env_path.exists():
+            logger.info(f"📁 Loading environment variables from {services_env_path}")
+            with open(services_env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if line and not line.startswith('#'):
+                        # Handle key=value format
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip()
+                            # Remove quotes if present
+                            if value.startswith('"') and value.endswith('"'):
+                                value = value[1:-1]
+                            elif value.startswith("'") and value.endswith("'"):
+                                value = value[1:-1]
+                            
+                            # Set environment variable if not already set
+                            if key and value and key not in os.environ:
+                                os.environ[key] = value
+                                logger.debug(f"  Set {key}={value}")
+            
+            logger.info("✅ Environment variables loaded from services/.env")
+        else:
+            logger.warning(f"⚠️  Services .env file not found at {services_env_path}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error loading environment variables: {e}")
+
 @dataclass
 class FileInfo:
     """File information data class"""
@@ -464,6 +501,9 @@ async def main():
         logger.error(f"Path is not a directory: {args.folder_path}")
         sys.exit(1)
     
+    # Load environment variables from services/.env
+    load_env_from_services()
+
     # Load configuration
     config = load_config()
     

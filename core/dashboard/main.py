@@ -175,15 +175,15 @@ SERVICE_INFO = {
         "docker_container": "mep-embedding-processor",
         "admin_ui": None
     },
-    "embedding-processor-hf": {
-        "name": "Embedding Processor (HF)",
-        "description": "Vector embedding generation service (Hugging Face)",
-        "port": 8007,
-        "url": "http://localhost:8007",
-        "endpoints": ["/health", "/process", "/embed", "/models"],
-        "config_paths": ["/app/config/main.yaml"],
-        "log_paths": ["/app/logs/embedding-processor.log", "/app/logs/app.log"],
-        "docker_container": "mep-embedding-processor-hf",
+    "huggingface-embeddings": {
+        "name": "HuggingFace Embeddings Service",
+        "description": "HuggingFace text embeddings inference service",
+        "port": 8082,
+        "url": "http://localhost:8082",
+        "endpoints": ["/", "/embed", "/health"],
+        "config_paths": [],
+        "log_paths": [],
+        "docker_container": "mep-huggingface-embeddings",
         "admin_ui": None
     },
     "entity-processor": {
@@ -444,7 +444,7 @@ SERVICES = {
     "text-processor": "http://localhost:8005/health",
     "metadata-processor": "http://localhost:8006/health",
     "embedding-processor": "http://localhost:8007/health",
-    "embedding-processor-hf": "http://localhost:8007/health",
+            "huggingface-embeddings": "http://localhost:8082/",
     "entity-processor": "http://localhost:8008/health",
     "processing-pipeline": "http://localhost:8003/health",
     "document-router": "http://localhost:8002/health",
@@ -674,7 +674,7 @@ async def check_service_health(service_name: str, url: str) -> ServiceHealth:
             # Add authentication headers for specific services
             headers = {}
             if service_name == "qdrant":
-                headers["api-key"] = QDRANT_API_KEY
+                headers["Authorization"] = f"Bearer {QDRANT_API_KEY}"
             elif service_name == "neo4j":
                 # For Neo4j, we'll use a simple endpoint that doesn't require auth
                 url = f"{NEO4J_URL}/browser/"
@@ -861,7 +861,7 @@ async def get_service_metrics(service_name: str) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=5.0) as client:
             headers = {}
             if service_name == "qdrant":
-                headers["api-key"] = QDRANT_API_KEY
+                headers["Authorization"] = f"Bearer {QDRANT_API_KEY}"
             
             # Try different metrics endpoints based on service type
             metrics_endpoints = [
@@ -1002,7 +1002,7 @@ async def get_qdrant_stats() -> Dict:
     """Get Qdrant statistics"""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            headers = {"api-key": QDRANT_API_KEY}
+            headers = {"Authorization": f"Bearer {QDRANT_API_KEY}"}
             response = await client.get(f"{QDRANT_URL}/collections", headers=headers)
             if response.status_code == 200:
                 collections = response.json()
@@ -1016,6 +1016,106 @@ async def get_qdrant_stats() -> Dict:
     except Exception as e:
         # Don't log errors for services that aren't running yet
         return {"collections": [], "total_collections": 0}
+
+async def get_qdrant_detailed_stats() -> Dict:
+    """Get detailed Qdrant statistics including indexing information"""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            headers = {"Authorization": f"Bearer {QDRANT_API_KEY}"}
+            
+            # Get all collections
+            response = await client.get(f"{QDRANT_URL}/collections", headers=headers)
+            if response.status_code != 200:
+                return {"collections": [], "total_collections": 0, "error": "Failed to get collections"}
+            
+            collections = response.json()
+            collections_list = collections.get("result", {}).get("collections", [])
+            
+            detailed_collections = []
+            total_points = 0
+            total_indexed_vectors = 0
+            
+            for collection in collections_list:
+                collection_name = collection.get("name", "")
+                
+                # Get detailed collection info
+                collection_response = await client.get(f"{QDRANT_URL}/collections/{collection_name}", headers=headers)
+                if collection_response.status_code == 200:
+                    collection_info = collection_response.json().get("result", {})
+                    
+                    # Get collection stats
+                    stats_response = await client.post(
+                        f"{QDRANT_URL}/collections/{collection_name}/points/scroll",
+                        headers=headers,
+                        json={"limit": 1, "with_payload": False, "with_vector": False}
+                    )
+                    
+                    points_count = 0
+                    if stats_response.status_code == 200:
+                        stats_data = stats_response.json().get("result", {})
+                        points_count = len(stats_data.get("points", []))
+                        # If we got points, estimate total count (this is approximate)
+                        if points_count > 0:
+                            # Try to get a larger sample to estimate total
+                            large_sample_response = await client.post(
+                                f"{QDRANT_URL}/collections/{collection_name}/points/scroll",
+                                headers=headers,
+                                json={"limit": 1000, "with_payload": False, "with_vector": False}
+                            )
+                            if large_sample_response.status_code == 200:
+                                large_sample_data = large_sample_response.json().get("result", {})
+                                points_count = len(large_sample_data.get("points", []))
+                    
+                    detailed_collection = {
+                        "name": collection_name,
+                        "status": collection_info.get("status", "unknown"),
+                        "points_count": collection_info.get("points_count", 0),
+                        "indexed_vectors_count": collection_info.get("indexed_vectors_count", 0),
+                        "segments_count": collection_info.get("segments_count", 0),
+                        "config": collection_info.get("config", {}),
+                        "optimizer_status": collection_info.get("optimizer_status", "unknown"),
+                        "indexing_progress": 0
+                    }
+                    
+                    # Calculate indexing progress
+                    if detailed_collection["points_count"] > 0:
+                        detailed_collection["indexing_progress"] = (
+                            detailed_collection["indexed_vectors_count"] / detailed_collection["points_count"]
+                        ) * 100
+                    
+                    total_points += detailed_collection["points_count"]
+                    total_indexed_vectors += detailed_collection["indexed_vectors_count"]
+                    detailed_collections.append(detailed_collection)
+                else:
+                    # Fallback to basic collection info
+                    detailed_collections.append({
+                        "name": collection_name,
+                        "status": "unknown",
+                        "points_count": 0,
+                        "indexed_vectors_count": 0,
+                        "segments_count": 0,
+                        "config": {},
+                        "optimizer_status": "unknown",
+                        "indexing_progress": 0
+                    })
+            
+            return {
+                "collections": detailed_collections,
+                "total_collections": len(detailed_collections),
+                "total_points": total_points,
+                "total_indexed_vectors": total_indexed_vectors,
+                "overall_indexing_progress": (total_indexed_vectors / total_points * 100) if total_points > 0 else 0
+            }
+            
+    except Exception as e:
+        return {
+            "collections": [], 
+            "total_collections": 0, 
+            "total_points": 0,
+            "total_indexed_vectors": 0,
+            "overall_indexing_progress": 0,
+            "error": str(e)
+        }
 
 async def get_dashboard_stats() -> DashboardStats:
     """Get comprehensive dashboard statistics"""
@@ -1466,6 +1566,66 @@ async def get_stats():
     stats = await get_dashboard_stats()
     return stats
 
+@app.get("/qdrant-ui", response_class=HTMLResponse)
+async def qdrant_ui_page(request: Request):
+    """Qdrant UI page with detailed indexing information"""
+    return templates.TemplateResponse("qdrant_ui.html", {"request": request})
+
+@app.get("/api/qdrant/stats")
+async def get_qdrant_stats_api():
+    """Get detailed Qdrant statistics including indexing information"""
+    stats = await get_qdrant_detailed_stats()
+    return stats
+
+@app.post("/api/qdrant/trigger-indexing")
+async def trigger_qdrant_indexing():
+    """Trigger Qdrant indexing for all collections"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            headers = {"Authorization": f"Bearer {QDRANT_API_KEY}"}
+            
+            # Get all collections
+            response = await client.get(f"{QDRANT_URL}/collections", headers=headers)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to get collections")
+            
+            collections = response.json()
+            collections_list = collections.get("result", {}).get("collections", [])
+            
+            results = []
+            for collection in collections_list:
+                collection_name = collection.get("name", "")
+                
+                # Trigger indexing by updating optimizer config
+                update_response = await client.patch(
+                    f"{QDRANT_URL}/collections/{collection_name}",
+                    headers=headers,
+                    json={
+                        "optimizer_config": {
+                            "indexing_threshold": 100
+                        }
+                    }
+                )
+                
+                if update_response.status_code == 200:
+                    results.append({
+                        "collection": collection_name,
+                        "status": "success",
+                        "message": "Indexing threshold updated to 100"
+                    })
+                else:
+                    results.append({
+                        "collection": collection_name,
+                        "status": "error",
+                        "message": f"Failed to update: {update_response.text}"
+                    })
+            
+            return {"results": results}
+            
+    except Exception as e:
+        logger.error(f"Error triggering Qdrant indexing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/documents/{document_id}")
 async def get_document_detail(document_id: str):
     """Get detailed information about a specific document"""
@@ -1564,7 +1724,7 @@ async def get_service_detail(service_name: str):
             "text-processor": "text-processor",
             "metadata-processor": "metadata-processor",
             "embedding-processor": "embedding-processor",
-            "embedding-processor-hf": "embedding-processor-hf",
+            "huggingface-embeddings": "huggingface-embeddings",
             "entity-processor": "entity-processor",
             "file-watcher": "file-watcher",
             "ollama": "ollama",
@@ -2927,12 +3087,12 @@ async def llm_search(request: Request):
         # Check if we have vector embeddings available
         qdrant_stats_resp = await httpx.AsyncClient().get(
             f"{qdrant_url}/collections/documents",
-            headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {qdrant_api_key}", "Content-Type": "application/json"},
             timeout=10.0
         )
         qdrant_stats = qdrant_stats_resp.json()
         collection_info = qdrant_stats.get("result", {})
-        total_vectors = collection_info.get("vectors_count", 0)
+        total_vectors = collection_info.get("indexed_vectors_count", 0)
         
         if total_vectors > 0:
             # Use vector search if embeddings are available
@@ -2944,7 +3104,7 @@ async def llm_search(request: Request):
             }
             qdrant_resp = await httpx.AsyncClient().post(
                 f"{qdrant_url}/collections/documents/points/search",
-                headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {qdrant_api_key}", "Content-Type": "application/json"},
                 json=search_payload
             )
             qdrant_results = qdrant_resp.json().get("result", [])
@@ -3160,7 +3320,7 @@ async def database_query(request: Request):
         # Get collection statistics
         qdrant_stats_resp = await httpx.AsyncClient().get(
             f"{qdrant_url}/collections/documents",
-            headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {qdrant_api_key}", "Content-Type": "application/json"},
             timeout=10.0
         )
         qdrant_stats = qdrant_stats_resp.json()
@@ -3171,7 +3331,7 @@ async def database_query(request: Request):
         # Get sample documents for context
         sample_resp = await httpx.AsyncClient().post(
             f"{qdrant_url}/collections/documents/points/scroll",
-            headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {qdrant_api_key}", "Content-Type": "application/json"},
             json={"limit": 10, "with_payload": True},
             timeout=10.0
         )

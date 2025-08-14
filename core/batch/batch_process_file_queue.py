@@ -25,6 +25,43 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def load_env_from_services():
+    """Load environment variables from services/.env file"""
+    try:
+        # Try to find the services/.env file relative to this script
+        script_dir = Path(__file__).parent
+        services_env_path = script_dir.parent.parent / "services" / ".env"
+        
+        if services_env_path.exists():
+            logger.info(f"📁 Loading environment variables from {services_env_path}")
+            with open(services_env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if line and not line.startswith('#'):
+                        # Handle key=value format
+                        if '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip()
+                            # Remove quotes if present
+                            if value.startswith('"') and value.endswith('"'):
+                                value = value[1:-1]
+                            elif value.startswith("'") and value.endswith("'"):
+                                value = value[1:-1]
+                            
+                            # Set environment variable if not already set
+                            if key and value and key not in os.environ:
+                                os.environ[key] = value
+                                logger.debug(f"  Set {key}={value}")
+            
+            logger.info("✅ Environment variables loaded from services/.env")
+        else:
+            logger.warning(f"⚠️  Services .env file not found at {services_env_path}")
+            
+    except Exception as e:
+        logger.error(f"❌ Error loading environment variables: {e}")
+
 class BatchProcessFileQueue:
     """Docker container for batch processing with dynamic folder mounting"""
     
@@ -181,21 +218,40 @@ class BatchProcessFileQueue:
             # No items file mount needed when worker reads from DB
             
             # Mount config into worker if available (works both when orchestrator runs in container or on host)
-            try:
-                host_core = os.getenv('DOCKER_HOST_CORE_PATH')
-                if host_core:
-                    # Mount host core config directly into worker (path validity is evaluated by Docker daemon)
-                    docker_cmd.extend(["-v", f"{host_core}/config:/app/config:ro"])
-                    # Also mount entire core so worker uses latest host code without rebuilding image
-                    docker_cmd.extend(["-v", f"{host_core}:/app"])
-                elif os.path.exists("/app/config"):
-                    docker_cmd.extend(["-v", "/app/config:/app/config:ro"])
+            host_core = os.getenv('DOCKER_HOST_CORE_PATH')
+            logger.info(f"🔍 DOCKER_HOST_CORE_PATH: {host_core}")
+            
+            if host_core:
+                # Mount host core config directly into worker (path validity is evaluated by Docker daemon)
+                docker_cmd.extend(["-v", f"{host_core}/config:/app/config:ro"])
+                # Also mount entire core so worker uses latest host code without rebuilding image
+                docker_cmd.extend(["-v", f"{host_core}:/app"])
+                # Mount services directory for .env file - use the host path that was passed to orchestrator
+                services_path = Path(host_core).parent / "services"
+                logger.info(f"🔍 Services path calculated: {services_path}")
+                # Always mount the services directory using the calculated host path
+                docker_cmd.extend(["-v", f"{str(services_path)}:/services:ro"])
+                logger.info(f"📁 Mounting services directory: {services_path} -> /services")
+            elif os.path.exists("/app/config"):
+                logger.info("🔍 Using /app/config path")
+                docker_cmd.extend(["-v", "/app/config:/app/config:ro"])
+                # Mount services directory if available
+                if os.path.exists("/app/../services"):
+                    docker_cmd.extend(["-v", "/app/../services:/services:ro"])
+                    logger.info("📁 Mounting services directory: /app/../services -> /services")
                 else:
-                    host_config = Path(__file__).parent.parent / "config"
-                    if host_config.exists():
-                        docker_cmd.extend(["-v", f"{str(host_config)}:/app/config:ro"])
-            except Exception:
-                pass
+                    logger.warning("⚠️  Services directory not found at /app/../services")
+            else:
+                logger.info("🔍 Using fallback config path")
+                host_config = Path(__file__).parent.parent / "config"
+                if host_config.exists():
+                    docker_cmd.extend(["-v", f"{str(host_config)}:/app/config:ro"])
+                # Mount services directory for .env file
+                services_path = Path(__file__).parent.parent / "services"
+                logger.info(f"🔍 Services path calculated: {services_path}")
+                # Always mount the services directory using the calculated host path
+                docker_cmd.extend(["-v", f"{str(services_path)}:/services:ro"])
+                logger.info(f"📁 Mounting services directory: {services_path} -> /services")
 
             # Add environment variables
             docker_cmd.extend([
@@ -484,6 +540,9 @@ async def main():
     
     # Load configuration
     config = load_config()
+    
+    # Load environment variables from services/.env
+    load_env_from_services()
     
     # Initialize processor
     processor = BatchProcessFileQueue(config)

@@ -406,7 +406,10 @@ class QdrantClient:
         """Create a collection in Qdrant if it doesn't exist"""
         # Use appropriate default dimensions based on provider
         if dimensions is None:
-            dimensions = 384 if EMBEDDING_PROVIDER == "huggingface" else 768
+            if EMBEDDING_PROVIDER == "huggingface":
+                dimensions = 384  # HuggingFace sentence-transformers/all-MiniLM-L6-v2
+            else:
+                dimensions = 768  # Default for other providers
         try:
             collection_name = "documents"
             
@@ -414,12 +417,33 @@ class QdrantClient:
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     f"{self.base_url}/collections/{collection_name}",
-                    headers={"api-key": self.api_key},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
                     timeout=10.0
                 )
                 
                 if response.status_code == 200:
                     logger.info(f"Collection {collection_name} already exists")
+                    # Update the collection configuration to ensure correct indexing threshold
+                    try:
+                        update_config = {
+                            "optimizer_config": {
+                                "indexing_threshold": 100,
+                                "memmap_threshold": 10000,
+                                "vacuum_min_vector_number": 1000,
+                                "deleted_threshold": 0.2,
+                                "flush_interval_sec": 5
+                            }
+                        }
+                        async with httpx.AsyncClient() as client:
+                            update_response = await client.patch(
+                                f"{self.base_url}/collections/{collection_name}",
+                                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                                json=update_config,
+                                timeout=30.0
+                            )
+                        logger.info(f"Updated collection {collection_name} optimizer configuration")
+                    except Exception as e:
+                        logger.warning(f"Could not update collection configuration: {e}")
                     return True
             
             # Create collection
@@ -427,13 +451,20 @@ class QdrantClient:
                 "vectors": {
                     "size": dimensions,
                     "distance": "Cosine"
+                },
+                "optimizer_config": {
+                    "indexing_threshold": 100,
+                    "memmap_threshold": 10000,
+                    "vacuum_min_vector_number": 1000,
+                    "deleted_threshold": 0.2,
+                    "flush_interval_sec": 5
                 }
             }
             
             async with httpx.AsyncClient() as client:
                 response = await client.put(
                     f"{self.base_url}/collections/{collection_name}",
-                    headers={"api-key": self.api_key, "Content-Type": "application/json"},
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
                     json=collection_config,
                     timeout=30.0
                 )
@@ -451,9 +482,11 @@ class QdrantClient:
         """Store embeddings in Qdrant"""
         try:
             # Ensure collection exists with correct dimensions
-            # Use appropriate default dimensions based on provider
-            default_dims = 384 if EMBEDDING_PROVIDER == "huggingface" else 768
-            dimensions = len(embeddings[0]) if embeddings else default_dims
+            # Always use 384 for HuggingFace, 768 for other providers
+            if EMBEDDING_PROVIDER == "huggingface":
+                dimensions = 384
+            else:
+                dimensions = len(embeddings[0]) if embeddings else 768
             await self.create_collection(dimensions)
             
             # Prepare points for insertion
@@ -485,7 +518,7 @@ class QdrantClient:
             async with httpx.AsyncClient() as client:
                 response = await client.put(
                     f"{self.base_url}/collections/{collection_name}/points",
-                    headers={"api-key": self.api_key, "Content-Type": "application/json"},
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
                     json={"points": points},
                     timeout=30.0
                 )
@@ -512,7 +545,7 @@ class QdrantClient:
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     f"{self.base_url}/collections/{collection_name}/points/search",
-                    headers={"api-key": self.api_key, "Content-Type": "application/json"},
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
                     json=search_params,
                     timeout=10.0
                 )
@@ -555,7 +588,7 @@ async def health_check():
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections", 
-                headers={"api-key": QDRANT_API_KEY},
+                headers={"Authorization": f"Bearer {QDRANT_API_KEY}"},
                 timeout=5.0
             )
             qdrant_healthy = response.status_code == 200

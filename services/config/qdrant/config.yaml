@@ -20,4 +20,21 @@ cluster:
 telemetry:
   enabled: false
 
-log_level: INFO 
+log_level: INFO
+
+# Optimizer configuration for better performance with smaller datasets
+optimizer:
+  indexing_threshold: 100
+  memmap_threshold: 10000
+  vacuum_min_vector_number: 1000
+  deleted_threshold: 0.2
+  flush_interval_sec: 5
+
+# Default collection configuration
+default_collection_config:
+  optimizer_config:
+    indexing_threshold: 100
+    memmap_threshold: 10000
+    vacuum_min_vector_number: 1000
+    deleted_threshold: 0.2
+    flush_interval_sec: 5 

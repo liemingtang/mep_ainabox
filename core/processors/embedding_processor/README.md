@@ -22,9 +22,11 @@ docker compose up -d ollama embedding-processor
 
 ### Option 2: Using HuggingFace (Recommended for quick setup)
 
+The system now uses the centralized HuggingFace embedding service located in `mep_ainabox/services/`.
+
 ```bash
-cd mep_ainabox/core
-docker compose -f docker-compose.huggingface.yml up -d embedding-processor-hf
+cd mep_ainabox/services
+docker compose up -d huggingface-embeddings
 ```
 
 ### Initialize Models
@@ -36,24 +38,19 @@ docker compose exec embedding-processor python init_ollama.py
 ```
 
 #### For HuggingFace:
-```bash
-# Initialize HuggingFace models:
-docker compose -f docker-compose.huggingface.yml exec embedding-processor-hf python init_huggingface.py
-```
+The HuggingFace service automatically downloads and initializes models on first use.
+No manual initialization is required.
 
 ### Test the Service
 
 ```bash
 # Health check
-curl http://localhost:8007/health
-
-# List available models
-curl http://localhost:8007/models
+curl http://localhost:8082/
 
 # Generate a single embedding
-curl -X POST http://localhost:8007/embed \
+curl -X POST http://localhost:8082/embed \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello world", "model": "sentence-transformers/all-MiniLM-L6-v2"}'
+  -d '{"inputs": ["Hello world"]}'
 ```
 
 ## Provider Comparison
@@ -240,14 +237,12 @@ embedding-processor-hf:
 
 1. **HTTP Request Node**:
    - Method: POST
-   - URL: `http://localhost:8007/embed`
+   - URL: `http://localhost:8082/embed`
    - Headers: `Content-Type: application/json`
    - Body:
    ```json
    {
-     "text": "{{ $json.text }}",
-     "model": "sentence-transformers/all-MiniLM-L6-v2",
-     "provider": "huggingface"
+     "inputs": ["{{ $json.text }}"]
    }
    ```
 
@@ -258,10 +253,10 @@ embedding-processor-hf:
 ### Flowise Integration
 
 1. **HTTP Request Tool**:
-   - URL: `http://localhost:8007/embed`
+   - URL: `http://localhost:8082/embed`
    - Method: POST
    - Headers: `Content-Type: application/json`
-   - Body: JSON with text, model, and provider
+   - Body: JSON with inputs array
 
 2. **Custom Node**:
    - Create a custom node that calls the embedding service
@@ -273,17 +268,15 @@ embedding-processor-hf:
 import httpx
 import asyncio
 
-async def get_embedding(text: str, model: str = None, provider: str = "huggingface"):
+async def get_embedding(text: str):
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "http://localhost:8007/embed",
+            "http://localhost:8082/embed",
             json={
-                "text": text, 
-                "model": model,
-                "provider": provider
+                "inputs": [text]
             }
         )
-        return response.json()["embedding"]
+        return response.json()[0]
 
 # Usage
 embedding = await get_embedding("Hello world")
@@ -326,7 +319,8 @@ print(f"Embedding dimensions: {len(embedding)}")
    ```bash
    # Check internet connection
    # Verify cache directory permissions
-   docker compose -f docker-compose.huggingface.yml logs embedding-processor-hf
+   cd mep_ainabox/services
+   docker compose logs huggingface-embeddings
    ```
 
 2. **Ollama not accessible**:
@@ -366,7 +360,7 @@ docker compose logs -f embedding-processor
 ## Security Considerations
 
 1. **Network Access**:
-   - The service is exposed on port 8007
+   - The service is exposed on port 8082
    - Consider using reverse proxy with authentication
    - Restrict access to trusted networks
 
@@ -399,12 +393,12 @@ python main.py
 
 ```bash
 # Test the API
-curl http://localhost:8007/health
+curl http://localhost:8082/
 
 # Test embedding generation
-curl -X POST http://localhost:8007/embed \
+curl -X POST http://localhost:8082/embed \
   -H "Content-Type: application/json" \
-  -d '{"text": "test", "provider": "huggingface"}'
+  -d '{"inputs": ["test"]}'
 ```
 
 ### Adding New Features
