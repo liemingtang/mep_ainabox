@@ -18,6 +18,30 @@
         .clickable-card:active {
             transform: translateY(0);
         }
+        
+        .quick-action-btn {
+            transition: all 0.3s ease;
+            border-radius: 12px;
+            text-decoration: none;
+        }
+        
+        .quick-action-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+            text-decoration: none;
+        }
+        
+        .quick-action-btn:active {
+            transform: translateY(-1px);
+        }
+        
+        .quick-action-btn i {
+            transition: all 0.3s ease;
+        }
+        
+        .quick-action-btn:hover i {
+            transform: scale(1.1);
+        }
     </style>
 </head>
 <body>
@@ -137,6 +161,82 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Quick Actions Section -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">
+                            <i class="fas fa-rocket me-2"></i>
+                            Quick Actions - Service UIs
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="text-muted">
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        Service Status: 
+                                        <span id="service-status-summary">Checking...</span>
+                                    </span>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="checkServiceStatus()">
+                                        <i class="fas fa-sync-alt me-1"></i>
+                                        Refresh Status
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-2 mb-3">
+                                <a href="http://localhost:5678" target="_blank" class="btn btn-outline-primary w-100 h-100 d-flex flex-column align-items-center justify-content-center quick-action-btn" style="min-height: 100px;">
+                                    <i class="fas fa-project-diagram fa-2x mb-2"></i>
+                                    <span class="fw-bold">N8N</span>
+                                    <small class="text-muted">Workflow Automation</small>
+                                </a>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <a href="http://localhost:7070/index.html?api_token=qdrant_api_key" target="_blank" class="btn btn-outline-success w-100 h-100 d-flex flex-column align-items-center justify-content-center quick-action-btn" style="min-height: 100px;">
+                                    <i class="fas fa-database fa-2x mb-2"></i>
+                                    <span class="fw-bold">Qdrant UI</span>
+                                    <small class="text-muted">Vector Database</small>
+                                </a>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <a href="/llm-search" target="_blank" class="btn btn-outline-info w-100 h-100 d-flex flex-column align-items-center justify-content-center quick-action-btn" style="min-height: 100px;">
+                                    <i class="fas fa-search fa-2x mb-2"></i>
+                                    <span class="fw-bold">LLM Search</span>
+                                    <small class="text-muted">AI-Powered Search</small>
+                                </a>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <a href="/admin" target="_blank" class="btn btn-outline-warning w-100 h-100 d-flex flex-column align-items-center justify-content-center quick-action-btn" style="min-height: 100px;">
+                                    <i class="fas fa-cogs fa-2x mb-2"></i>
+                                    <span class="fw-bold">Admin Panel</span>
+                                    <small class="text-muted">System Management</small>
+                                </a>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <a href="http://localhost:5601" target="_blank" class="btn btn-outline-secondary w-100 h-100 d-flex flex-column align-items-center justify-content-center quick-action-btn" style="min-height: 100px;">
+                                    <i class="fas fa-chart-bar fa-2x mb-2"></i>
+                                    <span class="fw-bold">Kibana</span>
+                                    <small class="text-muted">Data Visualization</small>
+                                </a>
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <a href="http://localhost:3001" target="_blank" class="btn btn-outline-dark w-100 h-100 d-flex flex-column align-items-center justify-content-center quick-action-btn" style="min-height: 100px;">
+                                    <i class="fas fa-brain fa-2x mb-2"></i>
+                                    <span class="fw-bold">Flowise</span>
+                                    <small class="text-muted">AI Workflows</small>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- LLM Search Section -->
         <div id="llm-search-section" class="row mb-4" style="display: none;">
             <div class="col-md-12">

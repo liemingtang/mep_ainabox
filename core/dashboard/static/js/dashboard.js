@@ -555,4 +555,65 @@ function renderLLMSearchResults(data, container) {
 
 // Export functions for global access
 window.refreshData = refreshData;
-window.viewDocumentDetails = viewDocumentDetails; 
+window.viewDocumentDetails = viewDocumentDetails;
+
+// Service status checking function
+async function checkServiceStatus() {
+    const statusSummary = document.getElementById('service-status-summary');
+    if (!statusSummary) return;
+    
+    statusSummary.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+    
+    try {
+        const response = await fetch('/api/health');
+        if (!response.ok) {
+            throw new Error(`Health API returned ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const services = data.services || [];
+        
+        // Define the services we want to check
+        const serviceUrls = {
+            'N8N': 'http://localhost:5678',
+            'Qdrant UI': 'http://localhost:7070',
+            'Kibana': 'http://localhost:5601',
+            'Flowise': 'http://localhost:3001'
+        };
+        
+        let healthyCount = 0;
+        let totalCount = services.length;
+        
+        // Count healthy services from the health API
+        services.forEach(service => {
+            if (service.status === 'healthy') {
+                healthyCount++;
+            }
+        });
+        
+        // Update the status summary
+        if (totalCount === 0) {
+            statusSummary.innerHTML = '<span class="text-warning">No services found</span>';
+        } else if (healthyCount === totalCount) {
+            statusSummary.innerHTML = `<span class="text-success">All ${totalCount} services healthy</span>`;
+        } else {
+            statusSummary.innerHTML = `<span class="text-warning">${healthyCount}/${totalCount} services healthy</span>`;
+        }
+        
+    } catch (error) {
+        console.error('Error checking service status:', error);
+        statusSummary.innerHTML = '<span class="text-danger">Error checking status</span>';
+    }
+}
+
+// Check service status on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Initial service status check
+    setTimeout(checkServiceStatus, 1000);
+    
+    // Check service status every 60 seconds
+    setInterval(checkServiceStatus, 60000);
+});
+
+// Export the function for global access
+window.checkServiceStatus = checkServiceStatus; 
