@@ -18,6 +18,7 @@ import threading
 import time
 import uuid
 import logging
+import asyncpg
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -49,6 +50,16 @@ HUGGINGFACE_EMBEDDING_URL = os.getenv("HUGGINGFACE_EMBEDDING_URL", "http://local
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "qdrant_api_key")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "neo4j_password")
+
+# Database configuration
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", "5432"))
+POSTGRES_DB = os.getenv("POSTGRES_DB", "mep_ainabox")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "mep_user")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "mep_password")
+
+# Database connection pool
+db_pool = None
 
 # Configuration management
 CONFIG_FILE = "config/dashboard_config.json"
@@ -463,6 +474,104 @@ SERVICES = {
     "huggingface-embeddings": "http://localhost:8082/"
 }
 
+# Database functions
+async def get_db_pool():
+    """Get or create database connection pool"""
+    global db_pool
+    if db_pool is None:
+        try:
+            db_pool = await asyncpg.create_pool(
+                host=POSTGRES_HOST,
+                port=POSTGRES_PORT,
+                database=POSTGRES_DB,
+                user=POSTGRES_USER,
+                password=POSTGRES_PASSWORD,
+                min_size=1,
+                max_size=10
+            )
+            logger.info("✅ Database connection pool created")
+        except Exception as e:
+            logger.error(f"❌ Failed to create database connection pool: {e}")
+            return None
+    return db_pool
+
+async def get_file_info_data(limit: int = 50) -> List[Dict]:
+    """Get recent files from file_info table"""
+    try:
+        pool = await get_db_pool()
+        if not pool:
+            return []
+        
+        async with pool.acquire() as conn:
+            query = """
+                SELECT id, file_path, filename, file_size, file_type, mime_type,
+                       created_time, modified_time, is_directory, status,
+                       scan_timestamp, last_checked
+                FROM file_info 
+                WHERE status = 'active'
+                ORDER BY scan_timestamp DESC 
+                LIMIT $1
+            """
+            rows = await conn.fetch(query, limit)
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Error fetching file_info data: {e}")
+        return []
+
+async def get_file_processing_queue_data(limit: int = 50) -> List[Dict]:
+    """Get recent files from file_processing_queue table"""
+    try:
+        pool = await get_db_pool()
+        if not pool:
+            return []
+        
+        async with pool.acquire() as conn:
+            query = """
+                SELECT q.id, q.file_info_id, q.file_path, q.filename, q.priority,
+                       q.status, q.created_at, q.scheduled_at, q.started_at,
+                       q.completed_at, q.error_message, q.retry_count,
+                       f.file_size, f.file_type, f.mime_type
+                FROM file_processing_queue q
+                LEFT JOIN file_info f ON q.file_info_id = f.id
+                ORDER BY q.created_at DESC 
+                LIMIT $1
+            """
+            rows = await conn.fetch(query, limit)
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Error fetching file_processing_queue data: {e}")
+        return []
+
+async def get_file_statistics() -> Dict:
+    """Get file statistics from database"""
+    try:
+        pool = await get_db_pool()
+        if not pool:
+            return {"total_files": 0, "queued_files": 0, "processing_files": 0, "completed_files": 0}
+        
+        async with pool.acquire() as conn:
+            # Get total files
+            total_files = await conn.fetchval("SELECT COUNT(*) FROM file_info WHERE status = 'active'")
+            
+            # Get queued files
+            queued_files = await conn.fetchval("SELECT COUNT(*) FROM file_processing_queue WHERE status = 'pending'")
+            
+            # Get processing files
+            processing_files = await conn.fetchval("SELECT COUNT(*) FROM file_processing_queue WHERE status = 'processing'")
+            
+            # Get completed files
+            completed_files = await conn.fetchval("SELECT COUNT(*) FROM file_processing_queue WHERE status = 'completed'")
+            
+            return {
+                "total_files": total_files or 0,
+                "queued_files": queued_files or 0,
+                "processing_files": processing_files or 0,
+                "completed_files": completed_files or 0
+            }
+    except Exception as e:
+        logger.error(f"Error fetching file statistics: {e}")
+        return {"total_files": 0, "queued_files": 0, "processing_files": 0, "completed_files": 0}
+
 app = FastAPI(title="MDIS Dashboard", version="1.0.0")
 
 # Mount static files and templates
@@ -532,6 +641,10 @@ class DashboardStats(BaseModel):
     total_services: int
     elasticsearch_docs: int
     qdrant_collections: int
+    total_files: int = 0
+    queued_files: int = 0
+    processing_files: int = 0
+    completed_files: int = 0
 
 class ConfigurationItem(BaseModel):
     key: str
@@ -1123,6 +1236,7 @@ async def get_dashboard_stats() -> DashboardStats:
     service_health = await get_all_service_health()
     es_stats = await get_elasticsearch_stats()
     qdrant_stats = await get_qdrant_stats()
+    file_stats = await get_file_statistics()
     
     # Count documents by status
     status_counts = {}
@@ -1142,7 +1256,11 @@ async def get_dashboard_stats() -> DashboardStats:
         healthy_services=healthy_services,
         total_services=len(service_health),
         elasticsearch_docs=es_stats.get("total_documents", 0),
-        qdrant_collections=qdrant_stats.get("total_collections", 0)
+        qdrant_collections=qdrant_stats.get("total_collections", 0),
+        total_files=file_stats.get("total_files", 0),
+        queued_files=file_stats.get("queued_files", 0),
+        processing_files=file_stats.get("processing_files", 0),
+        completed_files=file_stats.get("completed_files", 0)
     )
 
 # Scan Folder Functions
@@ -1559,6 +1677,24 @@ async def get_documents_api():
     """Get all documents"""
     documents = await get_documents()
     return {"documents": documents, "count": len(documents)}
+
+@app.get("/api/files/info")
+async def get_file_info_api():
+    """Get recent files from file_info table"""
+    files = await get_file_info_data(limit=50)
+    return {"files": files, "count": len(files)}
+
+@app.get("/api/files/queue")
+async def get_file_queue_api():
+    """Get recent files from file_processing_queue table"""
+    files = await get_file_processing_queue_data(limit=50)
+    return {"files": files, "count": len(files)}
+
+@app.get("/api/files/statistics")
+async def get_file_statistics_api():
+    """Get file statistics from database"""
+    stats = await get_file_statistics()
+    return stats
 
 @app.get("/api/stats")
 async def get_stats():

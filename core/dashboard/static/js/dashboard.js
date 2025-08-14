@@ -16,6 +16,19 @@ window.addEventListener('unhandledrejection', function(event) {
 let refreshInterval;
 let autoRefreshEnabled = true;
 
+// Close sidebar when clicking outside on mobile
+document.addEventListener('click', function(event) {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.querySelector('.sidebar-toggle');
+    
+    if (window.innerWidth <= 768) {
+        if (!sidebar.contains(event.target) && !sidebarToggle.contains(event.target)) {
+            sidebar.classList.remove('active');
+            document.querySelector('.sidebar-overlay').classList.remove('active');
+        }
+    }
+});
+
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
     updateCurrentTime();
@@ -58,7 +71,11 @@ async function loadDashboardData() {
                     qdrant_collections: 0,
                     healthy_services: 0,
                     total_services: 0,
-                    pending_documents: 0
+                    pending_documents: 0,
+                    total_files: 0,
+                    queued_files: 0,
+                    processing_files: 0,
+                    completed_files: 0
                 };
             }),
             fetch('/api/health').then(r => {
@@ -70,18 +87,27 @@ async function loadDashboardData() {
                 console.warn('Failed to load health:', e);
                 return { services: [] };
             }),
-            fetch('/api/documents').then(r => {
+            fetch('/api/files/info').then(r => {
                 if (!r.ok) {
-                    throw new Error(`Documents API returned ${r.status}`);
+                    throw new Error(`File info API returned ${r.status}`);
                 }
                 return r.json();
             }).catch(e => {
-                console.warn('Failed to load documents:', e);
-                return { documents: [] };
+                console.warn('Failed to load file info:', e);
+                return { files: [] };
+            }),
+            fetch('/api/files/queue').then(r => {
+                if (!r.ok) {
+                    throw new Error(`File queue API returned ${r.status}`);
+                }
+                return r.json();
+            }).catch(e => {
+                console.warn('Failed to load file queue:', e);
+                return { files: [] };
             })
         ];
         
-        const [stats, health, documents] = await Promise.all(promises);
+        const [stats, health, fileInfo, fileQueue] = await Promise.all(promises);
         
         // Ensure we have valid data structures even if APIs return unexpected formats
         const safeStats = {
@@ -93,21 +119,28 @@ async function loadDashboardData() {
             qdrant_collections: stats?.qdrant_collections || 0,
             healthy_services: stats?.healthy_services || 0,
             total_services: stats?.total_services || 0,
-            pending_documents: stats?.pending_documents || 0
+            pending_documents: stats?.pending_documents || 0,
+            total_files: stats?.total_files || 0,
+            queued_files: stats?.queued_files || 0,
+            processing_files: stats?.processing_files || 0,
+            completed_files: stats?.completed_files || 0
         };
         
         const safeHealth = {
             services: Array.isArray(health?.services) ? health.services : []
         };
         
-        const safeDocuments = {
-            documents: Array.isArray(documents?.documents) ? documents.documents : []
+        const safeFileInfo = {
+            files: Array.isArray(fileInfo?.files) ? fileInfo.files : []
+        };
+        
+        const safeFileQueue = {
+            files: Array.isArray(fileQueue?.files) ? fileQueue.files : []
         };
         
         updateStatistics(safeStats);
         updateServiceHealthSummary(safeHealth.services);
-        updateDocumentsTable(safeDocuments.documents);
-        updatePipelineStatus(safeHealth.services);
+        updateDocumentsTable(safeFileInfo.files, safeFileQueue.files);
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -130,7 +163,9 @@ function updateStatistics(stats) {
             'completed-documents': stats.completed_documents || 0,
             'failed-documents': stats.failed_documents || 0,
             'es-docs': stats.elasticsearch_docs || 0,
-            'qdrant-collections': stats.qdrant_collections || 0
+            'qdrant-collections': stats.qdrant_collections || 0,
+            'total-files': stats.total_files || 0,
+            'queued-files': stats.queued_files || 0
         };
         
         for (const [id, value] of Object.entries(elements)) {
@@ -177,7 +212,7 @@ function updateServiceHealthSummary(services) {
     }
 }
 
-function updateDocumentsTable(documents) {
+function updateDocumentsTable(fileInfo, fileQueue) {
     try {
         const tbody = document.getElementById('documents-table');
         
@@ -186,19 +221,50 @@ function updateDocumentsTable(documents) {
             return;
         }
         
-        // Ensure documents is a valid array
-        if (!Array.isArray(documents)) {
-            console.warn('Invalid documents array received:', documents);
-            documents = [];
+        // Ensure arrays are valid
+        if (!Array.isArray(fileInfo)) {
+            console.warn('Invalid fileInfo array received:', fileInfo);
+            fileInfo = [];
+        }
+        if (!Array.isArray(fileQueue)) {
+            console.warn('Invalid fileQueue array received:', fileQueue);
+            fileQueue = [];
         }
         
-        if (documents.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No documents found</td></tr>';
+        // Combine and process data
+        const allFiles = [];
+        
+        // Add file_info data
+        fileInfo.forEach(file => {
+            allFiles.push({
+                ...file,
+                source: 'file_info',
+                processing_status: file.status || 'active',
+                created_at: file.scan_timestamp || file.created_time,
+                file_size: file.file_size || 0,
+                document_type: file.file_type || 'unknown'
+            });
+        });
+        
+        // Add file_processing_queue data
+        fileQueue.forEach(file => {
+            allFiles.push({
+                ...file,
+                source: 'processing_queue',
+                processing_status: file.status || 'pending',
+                created_at: file.created_at,
+                file_size: file.file_size || 0,
+                document_type: file.file_type || 'unknown'
+            });
+        });
+        
+        if (allFiles.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No files found</td></tr>';
             return;
         }
         
         // Sort by created_at (newest first)
-        documents.sort((a, b) => {
+        allFiles.sort((a, b) => {
             try {
                 return new Date(b.created_at || 0) - new Date(a.created_at || 0);
             } catch (e) {
@@ -206,26 +272,27 @@ function updateDocumentsTable(documents) {
             }
         });
         
-        // Show only the 10 most recent documents
-        const recentDocs = documents.slice(0, 10);
+        // Show only the 10 most recent files
+        const recentFiles = allFiles.slice(0, 10);
         
-        const html = recentDocs.map(doc => {
+        const html = recentFiles.map(file => {
             try {
-                const statusClass = getStatusClass(doc.processing_status || 'unknown');
-                const statusBadge = getStatusBadge(doc.processing_status || 'unknown');
-                const fileSize = formatFileSize(doc.file_size || 0);
-                const createdDate = new Date(doc.created_at || Date.now()).toLocaleString();
+                const statusClass = getStatusClass(file.processing_status || 'unknown');
+                const statusBadge = getStatusBadge(file.processing_status || 'unknown');
+                const fileSize = formatFileSize(file.file_size || 0);
+                const createdDate = new Date(file.created_at || Date.now()).toLocaleString();
+                const sourceBadge = file.source === 'file_info' ? 'File Info' : 'Processing Queue';
                 
                 return `
                     <tr>
                         <td>
-                            <div class="fw-medium">${doc.filename || 'Unknown'}</div>
-                            <div class="text-muted small">${doc.document_type || 'Unknown'}</div>
-                            ${doc.data_source_type ? `<div class="text-muted small"><span class="badge bg-info">${doc.data_source_type}</span></div>` : ''}
+                            <div class="fw-medium">${file.filename || 'Unknown'}</div>
+                            <div class="text-muted small">${file.document_type || 'Unknown'}</div>
+                            <div class="text-muted small"><span class="badge bg-secondary">${sourceBadge}</span></div>
                         </td>
                         <td>
-                            <span class="source-badge">${doc.source || 'Unknown'}</span>
-                            ${doc.original_file_path ? `<div class="text-muted small"><code>${doc.original_file_path.substring(0, 30)}${doc.original_file_path.length > 30 ? '...' : ''}</code></div>` : ''}
+                            <span class="source-badge">${file.file_path || 'Unknown'}</span>
+                            ${file.file_path ? `<div class="text-muted small"><code>${file.file_path.substring(0, 30)}${file.file_path.length > 30 ? '...' : ''}</code></div>` : ''}
                         </td>
                         <td>
                             <span class="status-badge ${statusClass}">${statusBadge}</span>
@@ -237,14 +304,14 @@ function updateDocumentsTable(documents) {
                             <div class="small">${createdDate}</div>
                         </td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="viewDocumentDetails('${doc.id || ''}')">
+                            <button class="btn btn-sm btn-outline-primary" onclick="viewDocumentDetails('${file.id || ''}')">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </td>
                     </tr>
                 `;
             } catch (error) {
-                console.warn('Error processing document:', error, doc);
+                console.warn('Error processing file:', error, file);
                 return '';
             }
         }).join('');
@@ -255,62 +322,7 @@ function updateDocumentsTable(documents) {
     }
 }
 
-function updatePipelineStatus(services) {
-    try {
-        const container = document.getElementById('pipeline-status');
-        
-        if (!container) {
-            console.warn('Pipeline status container element not found');
-            return;
-        }
-        
-        // Ensure services is a valid array
-        if (!Array.isArray(services)) {
-            console.warn('Invalid services array received for pipeline status:', services);
-            services = [];
-        }
-        
-        const pipelineServices = [
-            { name: 'text-processor', icon: 'fas fa-file-alt', title: 'Text Extraction' },
-            { name: 'metadata-processor', icon: 'fas fa-tags', title: 'Metadata Extraction' },
-            { name: 'embedding-processor', icon: 'fas fa-brain', title: 'Embedding Generation' },
-            { name: 'entity-processor', icon: 'fas fa-sitemap', title: 'Entity Extraction' },
-            { name: 'processing-pipeline', icon: 'fas fa-cogs', title: 'Pipeline Orchestration' }
-        ];
-        
-        const html = pipelineServices.map(service => {
-            try {
-                const serviceData = services.find(s => s && s.service === service.name);
-                const status = serviceData && serviceData.status ? serviceData.status : 'unknown';
-                const statusClass = getStatusClass(status);
-                const statusIcon = getStatusIcon(status);
-                
-                return `
-                    <div class="pipeline-step ${statusClass}">
-                        <div class="pipeline-icon">
-                            <i class="${service.icon}"></i>
-                        </div>
-                        <div class="pipeline-text">
-                            <div class="fw-medium">${service.title}</div>
-                            <div class="small text-muted">${service.name}</div>
-                        </div>
-                        <div class="pipeline-time">
-                            <i class="${statusIcon}"></i>
-                            ${status}
-                        </div>
-                    </div>
-                `;
-            } catch (error) {
-                console.warn('Error processing pipeline service:', error, service);
-                return '';
-            }
-        }).join('');
-        
-        container.innerHTML = html;
-    } catch (error) {
-        console.warn('Error updating pipeline status:', error);
-    }
-}
+
 
 async function viewDocumentDetails(documentId) {
     try {
