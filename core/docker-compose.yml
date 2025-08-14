@@ -525,6 +525,8 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-documents}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_API_URL=${DEEPSEEK_API_URL:-https://api.deepseek.com/v1/chat/completions}
     volumes:
       - ./dashboard:/app:rw
       - ./config:/app/config:ro
