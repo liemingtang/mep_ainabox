@@ -14,10 +14,31 @@ QDANT_UI_DIR="$SERVICES_DIR/qdrant-ui"
 LOG_FILE="$SERVICES_DIR/qdrant-ui.log"
 PID_FILE="$SERVICES_DIR/qdrant-ui.pid"
 
-# Check if Python is available
-if ! command -v python3 &> /dev/null; then
-    echo "❌ Python 3 is not installed. Please install Python 3 first."
+# Check if Docker is available
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed. Please install Docker first."
     exit 1
+fi
+
+# Check if docker compose is available
+if ! docker compose version &> /dev/null; then
+    echo "❌ Docker compose is not available. Please install Docker Compose first."
+    exit 1
+fi
+
+# Load environment variables
+echo "📋 Loading environment variables..."
+if [ -f "$SERVICES_DIR/.env" ]; then
+    echo "Loading services environment variables..."
+    while IFS= read -r line; do
+        if [[ ! "$line" =~ ^[[:space:]]*# ]] && [[ -n "$line" ]]; then
+            if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+                export "$line"
+            fi
+        fi
+    done < "$SERVICES_DIR/.env"
+else
+    echo "⚠️  services/.env file not found. Using default values."
 fi
 
 # Check if Qdrant is running
@@ -30,14 +51,28 @@ fi
 # Cleanup existing Qdrant UI processes
 echo "🧹 Cleaning up existing Qdrant UI processes..."
 
-# Kill any existing Qdrant UI processes
+# Stop existing Qdrant UI container
+if docker ps -q -f name=mep-qdrant-ui | grep -q .; then
+    echo "⚠️  Found existing Qdrant UI container. Stopping..."
+    docker stop mep-qdrant-ui || true
+    docker rm mep-qdrant-ui || true
+    sleep 3
+fi
+
+# Kill any existing Qdrant UI processes on host (fallback)
 if pgrep -f "python3.*server.py" > /dev/null; then
-    echo "⚠️  Found existing Qdrant UI process. Stopping..."
+    echo "⚠️  Found existing Qdrant UI process on host. Stopping..."
     pkill -f "python3.*server.py" || true
     sleep 3
 fi
 
-# Check if Qdrant UI is already running by PID file
+# Check if Qdrant UI is already running by container
+if docker ps -q -f name=mep-qdrant-ui | grep -q .; then
+    echo "✅ Qdrant UI container is already running"
+    exit 0
+fi
+
+# Check if Qdrant UI is already running by PID file (fallback)
 if [ -f "$PID_FILE" ]; then
     PID=$(cat "$PID_FILE")
     if ps -p "$PID" > /dev/null 2>&1; then
@@ -60,37 +95,61 @@ if netstat -tuln 2>/dev/null | grep -q ":7070 "; then
     fi
 fi
 
-# Change to the qdrant-ui directory
+# Build Qdrant UI Docker image if it doesn't exist
+echo "🔨 Building Qdrant UI Docker image..."
 cd "$QDANT_UI_DIR"
+if ! docker images | grep -q "mep-qdrant-ui"; then
+    echo "Building Qdrant UI image..."
+    docker build -t mep-qdrant-ui .
+else
+    echo "Qdrant UI image already exists"
+fi
 
-# Start the web server in background
-echo "🚀 Starting Qdrant UI server on http://localhost:7070"
-echo "📁 Serving from: $(pwd)"
+# Start the Qdrant UI container
+echo "🚀 Starting Qdrant UI container on http://localhost:7070"
+echo "📁 Serving from: $QDANT_UI_DIR"
 echo "📝 Logs will be written to: $LOG_FILE"
 
-# Start the server in background and capture PID
-nohup python3 server.py > "$LOG_FILE" 2>&1 &
-PID=$!
+# Get Qdrant API key from environment
+QDANT_API_KEY="${QDRANT_API_KEY:-}"
+if [ -n "$QDANT_API_KEY" ]; then
+    echo "🔑 Using Qdrant API key from environment"
+    QDANT_UI_URL="http://localhost:7070/index.html?api_token=${QDANT_API_KEY}"
+else
+    echo "⚠️  No Qdrant API key found in environment"
+    QDANT_UI_URL="http://localhost:7070/index.html"
+fi
 
-# Save PID to file
-echo "$PID" > "$PID_FILE"
+# Start the container
+docker run -d \
+    --name mep-qdrant-ui \
+    --network mep-services-network \
+    -p 7070:7070 \
+    -v "$QDANT_UI_DIR:/app" \
+    -e QDRANT_API_KEY="$QDANT_API_KEY" \
+    mep-qdrant-ui
+
+# Get container ID for PID file (for compatibility)
+CONTAINER_ID=$(docker ps -q -f name=mep-qdrant-ui)
+echo "$CONTAINER_ID" > "$PID_FILE"
 
 # Wait a moment and check if it started successfully
 sleep 3
-if ps -p "$PID" > /dev/null 2>&1; then
-    echo "✅ Qdrant UI started successfully (PID: $PID)"
-    echo "🔍 Access the UI at: http://localhost:7070/index.html"
+if docker ps -q -f name=mep-qdrant-ui | grep -q .; then
+    echo "✅ Qdrant UI container started successfully"
+    echo "🔍 Access the UI at: $QDANT_UI_URL"
     
     # Test if the server is responding
     sleep 2
     if curl -s http://localhost:7070/index.html > /dev/null 2>&1; then
         echo "✅ Qdrant UI is responding to requests"
+        echo "🔑 Full URL with API token: $QDANT_UI_URL"
     else
         echo "⚠️  Qdrant UI started but not responding to requests yet"
     fi
 else
-    echo "❌ Failed to start Qdrant UI"
+    echo "❌ Failed to start Qdrant UI container"
     rm -f "$PID_FILE"
-    echo "📋 Check logs at: $LOG_FILE"
+    echo "📋 Check container logs with: docker logs mep-qdrant-ui"
     exit 1
 fi 

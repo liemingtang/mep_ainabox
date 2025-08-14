@@ -95,19 +95,10 @@ async function loadDashboardData() {
             }).catch(e => {
                 console.warn('Failed to load file info:', e);
                 return { files: [] };
-            }),
-            fetch('/api/files/queue').then(r => {
-                if (!r.ok) {
-                    throw new Error(`File queue API returned ${r.status}`);
-                }
-                return r.json();
-            }).catch(e => {
-                console.warn('Failed to load file queue:', e);
-                return { files: [] };
             })
         ];
         
-        const [stats, health, fileInfo, fileQueue] = await Promise.all(promises);
+        const [stats, health, fileInfo] = await Promise.all(promises);
         
         // Ensure we have valid data structures even if APIs return unexpected formats
         const safeStats = {
@@ -134,13 +125,9 @@ async function loadDashboardData() {
             files: Array.isArray(fileInfo?.files) ? fileInfo.files : []
         };
         
-        const safeFileQueue = {
-            files: Array.isArray(fileQueue?.files) ? fileQueue.files : []
-        };
-        
         updateStatistics(safeStats);
         updateServiceHealthSummary(safeHealth.services);
-        updateDocumentsTable(safeFileInfo.files, safeFileQueue.files);
+        updateDocumentsTable(safeFileInfo.files);
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -212,7 +199,7 @@ function updateServiceHealthSummary(services) {
     }
 }
 
-function updateDocumentsTable(fileInfo, fileQueue) {
+function updateDocumentsTable(files) {
     try {
         const tbody = document.getElementById('documents-table');
         
@@ -221,74 +208,52 @@ function updateDocumentsTable(fileInfo, fileQueue) {
             return;
         }
         
-        // Ensure arrays are valid
-        if (!Array.isArray(fileInfo)) {
-            console.warn('Invalid fileInfo array received:', fileInfo);
-            fileInfo = [];
-        }
-        if (!Array.isArray(fileQueue)) {
-            console.warn('Invalid fileQueue array received:', fileQueue);
-            fileQueue = [];
+        // Ensure files array is valid
+        if (!Array.isArray(files)) {
+            console.warn('Invalid files array received:', files);
+            files = [];
         }
         
-        // Combine and process data
-        const allFiles = [];
-        
-        // Add file_info data
-        fileInfo.forEach(file => {
-            allFiles.push({
-                ...file,
-                source: 'file_info',
-                processing_status: file.status || 'active',
-                created_at: file.scan_timestamp || file.created_time,
-                file_size: file.file_size || 0,
-                document_type: file.file_type || 'unknown'
-            });
-        });
-        
-        // Add file_processing_queue data
-        fileQueue.forEach(file => {
-            allFiles.push({
-                ...file,
-                source: 'processing_queue',
-                processing_status: file.status || 'pending',
-                created_at: file.created_at,
-                file_size: file.file_size || 0,
-                document_type: file.file_type || 'unknown'
-            });
-        });
-        
-        if (allFiles.length === 0) {
+        if (files.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No files found</td></tr>';
             return;
         }
         
-        // Sort by created_at (newest first)
-        allFiles.sort((a, b) => {
+        // Sort by scan_timestamp (newest first)
+        files.sort((a, b) => {
             try {
-                return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+                return new Date(b.scan_timestamp || 0) - new Date(a.scan_timestamp || 0);
             } catch (e) {
                 return 0;
             }
         });
         
         // Show only the 10 most recent files
-        const recentFiles = allFiles.slice(0, 10);
+        const recentFiles = files.slice(0, 10);
         
         const html = recentFiles.map(file => {
             try {
                 const statusClass = getStatusClass(file.processing_status || 'unknown');
                 const statusBadge = getStatusBadge(file.processing_status || 'unknown');
                 const fileSize = formatFileSize(file.file_size || 0);
-                const createdDate = new Date(file.created_at || Date.now()).toLocaleString();
-                const sourceBadge = file.source === 'file_info' ? 'File Info' : 'Processing Queue';
+                const scanDate = new Date(file.scan_timestamp || Date.now()).toLocaleString();
+                
+                // Get processing status details
+                let processingDetails = '';
+                if (file.processing_status === 'completed' && file.queue_completed_at) {
+                    processingDetails = `<div class="text-muted small">Completed: ${new Date(file.queue_completed_at).toLocaleString()}</div>`;
+                } else if (file.processing_status === 'processing' && file.queue_created_at) {
+                    processingDetails = `<div class="text-muted small">Started: ${new Date(file.queue_created_at).toLocaleString()}</div>`;
+                } else if (file.processing_status === 'failed' && file.queue_error) {
+                    processingDetails = `<div class="text-muted small text-danger">Error: ${file.queue_error.substring(0, 50)}${file.queue_error.length > 50 ? '...' : ''}</div>`;
+                }
                 
                 return `
                     <tr>
                         <td>
                             <div class="fw-medium">${file.filename || 'Unknown'}</div>
-                            <div class="text-muted small">${file.document_type || 'Unknown'}</div>
-                            <div class="text-muted small"><span class="badge bg-secondary">${sourceBadge}</span></div>
+                            <div class="text-muted small">${file.file_type || 'Unknown'}</div>
+                            <div class="text-muted small">${file.mime_type || ''}</div>
                         </td>
                         <td>
                             <span class="source-badge">${file.file_path || 'Unknown'}</span>
@@ -296,12 +261,13 @@ function updateDocumentsTable(fileInfo, fileQueue) {
                         </td>
                         <td>
                             <span class="status-badge ${statusClass}">${statusBadge}</span>
+                            ${processingDetails}
                         </td>
                         <td>
                             <span class="file-size">${fileSize}</span>
                         </td>
                         <td>
-                            <div class="small">${createdDate}</div>
+                            <div class="small">${scanDate}</div>
                         </td>
                         <td>
                             <button class="btn btn-sm btn-outline-primary" onclick="viewDocumentDetails('${file.id || ''}')">
@@ -422,6 +388,10 @@ function getStatusClass(status) {
         case 'error':
         case 'processing':
             return 'status-error';
+        case 'pending':
+            return 'status-warning';
+        case 'not_started':
+            return 'status-info';
         default:
             return 'status-error';
     }
@@ -454,6 +424,8 @@ function getStatusBadge(status) {
             return 'Failed';
         case 'pending':
             return 'Pending';
+        case 'not_started':
+            return 'Not Started';
         default:
             return status;
     }

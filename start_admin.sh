@@ -36,16 +36,32 @@ fi
 echo "🧹 Cleaning up existing admin UI services..."
 echo "📋 Checking for existing processes..."
 
-# Kill existing dashboard processes
+# Stop existing dashboard container
+if docker ps -q -f name=mep-dashboard | grep -q .; then
+    echo "⚠️  Found existing dashboard container. Stopping..."
+    docker stop mep-dashboard || true
+    docker rm mep-dashboard || true
+    sleep 2
+fi
+
+# Kill existing dashboard processes on host
 if pgrep -f "python3.*main.py" > /dev/null; then
-    echo "⚠️  Found existing dashboard process. Stopping..."
+    echo "⚠️  Found existing dashboard process on host. Stopping..."
     pkill -f "python3.*main.py" || true
     sleep 2
 fi
 
-# Kill existing Qdrant UI processes
+# Stop existing Qdrant UI container
+if docker ps -q -f name=mep-qdrant-ui | grep -q .; then
+    echo "⚠️  Found existing Qdrant UI container. Stopping..."
+    docker stop mep-qdrant-ui || true
+    docker rm mep-qdrant-ui || true
+    sleep 2
+fi
+
+# Kill existing Qdrant UI processes on host (fallback)
 if pgrep -f "python3.*server.py" > /dev/null; then
-    echo "⚠️  Found existing Qdrant UI process. Stopping..."
+    echo "⚠️  Found existing Qdrant UI process on host. Stopping..."
     pkill -f "python3.*server.py" || true
     sleep 2
 fi
@@ -182,20 +198,28 @@ fi
 
 cd ..
 
-# Start only the dashboard service on host
-echo "🎛️  Starting Dashboard (Admin Interface) on host..."
+# Start only the dashboard service in Docker
+echo "🎛️  Starting Dashboard (Admin Interface) in Docker..."
 cd core
 
-# Check if dashboard is already running
+# Check if dashboard container is already running
+if docker ps -q -f name=mep-dashboard | grep -q .; then
+    echo "⚠️  Dashboard container is already running. Stopping and restarting..."
+    docker stop mep-dashboard || true
+    docker rm mep-dashboard || true
+    sleep 2
+fi
+
+# Check if dashboard process is running on host
 if pgrep -f "python3.*main.py" > /dev/null; then
-    echo "⚠️  Dashboard is already running. Stopping and restarting..."
+    echo "⚠️  Dashboard process is running on host. Stopping..."
     pkill -f "python3.*main.py" || true
     sleep 2
 fi
 
-# Start dashboard on host using the dedicated script in background mode
-echo "🚀 Starting dashboard on host..."
-./start_dashboard_host.sh --background
+# Start dashboard in Docker using the dedicated script in background mode
+echo "🚀 Starting dashboard in Docker..."
+./start_dashboard_docker.sh --background
 
 # Wait for dashboard to be ready
 echo "⏳ Waiting for dashboard to start..."

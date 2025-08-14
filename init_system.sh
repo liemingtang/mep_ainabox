@@ -361,8 +361,17 @@ echo -e "${PURPLE}==========================================${NC}"
 
 # Clean up existing dashboard processes
 echo -e "${BLUE}🧹 Cleaning up existing dashboard processes...${NC}"
+
+# Stop existing dashboard container
+if docker ps -q -f name=mep-dashboard | grep -q .; then
+    echo "Stopping existing dashboard container..."
+    docker stop mep-dashboard || true
+    docker rm mep-dashboard || true
+fi
+
+# Kill any existing dashboard processes on host
 if pgrep -f "python3.*dashboard.*main.py" > /dev/null; then
-    echo "Stopping existing dashboard process..."
+    echo "Stopping existing dashboard process on host..."
     pkill -f "python3.*dashboard.*main.py" || true
     sleep 2
 fi
@@ -376,15 +385,10 @@ if [ -f "core/dashboard.pid" ]; then
     fi
 fi
 
-# Start host volume manager service (DISABLED - user preference)
-# echo -e "${CYAN}🚀 Starting host volume manager service...${NC}"
-# cd core
-# ./start_host_volume_manager.sh
-
-# Start dashboard on host
-echo -e "${CYAN}🚀 Starting dashboard on host...${NC}"
+# Start dashboard in Docker
+echo -e "${CYAN}🚀 Starting dashboard in Docker...${NC}"
 cd core
-./start_dashboard_host.sh --background
+./start_dashboard_docker.sh --background
 
 # Wait for dashboard to be ready
 echo -e "${BLUE}⏳ Waiting for dashboard to start...${NC}"

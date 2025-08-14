@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies including Docker CLI
+# Install system dependencies including Docker CLI and curl
 RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
@@ -24,7 +24,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p /app/templates /app/static/css /app/static/js
+RUN mkdir -p /app/templates /app/static/css /app/static/js /app/logs
+
+# Set proper permissions for mounted volumes
+RUN chmod -R 755 /app/templates /app/static /app/logs
 
 # Expose port
 EXPOSE 8010

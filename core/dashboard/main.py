@@ -496,7 +496,7 @@ async def get_db_pool():
     return db_pool
 
 async def get_file_info_data(limit: int = 50) -> List[Dict]:
-    """Get recent files from file_info table"""
+    """Get recent files from file_info table with processing status"""
     try:
         pool = await get_db_pool()
         if not pool:
@@ -504,12 +504,25 @@ async def get_file_info_data(limit: int = 50) -> List[Dict]:
         
         async with pool.acquire() as conn:
             query = """
-                SELECT id, file_path, filename, file_size, file_type, mime_type,
-                       created_time, modified_time, is_directory, status,
-                       scan_timestamp, last_checked
-                FROM file_info 
-                WHERE status = 'active'
-                ORDER BY scan_timestamp DESC 
+                SELECT 
+                    f.id, f.file_path, f.filename, f.file_size, f.file_type, f.mime_type,
+                    f.created_time, f.modified_time, f.is_directory, f.status,
+                    f.scan_timestamp, f.last_checked,
+                    CASE 
+                        WHEN q.id IS NOT NULL AND q.status = 'completed' THEN 'completed'
+                        WHEN q.id IS NOT NULL AND q.status = 'processing' THEN 'processing'
+                        WHEN q.id IS NOT NULL AND q.status = 'pending' THEN 'pending'
+                        WHEN q.id IS NOT NULL AND q.status = 'failed' THEN 'failed'
+                        ELSE 'not_started'
+                    END as processing_status,
+                    q.status as queue_status,
+                    q.created_at as queue_created_at,
+                    q.completed_at as queue_completed_at,
+                    q.error_message as queue_error
+                FROM file_info f
+                LEFT JOIN file_processing_queue q ON f.id = q.file_info_id
+                WHERE f.status = 'active' AND f.is_directory = FALSE
+                ORDER BY f.scan_timestamp DESC 
                 LIMIT $1
             """
             rows = await conn.fetch(query, limit)
@@ -585,8 +598,8 @@ if current_dir.endswith('/mep_ainabox'):
     # Running from mep_ainabox root directory
     static_dir = "core/dashboard/static"
     templates_dir = "core/dashboard/templates"
-elif current_dir.endswith('/dashboard'):
-    # Running from dashboard directory
+elif current_dir.endswith('/dashboard') or current_dir == '/app':
+    # Running from dashboard directory or Docker container
     static_dir = "static"
     templates_dir = "templates"
 else:

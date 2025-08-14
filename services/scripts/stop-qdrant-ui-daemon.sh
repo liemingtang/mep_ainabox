@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # MEP AI NABOX - Stop Qdrant UI Daemon
-# This script stops the Qdrant web interface daemon
+# This script stops the Qdrant web interface container
 
 set -e
 
@@ -12,37 +12,48 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICES_DIR="$(dirname "$SCRIPT_DIR")"
 PID_FILE="$SERVICES_DIR/qdrant-ui.pid"
 
-# Check if PID file exists
-if [ ! -f "$PID_FILE" ]; then
-    echo "⚠️ No PID file found. Qdrant UI may not be running."
-    exit 0
+# Check if Docker is available
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker is not installed. Please install Docker first."
+    exit 1
 fi
 
-# Read PID from file
-PID=$(cat "$PID_FILE")
-
-# Check if process is running
-if ! ps -p "$PID" > /dev/null 2>&1; then
-    echo "⚠️ Process $PID is not running. Removing stale PID file."
-    rm -f "$PID_FILE"
-    exit 0
+# Stop Qdrant UI container
+echo "🛑 Stopping Qdrant UI container..."
+if docker ps -q -f name=mep-qdrant-ui | grep -q .; then
+    echo "Stopping mep-qdrant-ui container..."
+    docker stop mep-qdrant-ui
+    docker rm mep-qdrant-ui
+    echo "✅ Qdrant UI container stopped and removed"
+else
+    echo "⚠️  Qdrant UI container not found"
 fi
 
-# Kill the process
-echo "🔍 Stopping Qdrant UI process (PID: $PID)..."
-kill "$PID"
-
-# Wait for process to stop
-sleep 2
-
-# Check if process stopped
-if ps -p "$PID" > /dev/null 2>&1; then
-    echo "⚠️ Process did not stop gracefully. Force killing..."
-    kill -9 "$PID"
-    sleep 1
+# Also stop any Qdrant UI processes running on host (fallback)
+echo "🛑 Stopping Qdrant UI processes on host..."
+if pgrep -f "python3.*server.py" > /dev/null; then
+    echo "Stopping Qdrant UI process on host..."
+    pkill -f "python3.*server.py" || true
+    sleep 2
+    echo "✅ Qdrant UI process on host stopped"
+else
+    echo "⚠️  No Qdrant UI process found on host"
 fi
 
-# Remove PID file
-rm -f "$PID_FILE"
+# Clean up stale PID files
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if ! ps -p "$PID" > /dev/null 2>&1; then
+        echo "Removing stale Qdrant UI PID file..."
+        rm -f "$PID_FILE"
+        echo "✅ Stale PID file removed"
+    fi
+fi
 
-echo "✅ Qdrant UI stopped successfully" 
+echo ""
+echo "🎉 Qdrant UI stopped successfully!"
+echo "================================"
+echo ""
+echo "📊 To restart the Qdrant UI:"
+echo "  ./scripts/start-qdrant-ui-daemon.sh"
+echo "" 
