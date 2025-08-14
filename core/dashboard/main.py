@@ -3118,7 +3118,7 @@ async def llm_search(request: Request):
             }
             qdrant_resp = await httpx.AsyncClient().post(
                 f"{qdrant_url}/collections/documents/points/scroll",
-                headers={"api-key": qdrant_api_key, "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {qdrant_api_key}", "Content-Type": "application/json"},
                 json=scroll_payload
             )
             all_docs = qdrant_resp.json().get("result", {}).get("points", [])

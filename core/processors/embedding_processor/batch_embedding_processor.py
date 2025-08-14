@@ -229,11 +229,19 @@ async def store_embeddings_qdrant(host: str, port: int, api_key: str, collection
             "payload": {
                 "document_id": document_id,
                 "chunk_index": i,
-                "text": txt[:1000],
+                "content": txt[:1000],  # Store text in 'content' field for LLM search compatibility
                 "text_length": len(txt),
                 "model_used": model_used,
                 "provider_used": provider_used,
                 "created_at": datetime.utcnow().isoformat(),
+                "metadata": {
+                    "document_id": document_id,
+                    "chunk_index": i,
+                    "model_used": model_used,
+                    "provider_used": provider_used,
+                    "text_length": len(txt),
+                    "created_at": datetime.utcnow().isoformat()
+                }
             }
         })
     async with httpx.AsyncClient() as client:
