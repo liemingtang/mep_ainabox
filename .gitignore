@@ -183,3 +183,7 @@ celerybeat.pid
 .mypy_cache/
 .dmypy.json
 dmypy.json 
+
+# Ensure all config files are tracked
+!services/config/
+!services/config/** 
